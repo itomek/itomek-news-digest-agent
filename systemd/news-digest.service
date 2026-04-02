@@ -1,0 +1,16 @@
+[Unit]
+Description=News Digest GAIA Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tomasz
+WorkingDirectory=/home/tomasz/news-digest-agent
+ExecStart=/home/tomasz/news-digest-agent/.venv/bin/python -m news_digest.scheduler
+Restart=on-failure
+RestartSec=60
+EnvironmentFile=/home/tomasz/news-digest-agent/.env
+
+[Install]
+WantedBy=multi-user.target

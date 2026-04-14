@@ -70,10 +70,10 @@ sudo systemctl enable --now news-digest
 | Topic | Cadence | Description |
 |-------|---------|-------------|
 | AI Model Releases | Daily | New model announcements from HuggingFace, company blogs, GitHub |
-| Bucks County Local News | Weekly | Richland Township, Quakertown, Bucks County government and media |
+| Local News | Weekly | Township, Town,  County government and media |
 | AI Company Updates | Daily | Product launches, partnerships, funding from major AI companies |
-| Pittsburgh Penguins | Weekly | Team news, trades, analysis (non-score content) |
-| US/Poland World News | TBD | Major news with sentiment analysis, English and Polish sources |
+| Sports team | Weekly | Team news, trades, analysis (non-score content) |
+| US/other-country World News | TBD | Major news with sentiment analysis, English and other language sources sources |
 
 ## Development
 

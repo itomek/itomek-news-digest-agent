@@ -78,17 +78,23 @@ sudo systemctl enable --now news-digest
 ## Development
 
 ```bash
-# Run tests
-python -m pytest tests/ -xvs
+# Install pre-commit hooks (one-time)
+pre-commit install
 
-# Lint
-black src/ tests/
-isort src/ tests/
+# Run tests (unit only)
+pytest -m "not integration" -xvs
+
+# Run all tests including integration (requires Supabase + Lemonade)
+pytest -xvs
+
+# Lint and format
+ruff check src tests
+ruff format src tests
 ```
 
 ## Architecture
 
-See `CLAUDE.md` for detailed architecture documentation, GAIA framework patterns, and design decisions.
+See [`docs/architecture.md`](docs/architecture.md) for the full design spec — component map, data model, cross-cutting patterns, failure modes, and epic-to-component matrix.
 
 ## License
 

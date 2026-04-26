@@ -141,7 +141,7 @@ cp .env.example .env
 ### Running
 ```bash
 # Single manual run (for testing)
-python -m news_digest.agent "Generate the AI model releases digest for today"
+python -m news_digest "Generate the AI model releases digest for today"
 
 # Start the scheduler daemon
 python -m news_digest.scheduler
@@ -159,8 +159,8 @@ python -m pytest tests/test_scraping_tools.py  # Just scraping tests
 
 ### Linting
 ```bash
-black src/ tests/
-isort src/ tests/
+ruff check src tests
+ruff format src tests
 ```
 
 ## External Services

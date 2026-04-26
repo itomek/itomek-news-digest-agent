@@ -1,5 +1,3 @@
-import sqlite3
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -40,7 +38,9 @@ def test_log_writes_to_supabase_when_reachable(valid_env):
 
 
 def test_log_falls_back_to_sqlite_on_supabase_failure(valid_env, tmp_path):
-    with patch("news_digest.logging.create_client", side_effect=Exception("network error")):
+    with patch(
+        "news_digest.logging.create_client", side_effect=Exception("network error")
+    ):
         nd_logging.log("error", "publish", "supabase down", metadata={"retries": 3})
 
     db = nd_logging._get_fallback_db()
@@ -51,7 +51,9 @@ def test_log_falls_back_to_sqlite_on_supabase_failure(valid_env, tmp_path):
 
 def test_log_never_raises_on_any_failure(valid_env):
     with patch("news_digest.logging.create_client", side_effect=RuntimeError("boom")):
-        with patch.object(nd_logging, "_write_fallback", side_effect=OSError("disk full")):
+        with patch.object(
+            nd_logging, "_write_fallback", side_effect=OSError("disk full")
+        ):
             nd_logging.log("warn", "system", "should not raise")
 
 
@@ -61,7 +63,9 @@ def test_drain_fallback_pushes_rows_to_supabase(valid_env):
         nd_logging.log("info", "schedule", "msg2")
 
     db = nd_logging._get_fallback_db()
-    unsynced = db.execute("SELECT id FROM system_logs WHERE synced_at IS NULL").fetchall()
+    unsynced = db.execute(
+        "SELECT id FROM system_logs WHERE synced_at IS NULL"
+    ).fetchall()
     assert len(unsynced) == 2
 
     mock_client = _mock_supabase_client()

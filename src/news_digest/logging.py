@@ -1,6 +1,6 @@
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -74,7 +74,7 @@ def log(
 ) -> None:
     row = {
         "id": str(uuid.uuid4()),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "level": level,
         "category": category,
         "topic_slug": topic_slug,
@@ -127,7 +127,7 @@ def drain_fallback() -> int:
             client.table("system_logs").upsert(payload).execute()
             db.execute(
                 "UPDATE system_logs SET synced_at = ? WHERE id = ?",
-                (datetime.now(timezone.utc).isoformat(), row_id),
+                (datetime.now(UTC).isoformat(), row_id),
             )
         db.commit()
         return len(rows)

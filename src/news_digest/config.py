@@ -20,6 +20,7 @@ class Settings(BaseSettings):
 
     # Lemonade Server
     lemonade_base_url: str = "http://localhost:8000/api/v1"
+    lemonade_llamacpp: Literal["vulkan", "rocm", "cpu"] = "vulkan"
     lemonade_light_model: str = ""
     lemonade_heavy_model: str = ""
 

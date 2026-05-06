@@ -14,6 +14,7 @@ authors = [
 ]
 
 dependencies = [
+    # amd-gaia 0.17.2 (commit 2026-04-17); migration to PyPI ==0.17.5 + hashes deferred (see docs/gaia-audit.md §2.2.c).
     "amd-gaia @ git+https://github.com/amd/gaia.git@da5ba458dc1b147927e4c1e8b7c40c473e0da41e",
     "httpx>=0.27.0",
     "feedparser>=6.0.0",

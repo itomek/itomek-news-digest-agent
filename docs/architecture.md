@@ -202,15 +202,39 @@ Contract: never raises. Supabase failure → SQLite fallback → still never rai
 
 ### §5.3 Retry policy
 
-Scraping tools only:
+Scraping tools only. `@retry` lives on a **private helper**, not on the public `@tool`-decorated function. This separation is intentional: `@tool` functions must never raise — they always return a typed value (e.g. `list[dict]`). Isolating the retry budget inside the helper preserves that contract.
 
 ```python
-from tenacity import retry, stop_after_attempt, wait_exponential
-@retry(stop=stop_after_attempt(3),
-       wait=wait_exponential(multiplier=1, max=30),
-       reraise=False)
-def fetch_rss(url, since_hours=24): ...
+from tenacity import (
+    retry, retry_if_not_exception_type,
+    stop_after_attempt, wait_exponential,
+)
+
+class _NonRetryableHttp(Exception):
+    """4xx (except 429) and oversized body — skip retry, log once."""
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, max=30),
+    reraise=False,
+    retry=retry_if_not_exception_type(_NonRetryableHttp),
+    retry_error_callback=_retry_returns_none,   # returns None sentinel on exhaustion
+)
+def _fetch_feed_bytes(url: str, ...) -> bytes | None: ...
+
+@tool
+def fetch_rss(url: str, since_hours: int = 24) -> list[dict]:
+    raw = _fetch_feed_bytes(url)   # None → retries exhausted
+    if raw is None:
+        log("warn", "scrape", ...)
+        return []
+    ...
 ```
+
+Key knobs:
+- **429 is retryable.** `_NonRetryableHttp` is raised only on 4xx ≠ 429. 429 falls through to `raise_for_status()` and is retried with backoff.
+- **Exhaustion → `None` sentinel.** `reraise=False` alone would raise `tenacity.RetryError`; the `retry_error_callback` intercepts it, captures the last exception for diagnostic logging, and returns `None`. The public tool translates `None` to `[]` and logs once.
+- **Single-log invariant.** `_fetch_feed_bytes` never calls `log()`. All logging happens in the public tool so each failure mode maps to exactly one log entry.
 
 Publishing and LLM calls do **not** retry automatically — failures are meaningful and should be logged and surfaced. The scheduler handles topic-level failure isolation.
 
@@ -272,7 +296,7 @@ Post-generation: word count. If outside 500–800 × ±20 %, re-prompt once with
 - **Anon key:** used by the web app. Relies on RLS.
 - **Auth allowlist:** Supabase Edge Function (trigger on `auth.users` insert) rejects sign-ups not on the allowlist.
 - **Scraping hygiene:** identifiable `User-Agent`, robots.txt respected where defined, 1.5 s polite delay per domain.
-- **URL safety (future):** when the agent is exposed via MCP, links in tool inputs will be validated/confirmed before fetch. Not applicable in the current scheduled-only posture.
+- **URL safety:** `_validate_url` in `scraping.py` rejects non-`http(s)` schemes and resolves the hostname via `socket.getaddrinfo`, blocking loopback, RFC 1918, link-local, multicast, and reserved IPs before any bytes leave the process. This guards against prompt-injection SSRF (LLM coerced into fetching `localhost:13305` or cloud IMDS). Implemented in #5.
 
 ---
 
@@ -342,4 +366,4 @@ Tracking issues: #28 (E0), #29 (E1), #30 (E2), #31 (E3), #32 (E4), #33 (E5), #34
 
 ---
 
-*Last updated: 2026-04-17. Changes to architecture land on `main` with their implementation PR; this document is the source of truth.*
+*Last updated: 2026-05-09. Changes to architecture land on `main` with their implementation PR; this document is the source of truth.*

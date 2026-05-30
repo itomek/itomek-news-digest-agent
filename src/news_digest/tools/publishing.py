@@ -1,61 +1,233 @@
 """Publishing tools for the News Digest Agent.
 
-Handles reading topic config from Supabase and writing digests back.
+Reads topic configuration from Supabase and writes finished digests back. These
+close the data loop: config in (digest_topics) -> digest out (digests).
 
 Tools:
-    fetch_topic_config: Get topic settings (sources, prompt_hint, cadence) from Supabase.
-    get_last_digest_date: Check when the last digest was published for a topic.
-    push_to_supabase: Insert a completed digest into the digests table.
+    fetch_topic_config: Get a topic's sources, prompt_hint, cadence, enabled flag.
+    push_to_supabase: Upsert a completed digest (idempotent per topic per day).
+    get_last_digest_date: Most recent digest date for a topic (None if never).
+
+Auth follows the project's RLS design: reads use the anon key, the digest write
+uses the service-role key. Every tool logs to system_logs and never raises — on
+failure it logs and returns a failure/empty status so the agent loop continues.
 """
 
-# TODO: Phase 1 implementation
-#
-# import httpx
-# from gaia.agents.base.tools import tool
-#
-#
-# @tool
-# def fetch_topic_config(slug: str) -> dict:
-#     """Fetch topic configuration from Supabase digest_topics table.
-#
-#     Args:
-#         slug: The topic slug (e.g., 'ai_models').
-#
-#     Returns:
-#         Dict with topic config: name, sources, prompt_hint, cadence, enabled.
-#     """
-#     ...
-#
-#
-# @tool
-# def get_last_digest_date(topic_slug: str) -> dict:
-#     """Get the date of the most recent digest for a topic.
-#
-#     Args:
-#         topic_slug: The topic slug.
-#
-#     Returns:
-#         Dict with 'last_date' (ISO date string or null if no digests exist).
-#     """
-#     ...
-#
-#
-# @tool
-# def push_to_supabase(
-#     topic_slug: str,
-#     content: str,
-#     sources_used: list[str],
-#     token_count: int,
-# ) -> dict:
-#     """Publish a completed digest to Supabase.
-#
-#     Args:
-#         topic_slug: The topic slug.
-#         content: The digest content (Markdown).
-#         sources_used: List of URLs that were scraped.
-#         token_count: Approximate token count of the LLM output.
-#
-#     Returns:
-#         Dict with 'success' bool and 'id' of the inserted row.
-#     """
-#     ...
+import time
+from datetime import UTC, datetime
+
+from gaia.agents.base.tools import tool
+
+from news_digest.config import get_settings
+from news_digest.logging import log
+from news_digest.prompts import PROMPT_VERSION
+from supabase import Client, create_client
+
+_CONFIG_CACHE_TTL: float = 300.0  # 5 minutes (issue #8)
+# slug -> (monotonic_timestamp, config_row)
+_config_cache: dict[str, tuple[float, dict]] = {}
+
+
+def _now() -> float:
+    """Monotonic clock seam so tests can drive cache expiry deterministically."""
+    return time.monotonic()
+
+
+def _client(write: bool = False) -> Client:
+    """Build a Supabase client. Writes use the service-role key; reads the anon key."""
+    settings = get_settings()
+    key = settings.supabase_service_key if write else settings.supabase_anon_key
+    return create_client(settings.supabase_url, key)
+
+
+@tool
+def fetch_topic_config(slug: str) -> dict:
+    """Fetch a topic's configuration from the Supabase digest_topics table.
+
+    Results are cached in-process for five minutes to avoid refetching the same
+    topic repeatedly within a run.
+
+    Args:
+        slug: The topic slug, for example 'ai_models'.
+
+    Returns:
+        The topic row as a dict (name, slug, sources, prompt_hint, cadence,
+        enabled, ...) on success, or a dict with an 'error' key if the topic is
+        not found or Supabase is unreachable.
+    """
+    cached = _config_cache.get(slug)
+    if cached is not None and (_now() - cached[0]) < _CONFIG_CACHE_TTL:
+        return dict(cached[1])  # copy so callers can't mutate the cached row
+
+    try:
+        resp = (
+            _client()
+            .table("digest_topics")
+            .select("*")
+            .eq("slug", slug)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        log(
+            "warn",
+            "publish",
+            f"fetch_topic_config: error for {slug!r}: {exc.__class__.__name__}",
+            topic_slug=slug,
+            metadata={"slug": slug, "error": str(exc)},
+        )
+        return {"error": exc.__class__.__name__, "slug": slug}
+
+    rows = resp.data or []
+    if not rows:
+        log(
+            "warn",
+            "publish",
+            f"fetch_topic_config: no topic for slug {slug!r}",
+            topic_slug=slug,
+            metadata={"slug": slug},
+        )
+        return {"error": "not_found", "slug": slug}
+
+    config = rows[0]
+    _config_cache[slug] = (_now(), config)
+    log(
+        "info",
+        "publish",
+        f"fetch_topic_config: loaded {slug!r}",
+        topic_slug=slug,
+        metadata={"slug": slug, "enabled": config.get("enabled")},
+    )
+    return dict(config)
+
+
+@tool
+def push_to_supabase(
+    topic_slug: str,
+    content: str,
+    sources_used: list[str],
+    token_count: int,
+) -> dict:
+    """Publish a finished digest to the Supabase digests table.
+
+    Idempotent per topic per day: upserts on the unique (topic_slug, digest_date)
+    pair, so re-running the same day updates the existing row instead of creating
+    a duplicate. The digest date is today in UTC; cadence is taken from the topic
+    config; prompt_version records which system prompt produced the text.
+
+    Args:
+        topic_slug: The topic slug, for example 'ai_models'.
+        content: The finished digest text.
+        sources_used: URLs that were scraped for this digest.
+        token_count: Approximate token count of the generated digest.
+
+    Returns:
+        {'success': True, 'id': <row id>, 'digest_date': <iso date>} on success,
+        or {'success': False, 'error': <reason>} on failure.
+    """
+    digest_date = datetime.now(UTC).date().isoformat()
+
+    config = fetch_topic_config(topic_slug)
+    cadence = config.get("cadence")
+    if cadence is None:
+        log(
+            "error",
+            "publish",
+            f"push_to_supabase: cannot resolve cadence for {topic_slug!r}; aborting",
+            topic_slug=topic_slug,
+            metadata={"topic_slug": topic_slug, "config_error": config.get("error")},
+        )
+        return {"success": False, "error": "unknown_topic"}
+
+    row = {
+        "topic_slug": topic_slug,
+        "content": content,
+        "cadence": cadence,
+        "digest_date": digest_date,
+        "sources_used": sources_used,
+        "token_count": token_count,
+        "prompt_version": PROMPT_VERSION,
+    }
+    try:
+        resp = (
+            _client(write=True)
+            .table("digests")
+            .upsert(row, on_conflict="topic_slug,digest_date")
+            .execute()
+        )
+    except Exception as exc:
+        log(
+            "error",
+            "publish",
+            f"push_to_supabase: failed for {topic_slug!r}: {exc.__class__.__name__}: {exc}",
+            topic_slug=topic_slug,
+            metadata={
+                "topic_slug": topic_slug,
+                "digest_date": digest_date,
+                "error": str(exc),
+            },
+        )
+        return {"success": False, "error": exc.__class__.__name__}
+
+    data = resp.data or []
+    digest_id = data[0].get("id") if data else None
+    log(
+        "info",
+        "publish",
+        f"push_to_supabase: upserted digest for {topic_slug!r} on {digest_date}",
+        topic_slug=topic_slug,
+        metadata={
+            "topic_slug": topic_slug,
+            "digest_date": digest_date,
+            "id": digest_id,
+            "token_count": token_count,
+            "prompt_version": PROMPT_VERSION,
+            "sources_used": len(sources_used),
+        },
+    )
+    return {"success": True, "id": digest_id, "digest_date": digest_date}
+
+
+@tool
+def get_last_digest_date(topic_slug: str) -> dict:
+    """Get the date of the most recent digest published for a topic.
+
+    Used by the scheduler (Epic 4) to decide whether a run is due.
+
+    Args:
+        topic_slug: The topic slug, for example 'ai_models'.
+
+    Returns:
+        {'last_date': <iso date string>} for the latest digest, or
+        {'last_date': None} when no prior digest exists or on failure.
+    """
+    try:
+        resp = (
+            _client()
+            .table("digests")
+            .select("digest_date")
+            .eq("topic_slug", topic_slug)
+            .order("digest_date", desc=True)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        log(
+            "warn",
+            "publish",
+            f"get_last_digest_date: error for {topic_slug!r}: {exc.__class__.__name__}",
+            topic_slug=topic_slug,
+            metadata={"topic_slug": topic_slug, "error": str(exc)},
+        )
+        return {"last_date": None, "error": exc.__class__.__name__}
+
+    rows = resp.data or []
+    last_date = rows[0]["digest_date"] if rows else None
+    log(
+        "info",
+        "publish",
+        f"get_last_digest_date: {topic_slug!r} -> {last_date}",
+        topic_slug=topic_slug,
+        metadata={"topic_slug": topic_slug, "last_date": last_date},
+    )
+    return {"last_date": last_date}

@@ -102,6 +102,42 @@ def fetch_topic_config(slug: str) -> dict:
 
 
 @tool
+def list_topics() -> dict:
+    """List the enabled digest topics so the agent can map a user's described
+    topic (for example 'AI model releases') to its exact slug.
+
+    Returns:
+        {"topics": [{"slug", "name", "cadence"}, ...]} on success, or
+        {"topics": [], "error": <reason>} on failure.
+    """
+    try:
+        resp = (
+            _client()
+            .table("digest_topics")
+            .select("slug,name,cadence")
+            .eq("enabled", True)
+            .execute()
+        )
+    except Exception as exc:
+        log(
+            "warn",
+            "publish",
+            f"list_topics: error: {exc.__class__.__name__}",
+            metadata={"error": str(exc)},
+        )
+        return {"topics": [], "error": exc.__class__.__name__}
+
+    topics = resp.data or []
+    log(
+        "info",
+        "publish",
+        f"list_topics: {len(topics)} enabled topics",
+        metadata={"count": len(topics)},
+    )
+    return {"topics": topics}
+
+
+@tool
 def push_to_supabase(
     topic_slug: str,
     content: str,

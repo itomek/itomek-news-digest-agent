@@ -15,6 +15,7 @@ from news_digest.tools import publishing
 from news_digest.tools.publishing import (
     fetch_topic_config,
     get_last_digest_date,
+    list_topics,
     push_to_supabase,
 )
 
@@ -242,3 +243,36 @@ def test_get_last_digest_date_handles_failure_gracefully(monkeypatch):
     _install_client(monkeypatch, {"raise": RuntimeError("db down")})
     out = get_last_digest_date("ai_models")
     assert out["last_date"] is None
+
+
+# ---------------------------------------------------------------------------
+# list_topics
+# ---------------------------------------------------------------------------
+
+
+def test_list_topics_returns_enabled_topics_for_slug_discovery(monkeypatch):
+    state = {
+        "rows": {
+            "digest_topics": [
+                {
+                    "slug": "ai_models",
+                    "name": "AI model releases",
+                    "cadence": "24h",
+                    "enabled": True,
+                },
+            ]
+        }
+    }
+    _install_client(monkeypatch, state)
+    out = list_topics()
+    assert "topics" in out
+    by_slug = {t["slug"]: t for t in out["topics"]}
+    assert "ai_models" in by_slug
+    assert by_slug["ai_models"]["name"] == "AI model releases"
+
+
+def test_list_topics_handles_failure_gracefully(monkeypatch):
+    _install_client(monkeypatch, {"raise": RuntimeError("db down")})
+    out = list_topics()
+    assert out["topics"] == []
+    assert "error" in out

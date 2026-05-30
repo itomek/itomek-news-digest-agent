@@ -2,19 +2,20 @@
 
 import pytest
 
+from news_digest.config import Settings, get_settings
+
+# Tests must never read a developer's real .env file. On a host where one exists
+# (e.g. the Strix Halo box), pydantic-settings would load it and clobber the
+# values tests set via monkeypatch — silently breaking the defaults/required
+# assertions in test_config.py. Neutralize env_file once, process-wide, so the
+# suite is hermetic regardless of working directory. Doing this per-test via
+# monkeypatch is unreliable: it races with other fixtures' monkeypatch usage.
+Settings.model_config["env_file"] = None
+
 
 @pytest.fixture(autouse=True)
-def clear_settings_cache(monkeypatch):
-    """Force get_settings() to re-read env on every test, and isolate tests
-    from any real .env file on disk.
-
-    Settings hard-codes env_file=".env"; on a host where that file exists (e.g.
-    the Strix Halo box), pydantic-settings would load it and clobber the values
-    these tests set via monkeypatch. Neutralizing env_file keeps tests hermetic.
-    """
-    from news_digest.config import Settings, get_settings
-
-    monkeypatch.setitem(Settings.model_config, "env_file", None)
+def clear_settings_cache():
+    """Force get_settings() to re-read env on every test."""
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

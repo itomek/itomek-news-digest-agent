@@ -1,4 +1,5 @@
-"""Tests for src/news_digest/tools/scraping.py — issue #5."""
+"""Tests for src/news_digest/tools/scraping.py — issues #5 (fetch_rss) and #6
+(fetch_html, parse_article)."""
 
 import hashlib
 from collections import Counter
@@ -11,7 +12,7 @@ import pytest
 
 from news_digest.tools import scraping
 from news_digest.tools.scraping import _validate_url as _REAL_VALIDATE_URL
-from news_digest.tools.scraping import fetch_rss
+from news_digest.tools.scraping import fetch_html, fetch_rss, parse_article
 
 # ---------------------------------------------------------------------------
 # Synthetic feed XML helpers
@@ -581,7 +582,7 @@ def test_fetch_rss_never_raises_when_helper_throws_unexpected(
     def boom(*_a, **_kw):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(scraping, "_fetch_feed_bytes", boom)
+    monkeypatch.setattr(scraping, "_fetch_bytes", boom)
 
     result = fetch_rss("https://example.com/feed.xml", since_hours=24)
 
@@ -606,6 +607,203 @@ def test_fetch_rss_returns_empty_for_non_positive_since_hours(
     assert handler.calls["i"] == 0  # never reached the network
     warn_calls = [c for c in mock_log.call_args_list if c.args[0] == "warn"]
     assert len(warn_calls) == 1
+
+
+# ===========================================================================
+# T6 — fetch_html (issue #6)
+# ===========================================================================
+
+
+HTML_PAGE = """<!DOCTYPE html>
+<html>
+<head><title>Listing Page</title></head>
+<body>
+  <nav><a href="/home">Home</a></nav>
+  <main id="content">
+    <p>Featured stories this week.</p>
+    <a href="/posts/alpha">Alpha</a>
+    <a href="https://other.example.com/beta">Beta</a>
+    <a href="mailto:editor@example.com">Email</a>
+  </main>
+  <footer><a href="/about">About</a></footer>
+</body>
+</html>"""
+
+
+def _html_response(html_str: str) -> httpx.Response:
+    return _ok_response(html_str.encode("utf-8"))
+
+
+def test_fetch_html_returns_title_content_links_without_selector(monkeypatch):
+    _patch_make_client(monkeypatch, lambda req: _html_response(HTML_PAGE))
+
+    result = fetch_html("https://example.com/list")
+
+    assert set(result.keys()) == {"title", "content", "links", "url", "fetched_at"}
+    assert result["title"] == "Listing Page"
+    # Whole-body text (no selector): nav + main + footer text all present.
+    assert "Featured stories this week." in result["content"]
+    assert "Home" in result["content"]
+    assert "About" in result["content"]
+    # Relative links resolved against the page URL; mailto dropped; order kept.
+    assert result["links"] == [
+        "https://example.com/home",
+        "https://example.com/posts/alpha",
+        "https://other.example.com/beta",
+        "https://example.com/about",
+    ]
+
+
+def test_fetch_html_scopes_extraction_to_selector(monkeypatch):
+    _patch_make_client(monkeypatch, lambda req: _html_response(HTML_PAGE))
+
+    result = fetch_html("https://example.com/list", selector="#content")
+
+    # Only the #content subtree contributes — nav/footer excluded.
+    assert "Featured stories this week." in result["content"]
+    assert "Home" not in result["content"]
+    assert "About" not in result["content"]
+    assert result["links"] == [
+        "https://example.com/posts/alpha",
+        "https://other.example.com/beta",
+    ]
+
+
+def test_fetch_html_selector_no_match_returns_empty_not_error(monkeypatch):
+    _patch_make_client(monkeypatch, lambda req: _html_response(HTML_PAGE))
+
+    result = fetch_html("https://example.com/list", selector=".does-not-exist")
+
+    assert result["content"] == ""
+    assert result["links"] == []
+    assert "error" not in result  # a clean fetch with 0 matches is not an error
+
+
+def test_fetch_html_returns_error_dict_on_4xx_without_raising(monkeypatch):
+    handler = _counting_handler([httpx.Response(404)])
+    _patch_make_client(monkeypatch, handler)
+
+    result = fetch_html("https://example.com/missing")
+
+    assert result["error"] == "http_404"
+    assert result["content"] == "" and result["links"] == []
+    assert handler.calls["i"] == 1  # 4xx is non-retryable
+
+
+def test_fetch_html_rejects_unsafe_url(monkeypatch, mock_log):
+    monkeypatch.setattr(scraping, "_validate_url", _REAL_VALIDATE_URL)
+    handler = _counting_handler([_html_response(HTML_PAGE)])
+    _patch_make_client(monkeypatch, handler)
+
+    result = fetch_html("http://127.0.0.1/admin")
+
+    assert result["error"].startswith("unsafe_url")
+    assert handler.calls["i"] == 0  # never reached the network
+
+
+def test_fetch_html_is_tool_with_doc_preserved():
+    assert callable(fetch_html)
+    assert fetch_html.__doc__ is not None
+    assert "selector" in fetch_html.__doc__
+    assert "Returns:" in fetch_html.__doc__
+
+
+# ===========================================================================
+# T7 — parse_article (issue #6)
+# ===========================================================================
+
+
+ARTICLE_HTML = """<!DOCTYPE html>
+<html>
+<head>
+  <title>New Open-Weights Model Released</title>
+  <meta name="author" content="Jane Doe"/>
+  <meta property="article:published_time" content="2026-05-20T08:00:00Z"/>
+</head>
+<body>
+  <nav>Home About Contact</nav>
+  <article>
+    <h1>New Open-Weights Model Released</h1>
+    <p>A new open-weights language model was released today by a research lab,
+    marking a notable step for local inference. The model targets consumer
+    hardware and ships with a permissive license for developers everywhere.</p>
+    <p>According to the announcement, the model improves reasoning while keeping
+    memory requirements modest. Early testers report strong tool-calling
+    behaviour and stable long-context performance across a wide range of tasks.</p>
+    <p>The release includes quantized variants intended for laptops and edge
+    devices, alongside documentation and example code to help teams get started.</p>
+  </article>
+  <footer>Copyright 2026</footer>
+</body>
+</html>"""
+
+
+def test_parse_article_extracts_body_and_metadata(monkeypatch):
+    """Exercises the real trafilatura extraction offline (HTML supplied via the
+    mock transport — trafilatura itself does no network I/O)."""
+    _patch_make_client(monkeypatch, lambda req: _html_response(ARTICLE_HTML))
+
+    result = parse_article("https://example.com/article")
+
+    assert set(result.keys()) == {
+        "title",
+        "content",
+        "author",
+        "date",
+        "url",
+        "fetched_at",
+    }
+    assert "open-weights language model" in result["content"]
+    # Boilerplate (nav/footer) is stripped by trafilatura's main-content model.
+    assert "Copyright 2026" not in result["content"]
+    assert result["title"]
+    assert result["url"] == "https://example.com/article"
+
+
+def test_parse_article_no_main_content_returns_error(monkeypatch):
+    _patch_make_client(monkeypatch, lambda req: _html_response(HTML_PAGE))
+    # Deterministic: force trafilatura to find nothing extractable.
+    monkeypatch.setattr(scraping.trafilatura, "extract", lambda *a, **k: None)
+
+    result = parse_article("https://example.com/thin")
+
+    assert result["error"] == "no_content"
+    assert result["content"] == ""
+
+
+def test_parse_article_handles_extraction_exception(monkeypatch):
+    _patch_make_client(monkeypatch, lambda req: _html_response(ARTICLE_HTML))
+
+    def _boom(*_a, **_kw):
+        raise ValueError("bad html")
+
+    monkeypatch.setattr(scraping.trafilatura, "extract", _boom)
+
+    result = parse_article("https://example.com/article")
+
+    assert result["error"].startswith("extract_error")
+    assert result["content"] == ""
+
+
+def test_parse_article_handles_malformed_json(monkeypatch):
+    """trafilatura returning a non-JSON string must not raise out of the tool."""
+    _patch_make_client(monkeypatch, lambda req: _html_response(ARTICLE_HTML))
+    monkeypatch.setattr(scraping.trafilatura, "extract", lambda *a, **k: "not json{{{")
+
+    result = parse_article("https://example.com/article")
+
+    assert result["error"] == "json_decode_error"
+    assert result["content"] == ""
+
+
+def test_parse_article_returns_error_dict_on_4xx(monkeypatch):
+    handler = _counting_handler([httpx.Response(404)])
+    _patch_make_client(monkeypatch, handler)
+
+    result = parse_article("https://example.com/missing")
+
+    assert result["error"] == "http_404"
+    assert handler.calls["i"] == 1
 
 
 # ===========================================================================
@@ -648,3 +846,20 @@ def test_fetch_rss_against_arxiv():
 def test_fetch_rss_against_simon_willison():
     result = fetch_rss("https://simonwillison.net/atom/everything/", since_hours=720)
     _assert_real_feed_contract(result)
+
+
+@pytest.mark.integration
+def test_fetch_html_against_real_page():
+    result = fetch_html("https://example.com/")
+    assert "error" not in result
+    assert result["title"]
+    assert "example" in result["content"].lower()
+
+
+@pytest.mark.integration
+def test_parse_article_against_real_page():
+    # A stable, text-heavy page that trafilatura extracts reliably.
+    result = parse_article("https://en.wikipedia.org/wiki/Pittsburgh_Penguins")
+    assert "error" not in result
+    assert result["title"]
+    assert len(result["content"]) > 500

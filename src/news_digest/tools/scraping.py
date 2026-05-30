@@ -5,18 +5,19 @@ The LLM decides which tools to call and in what order.
 
 Tools:
     fetch_rss: Parse an RSS/Atom feed and return recent entries.
-    fetch_html: (issue #6) Scrape an HTML page with an optional CSS selector.
-    parse_article: (issue #6) Extract full article content from a URL.
+    fetch_html: Scrape an HTML page, optionally scoped to a CSS selector.
+    parse_article: Extract the main article body + metadata from a URL.
 
 Note on architecture deviation: docs/architecture.md §5.3 shows @retry directly
 on the public tool function. We deviate intentionally: @retry lives on the
-private _fetch_feed_bytes helper, and fetch_rss owns error translation. This
+private _fetch_bytes helper, and fetch_rss owns error translation. This
 preserves the @tool contract that the LLM always receives a list[dict] and the
 function never raises.
 """
 
 import hashlib
 import ipaddress
+import json
 import socket
 import sys
 import threading
@@ -28,6 +29,8 @@ from urllib.parse import urljoin, urlparse
 
 import feedparser
 import httpx
+import trafilatura
+from bs4 import BeautifulSoup
 from gaia.agents.base.tools import tool
 from tenacity import (
     retry,
@@ -40,7 +43,7 @@ from news_digest.logging import log
 
 
 class _NonRetryableHttp(Exception):
-    """Raised by _fetch_feed_bytes on non-retryable HTTP outcomes (4xx except 429,
+    """Raised by _fetch_bytes on non-retryable HTTP outcomes (4xx except 429,
     or response-too-large 413). Tenacity is configured to skip retry on this.
     fetch_rss catches it, logs once, and returns []."""
 
@@ -71,8 +74,8 @@ _USER_AGENT: str = (
 _last_fetch: dict[str, float] = {}
 _rate_lock: threading.Lock = threading.Lock()
 
-# Captures the last exception from a retried fetch so fetch_rss can log it
-# with class+message after retry exhaustion. Keyed by id(callable) to avoid
+# Captures the last exception from a retried fetch so the calling tool can log
+# it with class+message after retry exhaustion. Keyed by id(callable) to avoid
 # any future collision if multiple retried helpers exist.
 _last_retry_error: dict[int, BaseException] = {}
 
@@ -209,7 +212,7 @@ def _retry_returns_none(retry_state) -> None:
     as a sentinel."""
     exc = retry_state.outcome.exception() if retry_state.outcome else None
     if exc is not None:
-        _last_retry_error[id(_fetch_feed_bytes)] = exc
+        _last_retry_error[id(_fetch_bytes)] = exc
     return None
 
 
@@ -220,12 +223,13 @@ def _retry_returns_none(retry_state) -> None:
     retry=retry_if_not_exception_type(_NonRetryableHttp),
     retry_error_callback=_retry_returns_none,
 )
-def _fetch_feed_bytes(
+def _fetch_bytes(
     url: str, transport: httpx.BaseTransport | None = None
 ) -> bytes | None:
-    """Fetch raw feed bytes with a hard 10 MB body cap.
+    """Fetch raw response bytes with a hard 10 MB body cap.
 
-    NEVER calls log() — all logging happens in fetch_rss to preserve the
+    Source-agnostic: shared by fetch_rss (feeds) and the HTML tools (pages).
+    NEVER calls log() — all logging happens in the calling tool to preserve the
     one-failure-one-log invariant.
 
     Raises:
@@ -302,7 +306,7 @@ def fetch_rss(url: str, since_hours: int = 24) -> list[dict]:
 
     raw: bytes | None
     try:
-        raw = _fetch_feed_bytes(url)
+        raw = _fetch_bytes(url)
     except _NonRetryableHttp as exc:
         log(
             "warn",
@@ -326,7 +330,7 @@ def fetch_rss(url: str, since_hours: int = 24) -> list[dict]:
 
     if raw is None:
         # Retries exhausted on 5xx / transport / timeout / 429.
-        last = _last_retry_error.pop(id(_fetch_feed_bytes), None)
+        last = _last_retry_error.pop(id(_fetch_bytes), None)
         log(
             "warn",
             "scrape",
@@ -390,20 +394,268 @@ def fetch_rss(url: str, since_hours: int = 24) -> list[dict]:
     return entries
 
 
-# Debug entry point: `python -m news_digest.tools.scraping <url> [since_hours]`.
-# Bypasses scheduler / agent so a developer can validate one feed in seconds.
-if __name__ == "__main__":  # pragma: no cover
-    import json
+def _fetch_document(url: str, tool: str) -> tuple[bytes | None, str | None]:
+    """Validate, throttle, and fetch raw bytes for an HTML tool.
 
-    if len(sys.argv) < 2:
+    Shared by fetch_html and parse_article. Returns (raw_bytes, None) on success,
+    or (None, reason) on failure — logging exactly one warn per failure, mirroring
+    fetch_rss's error translation but yielding a reason string instead of [].
+    """
+    try:
+        _validate_url(url)
+    except _UnsafeUrl as exc:
+        log(
+            "warn",
+            "scrape",
+            f"{tool}: blocked unsafe url: {exc.reason}",
+            metadata={"url": url, "reason": exc.reason},
+        )
+        return None, f"unsafe_url: {exc.reason}"
+
+    _throttle(_domain_of(url))
+
+    try:
+        raw = _fetch_bytes(url)
+    except _NonRetryableHttp as exc:
+        log(
+            "warn",
+            "scrape",
+            f"{tool}: HTTP {exc.status_code} (non-retryable) for {url}",
+            metadata={"url": url, "status_code": exc.status_code},
+        )
+        return None, f"http_{exc.status_code}"
+    except Exception as exc:
+        log(
+            "warn",
+            "scrape",
+            f"{tool}: unexpected error for {url}: {exc.__class__.__name__}: {exc}",
+            metadata={
+                "url": url,
+                "error_class": exc.__class__.__name__,
+                "error": str(exc),
+            },
+        )
+        return None, f"error: {exc.__class__.__name__}"
+
+    if raw is None:
+        last = _last_retry_error.pop(id(_fetch_bytes), None)
+        log(
+            "warn",
+            "scrape",
+            f"{tool}: all retries exhausted for {url}: "
+            f"{last.__class__.__name__ if last else 'unknown'}",
+            metadata={
+                "url": url,
+                "last_error_class": last.__class__.__name__ if last else None,
+                "last_error": str(last) if last else None,
+            },
+        )
+        return None, "retries_exhausted"
+
+    return raw, None
+
+
+@tool
+def fetch_html(url: str, selector: str | None = None) -> dict:
+    """Fetch an HTML page and extract its text and links.
+
+    Args:
+        url: The page URL (http or https).
+        selector: Optional CSS selector. When given, only matching elements are
+            used for text and link extraction; when omitted, the whole <body> is.
+
+    Returns:
+        A dict with keys: title, content (visible text), links (absolute http(s)
+        URLs), url, fetched_at (ISO-8601 UTC). On any failure the same shape is
+        returned with empty title/content/links plus an "error" key. The call
+        never raises. JavaScript is not executed, so client-rendered pages may
+        return little or no content.
+    """
+    t_start = time.monotonic()
+    fetched_at = _now_utc().isoformat()
+    base: dict = {
+        "title": "",
+        "content": "",
+        "links": [],
+        "url": url,
+        "fetched_at": fetched_at,
+    }
+
+    raw, err = _fetch_document(url, "fetch_html")
+    if err is not None:
+        return {**base, "error": err}
+
+    try:
+        soup = BeautifulSoup(raw, "lxml")
+    except Exception as exc:
+        log(
+            "warn",
+            "scrape",
+            f"fetch_html: parse error for {url}: {exc.__class__.__name__}",
+            metadata={"url": url, "error_class": exc.__class__.__name__},
+        )
+        return {**base, "error": f"parse_error: {exc.__class__.__name__}"}
+
+    title = soup.title.get_text(strip=True) if soup.title else ""
+
+    # Intentionally simple extraction: selector scope if given, else the whole
+    # <body>, with no boilerplate stripping. Refinement is tracked in issue #41.
+    if selector:
+        scope = soup.select(selector)
+    else:
+        scope = [soup.body] if soup.body else [soup]
+
+    content = "\n".join(
+        node.get_text(separator=" ", strip=True) for node in scope
+    ).strip()
+
+    links: list[str] = []
+    seen: set[str] = set()
+    for node in scope:
+        for anchor in node.find_all("a", href=True):
+            absolute = urljoin(url, anchor["href"])
+            if absolute.startswith(("http://", "https://")) and absolute not in seen:
+                seen.add(absolute)
+                links.append(absolute)
+
+    log(
+        "info",
+        "scrape",
+        f"fetch_html: {len(content)} chars, {len(links)} links from {url}",
+        metadata={
+            "url": url,
+            "selector": selector,
+            "nodes_matched": len(scope) if selector else None,
+            "content_chars": len(content),
+            "links": len(links),
+            "duration_ms": round((time.monotonic() - t_start) * 1000),
+        },
+    )
+    return {
+        "title": title,
+        "content": content,
+        "links": links,
+        "url": url,
+        "fetched_at": fetched_at,
+    }
+
+
+@tool
+def parse_article(url: str) -> dict:
+    """Extract the main article body and metadata from a URL via trafilatura.
+
+    Args:
+        url: The article URL (http or https).
+
+    Returns:
+        A dict with keys: title, content (clean body text), author, date
+        (publication date, "" if unknown), url, fetched_at (ISO-8601 UTC). On any
+        failure the same shape is returned with empty fields plus an "error" key.
+        The call never raises. JavaScript is not executed, so client-rendered
+        pages may yield no content (error="no_content").
+    """
+    t_start = time.monotonic()
+    fetched_at = _now_utc().isoformat()
+    base: dict = {
+        "title": "",
+        "content": "",
+        "author": "",
+        "date": "",
+        "url": url,
+        "fetched_at": fetched_at,
+    }
+
+    raw, err = _fetch_document(url, "parse_article")
+    if err is not None:
+        return {**base, "error": err}
+
+    try:
+        html = raw.decode("utf-8", errors="replace")
+        extracted = trafilatura.extract(
+            html,
+            url=url,
+            output_format="json",
+            with_metadata=True,
+            include_comments=False,
+        )
+    except Exception as exc:
+        log(
+            "warn",
+            "scrape",
+            f"parse_article: extraction error for {url}: {exc.__class__.__name__}",
+            metadata={"url": url, "error_class": exc.__class__.__name__},
+        )
+        return {**base, "error": f"extract_error: {exc.__class__.__name__}"}
+
+    if not extracted:
+        log(
+            "info",
+            "scrape",
+            f"parse_article: no main content extracted for {url}",
+            metadata={"url": url},
+        )
+        return {**base, "error": "no_content"}
+
+    try:
+        data = json.loads(extracted)
+    except (json.JSONDecodeError, TypeError) as exc:
+        log(
+            "warn",
+            "scrape",
+            f"parse_article: json decode error for {url}: {exc.__class__.__name__}",
+            metadata={"url": url, "error_class": exc.__class__.__name__},
+        )
+        return {**base, "error": "json_decode_error"}
+
+    result = {
+        "title": (data.get("title") or "").strip(),
+        "content": (data.get("text") or "").strip(),
+        "author": (data.get("author") or "").strip(),
+        "date": (data.get("date") or "").strip(),
+        "url": url,
+        "fetched_at": fetched_at,
+    }
+    log(
+        "info",
+        "scrape",
+        f"parse_article: {len(result['content'])} chars from {url}",
+        metadata={
+            "url": url,
+            "content_chars": len(result["content"]),
+            "has_date": bool(result["date"]),
+            "has_author": bool(result["author"]),
+            "duration_ms": round((time.monotonic() - t_start) * 1000),
+        },
+    )
+    return result
+
+
+# Debug entry point — bypasses scheduler / agent so a developer can validate a
+# single tool against a real URL in seconds:
+#   python -m news_digest.tools.scraping <feed_url> [since_hours]
+#   python -m news_digest.tools.scraping --html <url> [css_selector]
+#   python -m news_digest.tools.scraping --article <url>
+if __name__ == "__main__":  # pragma: no cover
+
+    def _emit(obj: object) -> None:
+        print(json.dumps(obj, indent=2, default=str))
+
+    _args = sys.argv[1:]
+    if not _args:
         print(
-            "usage: python -m news_digest.tools.scraping <url> [since_hours]",
+            "usage:\n"
+            "  python -m news_digest.tools.scraping <feed_url> [since_hours]\n"
+            "  python -m news_digest.tools.scraping --html <url> [css_selector]\n"
+            "  python -m news_digest.tools.scraping --article <url>",
             file=sys.stderr,
         )
         sys.exit(2)
-    _url = sys.argv[1]
-    _since = int(sys.argv[2]) if len(sys.argv) > 2 else 24
-    _result = fetch_rss(_url, since_hours=_since)
-    print(
-        json.dumps({"count": len(_result), "entries": _result}, indent=2, default=str)
-    )
+
+    if _args[0] == "--html":
+        _emit(fetch_html(_args[1], selector=_args[2] if len(_args) > 2 else None))
+    elif _args[0] == "--article":
+        _emit(parse_article(_args[1]))
+    else:
+        _since = int(_args[1]) if len(_args) > 1 else 24
+        _result = fetch_rss(_args[0], since_hours=_since)
+        _emit({"count": len(_result), "entries": _result})

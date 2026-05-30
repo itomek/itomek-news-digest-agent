@@ -331,6 +331,54 @@ def test_fetch_rss_uses_updated_when_published_absent(monkeypatch, fixed_now):
     )
 
 
+def _channel_dated_feed(channel_pub_date: str) -> str:
+    """RSS feed with a channel-level <pubDate> but NO per-item dates (arxiv-style)."""
+    return f"""<?xml version="1.0"?>
+<rss version="2.0"><channel>
+  <title>Channel Dated Feed</title>
+  <link>https://feed.example.com</link>
+  <pubDate>{channel_pub_date}</pubDate>
+  {_item(title="Dateless One", link="https://feed.example.com/1", include_pubdate=False)}
+  {_item(title="Dateless Two", link="https://feed.example.com/2", include_pubdate=False)}
+</channel></rss>"""
+
+
+def test_fetch_rss_falls_back_to_channel_date_for_dateless_entries(
+    monkeypatch, fixed_now
+):
+    """arxiv-style feeds expose only a channel-level <pubDate> and no per-item
+    dates. Such entries MUST be retained using the channel date, not dropped as
+    no_date (regression guard for export.arxiv.org/rss/cs.AI — issue #42)."""
+    feed_xml = _channel_dated_feed("Wed, 06 May 2026 09:00:00 +0000")
+    _patch_make_client(monkeypatch, lambda req: _rss_response(feed_xml))
+
+    result = fetch_rss("https://feed.example.com/feed.xml", since_hours=24)
+
+    assert len(result) == 2
+    assert {e["title"] for e in result} == {"Dateless One", "Dateless Two"}
+    for e in result:
+        assert datetime.fromisoformat(e["published"]) == datetime(
+            2026, 5, 6, 9, 0, tzinfo=UTC
+        )
+
+
+def test_fetch_rss_drops_dateless_entries_when_channel_date_too_old(
+    monkeypatch, fixed_now, mock_log
+):
+    """The channel-date fallback is still subject to the cutoff: a stale channel
+    date must filter the date-less entries out as too_old, not keep them."""
+    # fixed_now = 2026-05-06 12:00 UTC; channel date ~8 days earlier is outside 24h.
+    feed_xml = _channel_dated_feed("Mon, 28 Apr 2026 04:00:00 +0000")
+    _patch_make_client(monkeypatch, lambda req: _rss_response(feed_xml))
+
+    result = fetch_rss("https://feed.example.com/feed.xml", since_hours=24)
+
+    assert result == []
+    info_call = [c for c in mock_log.call_args_list if c.args[0] == "info"][0]
+    assert info_call.kwargs["metadata"]["dropped_too_old"] == 2
+    assert info_call.kwargs["metadata"]["dropped_no_date"] == 0
+
+
 @pytest.mark.parametrize("bad_link", ["javascript:void(0)", "mailto:x@y.z"])
 def test_fetch_rss_drops_entries_with_unresolvable_url(
     monkeypatch, fixed_now, mock_log, bad_link
@@ -838,8 +886,27 @@ def test_fetch_rss_against_huggingface():
 
 @pytest.mark.integration
 def test_fetch_rss_against_arxiv():
-    result = fetch_rss("https://export.arxiv.org/rss/cs.AI", since_hours=720)
-    _assert_real_feed_contract(result)
+    """arxiv cs.AI exposes only a channel-level <pubDate> with no per-item dates,
+    so entries survive only via the channel-date fallback (issue #42). arxiv also
+    skips weekends (<skipDays>Sat,Sun</skipDays>), so the live feed is legitimately
+    empty then. Validate the contract when items are present; accept [] only when
+    the live feed truly has no <item> (otherwise the fallback has regressed)."""
+    url = "https://export.arxiv.org/rss/cs.AI"
+    result = fetch_rss(url, since_hours=720)
+    assert isinstance(result, list)
+    if result:
+        _assert_real_feed_contract(result)
+        return
+    raw = httpx.get(
+        url,
+        timeout=15,
+        follow_redirects=True,
+        headers={"User-Agent": "news-digest-agent-test"},
+    ).text
+    assert "<item" not in raw, (
+        "arxiv feed contains items but fetch_rss returned none — "
+        "channel-date fallback (issue #42) regressed"
+    )
 
 
 @pytest.mark.integration

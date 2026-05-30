@@ -171,12 +171,19 @@ def _resolve_url(feed_link: str, entry_link: str) -> str | None:
     return resolved
 
 
-def _parse_entry(entry, feed_link: str, cutoff: datetime) -> dict | str:
+def _parse_entry(
+    entry, feed_link: str, cutoff: datetime, feed_fallback_dt: datetime | None = None
+) -> dict | str:
     """Parse one feedparser entry.
 
     Returns the entry dict on success, or a short reason string on drop
     ('no_url', 'no_date', 'too_old', 'parse_error'). fetch_rss aggregates the
     reasons into the success log's metadata for diagnosability.
+
+    When an entry carries no per-item date, falls back to feed_fallback_dt (the
+    channel-level date) when provided: date-less feeds such as arxiv cs.AI expose
+    only a channel <pubDate>/<dc:date>, and without this every item would drop as
+    no_date (issue #42). The fallback date is still subject to the cutoff filter.
     """
     try:
         title = (getattr(entry, "title", "") or "").strip()
@@ -189,7 +196,7 @@ def _parse_entry(entry, feed_link: str, cutoff: datetime) -> dict | str:
         parsed_time = getattr(entry, "published_parsed", None) or getattr(
             entry, "updated_parsed", None
         )
-        published_dt = _to_utc_dt(parsed_time)
+        published_dt = _to_utc_dt(parsed_time) or feed_fallback_dt
         if published_dt is None:
             return "no_date"
         if published_dt < cutoff:
@@ -365,10 +372,17 @@ def fetch_rss(url: str, since_hours: int = 24) -> list[dict]:
         feed_obj.get("link", "") if feed_obj and hasattr(feed_obj, "get") else ""
     ) or url
 
+    # Channel-level date fallback for feeds whose items carry no per-item date
+    # (e.g. arxiv cs.AI exposes only a channel <pubDate>/<dc:date>). See #42.
+    feed_fallback_dt = _to_utc_dt(
+        getattr(feed_obj, "published_parsed", None)
+        or getattr(feed_obj, "updated_parsed", None)
+    )
+
     entries: list[dict] = []
     drops: Counter[str] = Counter()
     for raw_entry in getattr(feed, "entries", []) or []:
-        result = _parse_entry(raw_entry, feed_link, cutoff)
+        result = _parse_entry(raw_entry, feed_link, cutoff, feed_fallback_dt)
         if isinstance(result, dict):
             entries.append(result)
         else:
@@ -387,6 +401,9 @@ def fetch_rss(url: str, since_hours: int = 24) -> list[dict]:
             "dropped_no_date": drops.get("no_date", 0),
             "dropped_too_old": drops.get("too_old", 0),
             "dropped_parse_error": drops.get("parse_error", 0),
+            "feed_fallback_date": (
+                feed_fallback_dt.isoformat() if feed_fallback_dt else None
+            ),
             "bozo": bozo,
             "duration_ms": round((time.monotonic() - t_start) * 1000),
         },

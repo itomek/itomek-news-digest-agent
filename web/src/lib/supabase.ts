@@ -49,3 +49,16 @@ export async function fetchTopics(client: SupabaseClient): Promise<Topic[]> {
 // functions above; #11 and #12 must not collide on the same code. Example:
 //   export async function fetchDigestsForTopic(client, slug, opts) { ... }
 // ---------------------------------------------------------------------------
+
+/**
+ * Fetches the full digest history (newest first), reusing the shared digest query
+ * shape. The dataset is tiny (~5 topics x 30 days = 150 rows), so the history view
+ * does all filtering, searching and grouping client-side — no server-side FTS. A
+ * generous default limit guards against unbounded growth without paging.
+ */
+export async function fetchAllDigests(
+  client: SupabaseClient,
+  limit = 1000,
+): Promise<Digest[]> {
+  return fetchDigests(client, limit);
+}

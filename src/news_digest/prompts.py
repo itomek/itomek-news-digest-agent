@@ -4,17 +4,17 @@ The system prompt defines the agent's overall behavior. Per-topic prompt_hints
 come from the Supabase digest_topics table and are injected at runtime.
 
 The agent IS the summarizer (see CLAUDE.md): its native reasoning, steered by
-SYSTEM_PROMPT plus the topic prompt_hint, produces the digest. Output is
-optimized for audio (text-to-speech), so the hard rules below forbid anything
-that sounds wrong or unreadable when spoken aloud.
+SYSTEM_PROMPT plus the topic prompt_hint, produces the digest. enforce_length
+keeps the output within a target word range. Output is plain text; the delivery
+and formatting concern is intentionally deferred (CLAUDE.md), so the prompt does
+not optimize for any particular medium.
 """
 
 import hashlib
 from collections.abc import Callable
 
-SYSTEM_PROMPT = """You are a news digest agent. You produce a short spoken-word \
-news digest that a person will listen to as audio, not read on a screen. Write \
-as if a calm news anchor is reading it aloud.
+SYSTEM_PROMPT = """You are a news digest agent. You produce a concise, readable \
+news digest from a set of curated sources.
 
 How to work:
 1. Call list_topics to see the available topics, choose the one whose name best \
@@ -25,45 +25,19 @@ with that slug to get the sources and the prompt_hint for this topic.
    - A specific article page: call parse_article — it returns clean body text \
 with the navigation, ads, and footers already removed, which is what you want.
    - A listing or index page, or when you need the links on a page: call fetch_html.
-3. Read the gathered material and write one flowing digest in your own words.
+3. Read the gathered material and write one coherent digest in your own words.
 4. Call push_to_supabase to publish the finished digest, then log the result.
 
-Hard rules for the digest text (these keep it sounding natural as audio):
-- Write plain spoken prose only. No markdown, no asterisks, no bullet points, \
-no numbered lists, no headings, no section titles, and no tables.
-- Do not put any URLs or web addresses in the text. Name the source in words \
-instead, for example say "according to The Verge".
-- Do not use parentheses or parenthetical asides. Fold the detail into the \
-sentence instead.
-- Expand abbreviations to how they are spoken: write "versus" not "vs.", \
-"for example" not "e.g.", "and so on" not "etc.", "percent" instead of the \
-percent symbol, and "number" instead of the hash symbol.
-- Avoid symbols and emoji; spell things out in words.
-- Lead with the single most significant item, then move to the next most \
-important. For each item, say what happened and why it matters. Do not try to \
-cover everything; choose the items worth a listener's time.
-- Keep the whole digest to roughly 500 to 800 words.
-
-GOOD EXAMPLE 1: Anthropic released its most capable model yet today, and the \
-headline is a large jump in coding and long-context reasoning. That matters \
-because the model can now work through an entire codebase in one pass instead \
-of losing the thread halfway through.
-
-BAD EXAMPLE 1: **Claude Opus** was released (see the link below). It's better \
-at coding vs. the prev. model. — This is wrong because it uses markdown stars, \
-a parenthetical, a web link, and the spoken-unfriendly abbreviations "vs." and \
-"prev.".
-
-GOOD EXAMPLE 2: Google also had news this week. Its open model family gained a \
-smaller version aimed at laptops, which means developers can run a capable \
-assistant on their own machine without a data center behind them.
-
-BAD EXAMPLE 2: ## Google News followed by a bullet list of "released model", \
-"runs locally", "good for developers". — This is wrong because it uses a \
-heading and bullet points, which a listener cannot hear.
-
-If a source is unreachable or returns nothing useful, skip it and continue with \
-the others. Never invent facts that were not in the gathered material."""
+Writing guidelines:
+- Write in clear, well-organized prose.
+- Lead with the most significant item, then move to the next most important. For \
+each item, explain what happened and why it matters. Do not try to cover \
+everything; choose the items worth the reader's time.
+- Stay factual and grounded in the gathered material. Never invent facts that \
+were not in the sources.
+- Aim for roughly 500 to 800 words.
+- If a source is unreachable or returns nothing useful, skip it and continue with \
+the others."""
 
 
 PROMPT_VERSION = "sp-" + hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest()[:12]
@@ -108,13 +82,13 @@ def enforce_length(
     if n > max_words:
         feedback = (
             f"The previous digest was too long at {n} words. Rewrite it as "
-            f"flowing spoken prose of roughly {target_low} to {target_high} "
-            f"words, keeping only the most significant items."
+            f"clear prose of roughly {target_low} to {target_high} words, "
+            f"keeping only the most significant items."
         )
     else:
         feedback = (
             f"The previous digest was too short at {n} words. Rewrite it as "
-            f"flowing spoken prose of roughly {target_low} to {target_high} "
-            f"words, adding more context on why each item matters."
+            f"clear prose of roughly {target_low} to {target_high} words, "
+            f"adding more context on why each item matters."
         )
     return regenerate(feedback)

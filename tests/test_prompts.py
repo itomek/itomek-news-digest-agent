@@ -91,15 +91,17 @@ def test_prompt_version_is_deterministic_identity_of_system_prompt():
 
 
 # ---------------------------------------------------------------------------
-# SYSTEM_PROMPT audio-first hard rules + examples
+# SYSTEM_PROMPT — describes the tool workflow; audio layer fully removed
 # ---------------------------------------------------------------------------
 
 
-def test_system_prompt_bakes_in_audio_hard_rules_and_examples():
+def test_system_prompt_describes_workflow_without_audio_layer():
     sp = SYSTEM_PROMPT.lower()
-    assert "versus" in sp  # abbreviation-expansion rule
-    assert "markdown" in sp  # no-markdown rule
-    assert "url" in sp  # no-URL rule
-    # 2 good + 2 bad examples are present
-    assert sp.count("good example") >= 2
-    assert sp.count("bad example") >= 2
+    # workflow guidance present
+    assert "digest" in sp
+    assert "list_topics" in sp and "fetch_topic_config" in sp
+    assert "why it matters" in sp
+    # audio layer fully removed (issue #7 de-scoped — CLAUDE.md defers delivery)
+    assert "audio" not in sp
+    assert "read aloud" not in sp
+    assert "news anchor" not in sp

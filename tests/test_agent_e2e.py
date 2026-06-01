@@ -1,7 +1,7 @@
 """Smoke tests for the wired NewsDigestAgent — issue #9.
 
 Hermetic checks that the agent is assembled correctly (pipeline tools registered,
-base classes, audio-first prompt). The full end-to-end pipeline is validated on
+base classes, system prompt). The full end-to-end pipeline is validated on
 the Strix Halo host against live Lemonade + Supabase, which is the real pass gate
 (a committed pytest cannot reach those services under the hermetic conftest).
 """
@@ -40,7 +40,7 @@ def test_agent_inherits_agent_and_databasemixin():
     assert issubclass(NewsDigestAgent, DatabaseMixin)
 
 
-def test_agent_uses_audio_first_system_prompt():
+def test_agent_uses_system_prompt():
     from news_digest.agent import NewsDigestAgent
 
     # _get_system_prompt ignores self; use an uninitialized instance so reading

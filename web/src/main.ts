@@ -1,3 +1,4 @@
+import "./components/playback"; // #11: auto-registers TTS playback controls
 import { getSupabase } from "./lib/supabase";
 import { renderHome } from "./pages/home";
 import { renderHistory } from "./pages/history";

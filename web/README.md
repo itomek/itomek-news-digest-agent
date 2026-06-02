@@ -80,12 +80,14 @@ history-specific queries to `src/lib/supabase.ts` below the documented marker. T
 
 Sign-ups are restricted to emails in the **`public.digest_allowlist`** table.
 
-- **DB trigger (source of truth):** `supabase/migrations/0003_auth_allowlist.sql` adds the
-  table and an `after insert on auth.users` trigger that deletes any user whose email is
-  not allowlisted. This is enforced in Postgres and cannot be bypassed by the client.
-- **Edge Function (optional, cleaner):** `supabase/functions/auth-allowlist/index.ts` can be
-  wired as a Supabase Auth "Before user created" hook to reject non-allowlisted emails
-  *before* the row is created. It reads the same `digest_allowlist` table.
+- **Before User Created hook (source of truth):** `supabase/migrations/0004_auth_allowlist_hook.sql`
+  defines `public.hook_restrict_signup(event jsonb)`, wired as a Supabase Auth
+  [Before User Created hook](https://supabase.com/docs/guides/auth/auth-hooks/before-user-created-hook).
+  It runs *before* the `auth.users` row is created and returns `{}` to allow or a `403 error`
+  to reject. Enforced in Postgres, cannot be bypassed by the client.
+- **Why not a trigger:** 0003 originally used an `after insert` trigger that *deleted*
+  non-allowlisted users. That breaks GoTrue ("Database error loading user after sign-up")
+  because the row is read back after creation. 0004 supersedes it — do not reintroduce it.
 - **Client-side check:** `src/lib/allowlist.ts` is a UX nicety only — never the boundary.
 
 Add an allowed email:
@@ -110,11 +112,13 @@ npx wrangler pages deploy dist --project-name=news-digest-web
 
 ### One-time Supabase Auth configuration (human checkpoint)
 
-1. Apply migration `0003_auth_allowlist.sql` (`supabase db push` or the SQL editor).
-2. Insert your email into `digest_allowlist`.
-3. In the Supabase dashboard, **Authentication > URL Configuration**, set the Site URL and
-   add the Cloudflare Pages URL (and `http://localhost:5173` for local) to **Redirect URLs**
-   so magic links return to the app.
-4. (Optional) wire `auth-allowlist` as a "Before user created" Auth hook.
+1. Apply migrations `0003` + `0004` (`supabase db push` or the SQL editor).
+2. **Seed your email first** (before enabling the hook, or you lock yourself out):
+   `insert into public.digest_allowlist (email, note) values ('you@example.com', 'owner');`
+3. In the Supabase dashboard, **Authentication > Hooks**, enable **Before User Created** and
+   select the Postgres function `public.hook_restrict_signup`. This turns on enforcement.
+4. In **Authentication > URL Configuration**, set the Site URL and add the Cloudflare Pages
+   URL (and `http://localhost:5173` for local) to **Redirect URLs** so magic links return.
 5. On iPhone: open the Cloudflare Pages URL in Safari, enter your allowlisted email, tap the
-   magic link in Mail — it opens the app authenticated.
+   magic link in Mail — it opens the app authenticated. Non-allowlisted emails get a clean
+   "not authorized" message instead of a link.

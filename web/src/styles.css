@@ -1,0 +1,167 @@
+/* Minimal mobile-first styles. System fonts, no web fonts, no blocking resources
+   — tuned to keep Lighthouse mobile >= 90 at 390x844. */
+
+:root {
+  --bg: #ffffff;
+  --fg: #111827;
+  --muted: #4b5563;
+  --accent: #1d4ed8;
+  --card: #f8fafc;
+  --border: #e2e8f0;
+  --radius: 12px;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f172a;
+    --fg: #e5e7eb;
+    --muted: #94a3b8;
+    --accent: #60a5fa;
+    --card: #1e293b;
+    --border: #334155;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 17px;
+  line-height: 1.6;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+#app {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 1rem 1.1rem 4rem;
+}
+
+h1 {
+  font-size: 1.6rem;
+  margin: 0.4rem 0;
+}
+
+.app-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.app-nav {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.app-nav a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+button {
+  font: inherit;
+  min-height: 44px;
+  padding: 0.55rem 1.1rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+button.sign-out {
+  background: transparent;
+  color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.topic-group {
+  margin-bottom: 2rem;
+}
+
+.topic-heading {
+  font-size: 1.25rem;
+  margin: 1.2rem 0 0.3rem;
+}
+
+.date-heading {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 1rem 0 0.4rem;
+}
+
+.digest-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem;
+  margin-bottom: 0.8rem;
+}
+
+.digest-body {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.playback-slot:empty {
+  display: none;
+}
+
+.auth-gate {
+  max-width: 28rem;
+  margin: 12vh auto 0;
+  text-align: center;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  text-align: left;
+  margin-top: 1.5rem;
+}
+
+.auth-form label {
+  font-weight: 600;
+}
+
+.auth-form input {
+  font: inherit;
+  min-height: 44px;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.auth-status {
+  min-height: 1.2rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.empty-state,
+.error-state {
+  color: var(--muted);
+}

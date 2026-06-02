@@ -60,7 +60,7 @@ export function renderAuthGate(root: HTMLElement, client: SupabaseClient): void 
         return;
       }
       status.textContent =
-        "If that email is on the allowlist, a sign-in link is on its way. Check your inbox.";
+        "If that email has an account, a sign-in link is on its way. Check your inbox.";
     })();
   });
 

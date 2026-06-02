@@ -12,7 +12,12 @@ export function hasValidSession(session: Session | null): boolean {
   return true;
 }
 
-/** Send a magic link. The allowlist trigger rejects non-allowlisted sign-ups. */
+/**
+ * Send a sign-in magic link. This is a single-user app: new signups are disabled
+ * at the Supabase project level, so only the pre-existing account can ever log in.
+ * `shouldCreateUser: false` makes that explicit — an unknown email gets an error
+ * instead of attempting to create a user.
+ */
 export async function sendMagicLink(
   client: SupabaseClient,
   email: string,
@@ -20,7 +25,7 @@ export async function sendMagicLink(
 ): Promise<{ error: string | null }> {
   const { error } = await client.auth.signInWithOtp({
     email: email.trim(),
-    options: { emailRedirectTo, shouldCreateUser: true },
+    options: { emailRedirectTo, shouldCreateUser: false },
   });
   return { error: error ? error.message : null };
 }

@@ -86,4 +86,47 @@ test.describe("TOTP MFA end-to-end (live, credentialed)", () => {
       await client.auth.mfa.unenroll({ factorId });
     }, enroll.factorId);
   });
+
+  test("gate shows enroll or challenge step after password sign-in (digests hidden)", async ({
+    page,
+  }) => {
+    // Navigate to the app and wait for Supabase client to be ready.
+    await page.goto("/");
+    await page.waitForFunction(() => !!(window as unknown as { __supabase?: unknown }).__supabase, {
+      timeout: 15_000,
+    });
+
+    // Sign in via the page UI (factor 1 only — does NOT reach AAL2 yet).
+    await page.fill("#email", EMAIL!);
+    await page.fill("#password", PASSWORD!);
+    await page.click('button[type="submit"]');
+
+    // After sign-in the gate re-evaluates. Accept either:
+    //   - enroll step (no verified factor yet): QR + secret are visible
+    //   - challenge step (already has a verified factor): challenge form is visible
+    // Both cases prove the gate did NOT let digest content through at AAL1.
+    await page.waitForSelector('[data-testid="mfa-qr"], [data-testid="challenge-form"]', {
+      timeout: 10_000,
+    });
+
+    const mfaQrCount = await page.getByTestId("mfa-qr").count();
+    const challengeFormCount = await page.getByTestId("challenge-form").count();
+    expect(mfaQrCount + challengeFormCount).toBeGreaterThan(0);
+
+    // Digest content must NOT be visible at this point.
+    await expect(page.getByTestId("digest-content")).toHaveCount(0);
+
+    // If we landed on the enroll step, clean up the pending (unverified) factor so the
+    // account isn't left with dangling state.
+    if (mfaQrCount > 0) {
+      await page.evaluate(async () => {
+        const client = (window as unknown as {
+          __supabase: import("@supabase/supabase-js").SupabaseClient;
+        }).__supabase;
+        const { data } = await client.auth.mfa.listFactors();
+        const pending = data?.totp?.find((f) => f.status !== "verified");
+        if (pending) await client.auth.mfa.unenroll({ factorId: pending.id });
+      });
+    }
+  });
 });

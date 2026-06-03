@@ -247,6 +247,7 @@ async function renderGate(root: HTMLElement, client: SupabaseClient): Promise<vo
     factorId = totp.factorId;
     step = nextGateStep({
       hasSession,
+      currentLevel: aal.currentLevel,
       hasVerifiedTotp: totp.verified,
       mfaSatisfied: isMfaSatisfied(aal),
     });

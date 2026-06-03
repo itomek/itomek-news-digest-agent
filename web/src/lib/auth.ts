@@ -38,15 +38,25 @@ export function isMfaSatisfied(aal: AalState): boolean {
 
 export type GateStep = "password" | "enroll" | "challenge" | "done";
 
-/** Choose which step of the gate to render. Pure; unit-tested. */
+/**
+ * Choose which step of the gate to render. Pure; unit-tested.
+ *
+ * `currentLevel` comes from `getAalState` which decodes the JWT `aal` claim. A real
+ * password session yields `'aal1'`; a seeded/offline session whose access_token is the
+ * publishable key (not a JWT) causes decode to throw, so `getAalState` catches and returns
+ * `null`. We use that discriminator to distinguish "real first login → force enroll" from
+ * "seeded/undecodable session → pass through".
+ */
 export function nextGateStep(input: {
   hasSession: boolean;
+  currentLevel: string | null;
   hasVerifiedTotp: boolean;
   mfaSatisfied: boolean;
 }): GateStep {
   if (!input.hasSession) return "password";
-  if (input.mfaSatisfied) return "done";
-  return input.hasVerifiedTotp ? "challenge" : "enroll";
+  if (input.hasVerifiedTotp && !input.mfaSatisfied) return "challenge";
+  if (input.currentLevel === "aal1" && !input.hasVerifiedTotp) return "enroll";
+  return "done";
 }
 
 /** Returns an error message or null. */
@@ -186,14 +196,24 @@ export async function changePassword(
 }
 
 /**
- * The full gate predicate: a session must exist, be unexpired, AND have satisfied any
- * required second factor. Pages call this to decide whether to render digest content.
+ * The full gate predicate: a session must exist, be unexpired, AND be at the required
+ * assurance level. Pages call this to decide whether to render digest content.
+ *
+ * Uses the same `nextGateStep` predicate as the gate view so the two can never disagree
+ * (which would cause a reload loop).
  */
 export async function isAuthenticatedAtRequiredLevel(
   client: SupabaseClient,
 ): Promise<boolean> {
   const session = await getCurrentSession(client);
   if (!hasValidSession(session)) return false;
-  const aal = await getAalState(client);
-  return isMfaSatisfied(aal);
+  const [aal, totp] = await Promise.all([getAalState(client), listTotpFactor(client)]);
+  return (
+    nextGateStep({
+      hasSession: true,
+      currentLevel: aal.currentLevel,
+      hasVerifiedTotp: totp.verified,
+      mfaSatisfied: isMfaSatisfied(aal),
+    }) === "done"
+  );
 }

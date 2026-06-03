@@ -57,26 +57,37 @@ describe("isMfaSatisfied", () => {
 describe("nextGateStep", () => {
   it("asks for a password when there is no session", () => {
     expect(
-      nextGateStep({ hasSession: false, hasVerifiedTotp: false, mfaSatisfied: false }),
+      nextGateStep({ hasSession: false, currentLevel: null, hasVerifiedTotp: false, mfaSatisfied: false }),
     ).toBe("password");
   });
 
-  it("is done when a session is present and MFA is satisfied", () => {
+  it("enrolls a real first-login account (aal1, no factor, mfaSatisfied=true)", () => {
+    // This is the bug-catching case: a fresh account has no factor so isMfaSatisfied returns
+    // true (nextLevel=aal1), but the user still needs to enroll. The old 3-field signature
+    // could never reach this state in production.
     expect(
-      nextGateStep({ hasSession: true, hasVerifiedTotp: true, mfaSatisfied: true }),
-    ).toBe("done");
+      nextGateStep({ hasSession: true, currentLevel: "aal1", hasVerifiedTotp: false, mfaSatisfied: true }),
+    ).toBe("enroll");
   });
 
   it("challenges a returning user with a verified factor but an aal1 session", () => {
     expect(
-      nextGateStep({ hasSession: true, hasVerifiedTotp: true, mfaSatisfied: false }),
+      nextGateStep({ hasSession: true, currentLevel: "aal1", hasVerifiedTotp: true, mfaSatisfied: false }),
     ).toBe("challenge");
   });
 
-  it("enrolls a first-run user with a session but no verified factor", () => {
+  it("is done when fully stepped up to aal2", () => {
     expect(
-      nextGateStep({ hasSession: true, hasVerifiedTotp: false, mfaSatisfied: false }),
-    ).toBe("enroll");
+      nextGateStep({ hasSession: true, currentLevel: "aal2", hasVerifiedTotp: true, mfaSatisfied: true }),
+    ).toBe("done");
+  });
+
+  it("is done for a seeded/undecodable session (currentLevel null, no factor)", () => {
+    // The seeded e2e access_token is a publishable key, not a JWT — decode throws and
+    // getAalState returns null. These sessions should pass through without forcing enrollment.
+    expect(
+      nextGateStep({ hasSession: true, currentLevel: null, hasVerifiedTotp: false, mfaSatisfied: true }),
+    ).toBe("done");
   });
 });
 

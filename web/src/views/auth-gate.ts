@@ -58,7 +58,10 @@ function renderPasswordStep(wrap: HTMLElement, client: SupabaseClient): void {
   const blurb = el("p", { textContent: "Sign in with your email and password." });
   wrap.appendChild(blurb);
 
-  const form = el("form", { className: "auth-form" }, { "data-testid": "password-form" });
+  // noValidate: our JS validators (validateEmail/validatePassword) own the messaging via
+  // the role=alert auth-error; without this, native type="email"/required checks suppress
+  // submit and our accessible error is never shown.
+  const form = el("form", { className: "auth-form", noValidate: true }, { "data-testid": "password-form" });
 
   const emailLabel = el("label", { textContent: "Email" }, { for: "email" });
   const email = el(
@@ -126,7 +129,7 @@ function renderCodeForm(opts: {
   testid: string;
 }): void {
   const { wrap, client, factorId, submitLabel, testid } = opts;
-  const form = el("form", { className: "auth-form" }, { "data-testid": testid });
+  const form = el("form", { className: "auth-form", noValidate: true }, { "data-testid": testid });
 
   const label = el("label", { textContent: "6-digit code" }, { for: "totp-code" });
   const code = el(

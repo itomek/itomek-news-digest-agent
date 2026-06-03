@@ -1,14 +1,76 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getCurrentSession, hasValidSession, signOut } from "../lib/auth";
+import {
+  changePassword,
+  isAuthenticatedAtRequiredLevel,
+  signOut,
+  validatePassword,
+} from "../lib/auth";
 import { fetchDigests, fetchTopics } from "../lib/supabase";
 import { renderAuthGate } from "../views/auth-gate";
 import { renderDigestList } from "../views/digest-list";
 
-// Home page: auth gate for unauthenticated users, grouped digest list otherwise.
+// Home page: auth gate for unauthenticated/AAL1 users, grouped digest list otherwise.
+
+/** Minimal authenticated Account control: change the (initially temporary) password. */
+function renderAccount(client: SupabaseClient): HTMLElement {
+  const section = document.createElement("section");
+  section.className = "account";
+  section.setAttribute("data-testid", "account");
+
+  const details = document.createElement("details");
+  const summary = document.createElement("summary");
+  summary.textContent = "Account";
+  details.appendChild(summary);
+
+  const form = document.createElement("form");
+  form.className = "auth-form account-form";
+  form.setAttribute("data-testid", "change-password-form");
+
+  const label = document.createElement("label");
+  label.setAttribute("for", "new-password");
+  label.textContent = "New password";
+  const input = document.createElement("input");
+  input.id = "new-password";
+  input.name = "new-password";
+  input.type = "password";
+  input.autocomplete = "new-password";
+  input.placeholder = "New password";
+
+  const button = document.createElement("button");
+  button.type = "submit";
+  button.textContent = "Change password";
+
+  const status = document.createElement("p");
+  status.className = "auth-status";
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
+
+  form.append(label, input, button, status);
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    status.textContent = "";
+    const err = validatePassword(input.value);
+    if (err) {
+      status.textContent = err;
+      return;
+    }
+    void (async () => {
+      button.disabled = true;
+      status.textContent = "Updating…";
+      const { error } = await changePassword(client, input.value);
+      button.disabled = false;
+      status.textContent = error ? `Could not update password: ${error}` : "Password updated.";
+      if (!error) input.value = "";
+    })();
+  });
+
+  details.appendChild(form);
+  section.appendChild(details);
+  return section;
+}
 
 export async function renderHome(root: HTMLElement, client: SupabaseClient): Promise<void> {
-  const session = await getCurrentSession(client);
-  if (!hasValidSession(session)) {
+  if (!(await isAuthenticatedAtRequiredLevel(client))) {
     renderAuthGate(root, client);
     return;
   }
@@ -51,6 +113,8 @@ export async function renderHome(root: HTMLElement, client: SupabaseClient): Pro
   loading.textContent = "Loading digests…";
   main.appendChild(loading);
   root.appendChild(main);
+
+  root.appendChild(renderAccount(client));
 
   try {
     const [digests, topics] = await Promise.all([fetchDigests(client), fetchTopics(client)]);

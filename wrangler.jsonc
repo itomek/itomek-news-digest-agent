@@ -5,8 +5,11 @@
   "observability": {
     "enabled": true
   },
+  "build": {
+    "command": "cd web && npm ci && npm run build"
+  },
   "assets": {
-    "directory": "web"
+    "directory": "web/dist"
   },
   "compatibility_flags": [
     "nodejs_compat"

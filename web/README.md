@@ -8,8 +8,9 @@ framework, no JSX), Supabase for auth and data, deployed to Cloudflare Pages.
 - **Build:** Vite + TypeScript, hand-rolled DOM, a tiny hash router (`src/router.ts`).
 - **Data:** `@supabase/supabase-js` using the **anon/publishable key only**. All reads
   are RLS-gated. The service_role key is NEVER shipped to the browser.
-- **Auth:** Supabase magic link (email OTP, no password). Sign-ups are restricted by an
-  email allowlist (see below).
+- **Auth:** Supabase email + password (factor 1) with enforced **TOTP authenticator MFA**
+  (factor 2, AAL2). No email anywhere in the login path. Sign-ups are disabled at the
+  project level (see below).
 - **Tests:** Vitest (unit) + Playwright (integration, real Supabase — no mocks).
 
 ## Setup
@@ -38,7 +39,7 @@ npm run dev            # http://localhost:5173
 | `npm run build`    | Type-check + production build to `dist/`              |
 | `npm run preview`  | Serve the built app on port 4173                      |
 | `npm run lint`     | ESLint + `tsc --noEmit`                               |
-| `npm run test:unit`| Vitest (pure logic: allowlist, grouping, query, auth) |
+| `npm run test:unit`| Vitest (pure logic: auth/MFA gate, TOTP, grouping, query) |
 | `npm run test:e2e` | Playwright against the built app (real Supabase)      |
 
 ## Architecture & extension points
@@ -52,15 +53,15 @@ src/
   router.ts          # tiny hash router; routes register here
   lib/
     supabase.ts      # client + fetchDigests / fetchTopics  (#12 APPENDS queries below the marker)
-    auth.ts          # magic-link sign-in/out + hasValidSession guard
-    allowlist.ts     # pure isEmailAllowed (client-side UX check only)
+    auth.ts          # password sign-in + TOTP MFA wrappers + pure gate predicates
+    totp.ts          # RFC-6238 TOTP (test-only; computes codes from an enrollment secret)
     group.ts         # pure groupDigestsByTopicAndDate
     query.ts         # pure query-shape builders
     types.ts         # shared data shapes
   views/
     digest-card.ts   # renders one digest; has a .playback-slot mount point + registerPlaybackControls hook (#11)
     digest-list.ts   # grouped render
-    auth-gate.ts     # login form / unauthenticated gate
+    auth-gate.ts     # multi-step gate: password -> enroll|challenge TOTP -> AAL2
   pages/
     home.ts          # today's digests (auth gate + list)
     history.ts       # STUB — #12 fills renderHistory(root, client)
@@ -78,14 +79,27 @@ history-specific queries to `src/lib/supabase.ts` below the documented marker. T
 
 ## Auth (single user)
 
-This is a single-user app. Access is controlled by **disabling new signups** at the Supabase
-project level — only the one pre-existing account can ever log in. Login is a passwordless
-**magic link** (`sendMagicLink` uses `shouldCreateUser: false`, so unknown emails are rejected
-rather than created). There is no allowlist table or hook — migration `0005` removed the
-allowlist machinery that earlier versions (0003/0004) used to gate multi-user signups.
+This is a single-user app. Login is **email + password** (factor 1) enforced with **TOTP
+authenticator MFA** (factor 2, AAL2). Digest content is only rendered once the session
+reaches AAL2. New signups are disabled at the Supabase project level — only the one
+pre-existing account can ever log in.
 
-`src/lib/auth.ts` holds the magic-link send + the `hasValidSession` guard. Data access is
-RLS-gated with the anon key regardless of auth method.
+`src/lib/auth.ts` holds all wrappers (sign-in, MFA enroll, challenge, change-password) and
+the pure gate predicates (`hasValidSession`, `isMfaSatisfied`, `nextGateStep`). Data access
+is RLS-gated with the anon key regardless of auth state.
+
+### Login flow
+
+1. **Password step** — enter email + password.
+2. **Enroll step (first login only)** — a QR code and manual secret are displayed. Scan with
+   an authenticator app (e.g. Bitwarden, Authenticator), then enter the 6-digit code. The
+   session steps up to AAL2 and the app reloads to show digests.
+3. **Challenge step (returning logins)** — enter the current 6-digit TOTP code from your
+   authenticator app.
+4. **Digests** — rendered only at AAL2.
+
+The Account section (accessible from the home page) lets you change the password without
+re-entering the old one, which is useful after bootstrapping with a temporary password.
 
 ## Deploy (Cloudflare Pages)
 
@@ -103,11 +117,19 @@ npx wrangler pages deploy dist --project-name=news-digest-web
 
 ### One-time Supabase Auth configuration (human checkpoint)
 
-1. Create your account once (sign in with your email while signups are still on), then in the
-   Supabase dashboard, **Authentication > Sign In / Providers > Email**, turn **off**
-   "Allow new users to sign up". From then on only your account can log in.
-2. In **Authentication > URL Configuration**, set the **Site URL** to the Cloudflare Pages URL
-   and add it (plus `http://localhost:5173` for local dev) to **Redirect URLs** so magic links
-   return to the app instead of the default `http://localhost:3000`.
-3. On iPhone: open the Cloudflare Pages URL in Safari, enter your email, tap the magic link in
-   Mail — it opens the app authenticated.
+1. **Authentication > Sign In / Providers > Email** — confirm Email provider is **on** and
+   "Allow new users to sign up" is **OFF**. Only the pre-seeded account can log in.
+2. **Authentication > Multi-Factor** — enable **TOTP** (Time-based One-Time Password). The
+   app will not force enrollment if this is off.
+3. **Bootstrap the owner account password** — run the following SQL in the Supabase SQL
+   editor (or via the Supabase MCP `execute_sql` tool), replacing the placeholders:
+   ```sql
+   update auth.users
+   set encrypted_password = crypt('TEMP_PW', gen_salt('bf'))
+   where email = 'owner@example.com';
+   ```
+4. **First login** — open the app, sign in with the email and the temporary password. The
+   enroll step appears automatically (QR code + manual secret). Scan with your authenticator
+   app, enter the 6-digit code to reach AAL2.
+5. **Change the temporary password** — once in, use the Account section to set a permanent
+   password.

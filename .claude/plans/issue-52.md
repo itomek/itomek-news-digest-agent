@@ -14,7 +14,7 @@ test_command: "ssh tomas@t-nx-radeon 'bash -lc \"cd ~/ndw-issue52 && npm run tes
 build_command: "ssh tomas@t-nx-radeon 'bash -lc \"cd ~/ndw-issue52 && npm run build\"'"
 lint_command: "ssh tomas@t-nx-radeon 'bash -lc \"cd ~/ndw-issue52 && npm run lint\"'"
 branch: feat/auth-password-mfa
-reflection_iterations: 0
+reflection_iterations: 1
 agents_used: [planning, execution, validation]
 ---
 

@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getCurrentSession, hasValidSession, signOut } from "../lib/auth";
+import { isAuthenticatedAtRequiredLevel, signOut } from "../lib/auth";
 import { groupDigestsByTopicAndDate } from "../lib/group";
 import { fetchAllDigests, fetchTopics } from "../lib/supabase";
 import type { Digest, Topic } from "../lib/types";
@@ -317,8 +317,7 @@ function buildFilterBar(
 }
 
 export async function renderHistory(root: HTMLElement, client: SupabaseClient): Promise<void> {
-  const session = await getCurrentSession(client);
-  if (!hasValidSession(session)) {
+  if (!(await isAuthenticatedAtRequiredLevel(client))) {
     renderAuthGate(root, client);
     return;
   }

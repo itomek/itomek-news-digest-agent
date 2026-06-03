@@ -8,8 +8,9 @@ framework, no JSX), Supabase for auth and data, deployed to Cloudflare Pages.
 - **Build:** Vite + TypeScript, hand-rolled DOM, a tiny hash router (`src/router.ts`).
 - **Data:** `@supabase/supabase-js` using the **anon/publishable key only**. All reads
   are RLS-gated. The service_role key is NEVER shipped to the browser.
-- **Auth:** Supabase magic link (email OTP, no password). Sign-ups are restricted by an
-  email allowlist (see below).
+- **Auth:** Supabase email + password (factor 1) with enforced **TOTP authenticator MFA**
+  (factor 2, AAL2). No email anywhere in the login path. Sign-ups are disabled at the
+  project level (see below).
 - **Tests:** Vitest (unit) + Playwright (integration, real Supabase — no mocks).
 
 ## Setup
@@ -38,7 +39,7 @@ npm run dev            # http://localhost:5173
 | `npm run build`    | Type-check + production build to `dist/`              |
 | `npm run preview`  | Serve the built app on port 4173                      |
 | `npm run lint`     | ESLint + `tsc --noEmit`                               |
-| `npm run test:unit`| Vitest (pure logic: allowlist, grouping, query, auth) |
+| `npm run test:unit`| Vitest (pure logic: auth/MFA gate, TOTP, grouping, query) |
 | `npm run test:e2e` | Playwright against the built app (real Supabase)      |
 
 ## Architecture & extension points
@@ -52,15 +53,15 @@ src/
   router.ts          # tiny hash router; routes register here
   lib/
     supabase.ts      # client + fetchDigests / fetchTopics  (#12 APPENDS queries below the marker)
-    auth.ts          # magic-link sign-in/out + hasValidSession guard
-    allowlist.ts     # pure isEmailAllowed (client-side UX check only)
+    auth.ts          # password sign-in + TOTP MFA wrappers + pure gate predicates
+    totp.ts          # RFC-6238 TOTP (test-only; computes codes from an enrollment secret)
     group.ts         # pure groupDigestsByTopicAndDate
     query.ts         # pure query-shape builders
     types.ts         # shared data shapes
   views/
     digest-card.ts   # renders one digest; has a .playback-slot mount point + registerPlaybackControls hook (#11)
     digest-list.ts   # grouped render
-    auth-gate.ts     # login form / unauthenticated gate
+    auth-gate.ts     # multi-step gate: password -> enroll|challenge TOTP -> AAL2
   pages/
     home.ts          # today's digests (auth gate + list)
     history.ts       # STUB — #12 fills renderHistory(root, client)

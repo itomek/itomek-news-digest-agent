@@ -13,7 +13,12 @@ import pytest
 
 from news_digest.tools import scraping
 from news_digest.tools.scraping import _validate_url as _REAL_VALIDATE_URL
-from news_digest.tools.scraping import fetch_html, fetch_pdf_text, fetch_rss, parse_article
+from news_digest.tools.scraping import (
+    fetch_html,
+    fetch_pdf_text,
+    fetch_rss,
+    parse_article,
+)
 
 # ---------------------------------------------------------------------------
 # Synthetic feed XML helpers
@@ -1104,9 +1109,7 @@ def test_fetch_pdf_text_truncates_very_long_content(monkeypatch, mock_log):
 def test_fetch_pdf_text_against_real_pdf():
     """Fetch a stable, small public PDF and assert non-empty text extraction."""
     # W3C spec PDF — stable, small, text-layer present.
-    result = fetch_pdf_text(
-        "https://www.w3.org/WAI/WCAG21/Techniques/pdf/PDF1.pdf"
-    )
+    result = fetch_pdf_text("https://www.w3.org/WAI/WCAG21/Techniques/pdf/PDF1.pdf")
     assert "error" not in result
     assert result["pages"] >= 1
     assert len(result["content"]) > 50

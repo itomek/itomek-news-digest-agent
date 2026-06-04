@@ -7,6 +7,7 @@ Tools:
     fetch_rss: Parse an RSS/Atom feed and return recent entries.
     fetch_html: Scrape an HTML page, optionally scoped to a CSS selector.
     parse_article: Extract the main article body + metadata from a URL.
+    fetch_pdf_text: Download a PDF and extract its text content.
 
 Note on architecture deviation: docs/architecture.md §5.3 shows @retry directly
 on the public tool function. We deviate intentionally: @retry lives on the
@@ -16,6 +17,7 @@ function never raises.
 """
 
 import hashlib
+import io
 import ipaddress
 import json
 import socket
@@ -29,6 +31,7 @@ from urllib.parse import urljoin, urlparse
 
 import feedparser
 import httpx
+import pypdf
 import trafilatura
 from bs4 import BeautifulSoup
 from gaia.agents.base.tools import tool
@@ -69,6 +72,7 @@ _MAX_RESPONSE_BYTES: int = 10 * 1024 * 1024  # 10 MB
 _USER_AGENT: str = (
     "news-digest-agent/0.1 (+https://github.com/itomek/itomek-news-digest-agent)"
 )
+_PDF_MAX_CHARS: int = 200_000
 
 # Per-domain last-fetch timestamp (monotonic clock). See _throttle.
 _last_fetch: dict[str, float] = {}
@@ -647,11 +651,116 @@ def parse_article(url: str) -> dict:
     return result
 
 
+def _extract_pdf_text(raw: bytes) -> tuple[str, int]:
+    """Extract text from raw PDF bytes using pypdf.
+
+    Returns:
+        (text, page_count) — text is the joined, stripped extraction across all
+        pages. Returns ("", 0) when pypdf raises (let the caller handle it).
+        Raises:
+            pypdf.errors.PdfReadError (and subclasses) on corrupt/invalid PDF.
+            Any other exception from pypdf on malformed content.
+    """
+    reader = pypdf.PdfReader(io.BytesIO(raw))
+    page_count = len(reader.pages)
+    parts: list[str] = []
+    for page in reader.pages:
+        extracted = page.extract_text() or ""
+        if extracted.strip():
+            parts.append(extracted)
+    return "\n".join(parts).strip(), page_count
+
+
+@tool
+def fetch_pdf_text(url: str) -> dict:
+    """Download a PDF from a URL and extract its text content.
+
+    Useful for reading meeting agendas, minutes, and other documents that are
+    only available as PDFs.  Image-only (scanned) PDFs will yield no text.
+
+    Args:
+        url: The PDF URL (http or https).
+
+    Returns:
+        A dict with keys: title (always ""), content (extracted text),
+        url, fetched_at (ISO-8601 UTC), pages (int, number of PDF pages).
+        On any failure the same shape is returned with empty content, pages=0,
+        and an "error" key. The call never raises. Scanned/image PDFs that
+        contain no text layer return error="no_text" with content="".
+    """
+    t_start = time.monotonic()
+    fetched_at = _now_utc().isoformat()
+    base: dict = {
+        "title": "",
+        "content": "",
+        "url": url,
+        "fetched_at": fetched_at,
+        "pages": 0,
+    }
+
+    raw, err = _fetch_document(url, "fetch_pdf_text")
+    if err is not None:
+        return {**base, "error": err}
+
+    try:
+        text, page_count = _extract_pdf_text(raw)
+    except Exception as exc:
+        log(
+            "warn",
+            "scrape",
+            f"fetch_pdf_text: pdf parse error for {url}: {exc.__class__.__name__}",
+            metadata={"url": url, "error_class": exc.__class__.__name__},
+        )
+        return {**base, "error": f"pdf_parse_error: {exc.__class__.__name__}"}
+
+    if not text:
+        log(
+            "info",
+            "scrape",
+            f"fetch_pdf_text: no_text (image/scanned PDF?) for {url}",
+            metadata={"url": url, "pages": page_count},
+        )
+        return {**base, "pages": page_count, "error": "no_text"}
+
+    if len(text) > _PDF_MAX_CHARS:
+        log(
+            "warn",
+            "scrape",
+            f"fetch_pdf_text: truncated {len(text)} -> {_PDF_MAX_CHARS} chars for {url}",
+            metadata={
+                "url": url,
+                "original_chars": len(text),
+                "truncated_chars": _PDF_MAX_CHARS,
+            },
+        )
+        text = text[:_PDF_MAX_CHARS]
+
+    log(
+        "info",
+        "scrape",
+        f"fetch_pdf_text: {len(text)} chars, {page_count} pages from {url}",
+        metadata={
+            "url": url,
+            "content_chars": len(text),
+            "pages": page_count,
+            "duration_ms": round((time.monotonic() - t_start) * 1000),
+        },
+    )
+    return {
+        "title": "",
+        "content": text,
+        "url": url,
+        "fetched_at": fetched_at,
+        "pages": page_count,
+    }
+
+
 # Debug entry point — bypasses scheduler / agent so a developer can validate a
 # single tool against a real URL in seconds:
 #   python -m news_digest.tools.scraping <feed_url> [since_hours]
 #   python -m news_digest.tools.scraping --html <url> [css_selector]
 #   python -m news_digest.tools.scraping --article <url>
+#   python -m news_digest.tools.scraping --pdf <url>
 if __name__ == "__main__":  # pragma: no cover
 
     def _emit(obj: object) -> None:
@@ -663,7 +772,8 @@ if __name__ == "__main__":  # pragma: no cover
             "usage:\n"
             "  python -m news_digest.tools.scraping <feed_url> [since_hours]\n"
             "  python -m news_digest.tools.scraping --html <url> [css_selector]\n"
-            "  python -m news_digest.tools.scraping --article <url>",
+            "  python -m news_digest.tools.scraping --article <url>\n"
+            "  python -m news_digest.tools.scraping --pdf <url>",
             file=sys.stderr,
         )
         sys.exit(2)
@@ -672,6 +782,8 @@ if __name__ == "__main__":  # pragma: no cover
         _emit(fetch_html(_args[1], selector=_args[2] if len(_args) > 2 else None))
     elif _args[0] == "--article":
         _emit(parse_article(_args[1]))
+    elif _args[0] == "--pdf":
+        _emit(fetch_pdf_text(_args[1]))
     else:
         _since = int(_args[1]) if len(_args) > 1 else 24
         _result = fetch_rss(_args[0], since_hours=_since)

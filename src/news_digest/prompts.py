@@ -20,13 +20,16 @@ How to work:
 1. Call list_topics to see the available topics, choose the one whose name best \
 matches what the user asked for, and note its slug. Then call fetch_topic_config \
 with that slug to get the sources and the prompt_hint for this topic.
-2. Gather content from each source:
+2. If the topic's prompt_hint instructs you to deduplicate against another topic, \
+call get_recent_digests with that topic's slug to retrieve its most recent digest. \
+Do not repeat items already covered there.
+3. Gather content from each source:
    - RSS or Atom feeds: call fetch_rss.
    - A specific article page: call parse_article — it returns clean body text \
 with the navigation, ads, and footers already removed, which is what you want.
    - A listing or index page, or when you need the links on a page: call fetch_html.
-3. Read the gathered material and write one coherent digest in your own words.
-4. Call push_to_supabase to publish the finished digest, then log the result.
+4. Read the gathered material and write one coherent digest in your own words.
+5. Call push_to_supabase to publish the finished digest, then log the result.
 
 Writing guidelines:
 - Write in clear, well-organized prose.

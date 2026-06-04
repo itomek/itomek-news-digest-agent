@@ -101,6 +101,8 @@ def test_system_prompt_describes_workflow_without_audio_layer():
     assert "digest" in sp
     assert "list_topics" in sp and "fetch_topic_config" in sp
     assert "why it matters" in sp
+    # dedup step present (issue #16)
+    assert "get_recent_digests" in sp or "deduplicat" in sp
     # audio layer fully removed (issue #7 de-scoped — CLAUDE.md defers delivery)
     assert "audio" not in sp
     assert "read aloud" not in sp

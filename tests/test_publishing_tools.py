@@ -15,6 +15,7 @@ from news_digest.tools import publishing
 from news_digest.tools.publishing import (
     fetch_topic_config,
     get_last_digest_date,
+    get_recent_digests,
     list_topics,
     push_to_supabase,
 )
@@ -275,4 +276,80 @@ def test_list_topics_handles_failure_gracefully(monkeypatch):
     _install_client(monkeypatch, {"raise": RuntimeError("db down")})
     out = list_topics()
     assert out["topics"] == []
+    assert "error" in out
+
+
+# ---------------------------------------------------------------------------
+# get_recent_digests — issue #16
+# ---------------------------------------------------------------------------
+
+
+def test_get_recent_digests_returns_most_recent_first_with_date_and_content(
+    monkeypatch,
+):
+    state = {
+        "rows": {
+            "digests": [
+                {
+                    "topic_slug": "ai_models",
+                    "digest_date": "2026-05-28",
+                    "content": "older content",
+                },
+                {
+                    "topic_slug": "ai_models",
+                    "digest_date": "2026-05-30",
+                    "content": "newer content",
+                },
+                {
+                    "topic_slug": "other_topic",
+                    "digest_date": "2026-05-31",
+                    "content": "other content",
+                },
+            ]
+        }
+    }
+    _install_client(monkeypatch, state)
+    out = get_recent_digests("ai_models", limit=2)
+    assert "digests" in out
+    assert len(out["digests"]) == 2
+    # most-recent-first
+    assert out["digests"][0]["date"] == "2026-05-30"
+    assert out["digests"][0]["content"] == "newer content"
+    assert out["digests"][1]["date"] == "2026-05-28"
+    assert out["digests"][1]["content"] == "older content"
+
+
+def test_get_recent_digests_default_limit_returns_at_most_one(monkeypatch):
+    state = {
+        "rows": {
+            "digests": [
+                {
+                    "topic_slug": "ai_models",
+                    "digest_date": "2026-05-28",
+                    "content": "older content",
+                },
+                {
+                    "topic_slug": "ai_models",
+                    "digest_date": "2026-05-30",
+                    "content": "newer content",
+                },
+            ]
+        }
+    }
+    _install_client(monkeypatch, state)
+    out = get_recent_digests("ai_models")  # default limit=1
+    assert len(out["digests"]) == 1
+    assert out["digests"][0]["date"] == "2026-05-30"
+
+
+def test_get_recent_digests_no_rows_returns_empty_list(monkeypatch):
+    _install_client(monkeypatch, {"rows": {"digests": []}})
+    out = get_recent_digests("ai_models")
+    assert out == {"digests": []}
+
+
+def test_get_recent_digests_handles_exception_without_raising(monkeypatch):
+    _install_client(monkeypatch, {"raise": RuntimeError("db down")})
+    out = get_recent_digests("ai_models")
+    assert out["digests"] == []
     assert "error" in out

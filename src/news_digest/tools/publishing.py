@@ -7,6 +7,7 @@ Tools:
     fetch_topic_config: Get a topic's sources, prompt_hint, cadence, enabled flag.
     push_to_supabase: Upsert a completed digest (idempotent per topic per day).
     get_last_digest_date: Most recent digest date for a topic (None if never).
+    get_recent_digests: Fetch recent digest content for a topic (deduplication).
 
 Auth follows the project's RLS design: reads use the anon key, the digest write
 uses the service-role key. Every tool logs to system_logs and never raises — on
@@ -222,6 +223,56 @@ def push_to_supabase(
         },
     )
     return {"success": True, "id": digest_id, "digest_date": digest_date}
+
+
+@tool
+def get_recent_digests(topic_slug: str, limit: int = 1) -> dict:
+    """Fetch the most recent digest(s) for a topic, including their full content.
+
+    Useful for deduplication: the agent calls this for a sibling topic before
+    writing its own digest, then avoids repeating items already covered there.
+    The limit parameter is kept generic so future topics can retrieve multiple
+    prior digests (e.g. limit=2 for a weekly rolling window).
+
+    Args:
+        topic_slug: The topic slug whose recent digests to fetch.
+        limit: Maximum number of digests to return, ordered most-recent-first.
+
+    Returns:
+        {"digests": [{"date": <iso date>, "content": <text>}, ...]} on success
+        (empty list when no prior digests exist), or
+        {"digests": [], "error": <exception class name>} on failure.
+    """
+    try:
+        resp = (
+            _client()
+            .table("digests")
+            .select("digest_date,content")
+            .eq("topic_slug", topic_slug)
+            .order("digest_date", desc=True)
+            .limit(limit)
+            .execute()
+        )
+    except Exception as exc:
+        log(
+            "warn",
+            "publish",
+            f"get_recent_digests: error for {topic_slug!r}: {exc.__class__.__name__}",
+            topic_slug=topic_slug,
+            metadata={"topic_slug": topic_slug, "error": str(exc)},
+        )
+        return {"digests": [], "error": exc.__class__.__name__}
+
+    rows = resp.data or []
+    digests = [{"date": r["digest_date"], "content": r["content"]} for r in rows]
+    log(
+        "info",
+        "publish",
+        f"get_recent_digests: {topic_slug!r} -> {len(digests)} digest(s)",
+        topic_slug=topic_slug,
+        metadata={"topic_slug": topic_slug, "count": len(digests)},
+    )
+    return {"digests": digests}
 
 
 @tool

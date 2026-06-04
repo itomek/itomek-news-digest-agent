@@ -15,9 +15,9 @@ values (
     {"type": "rss", "url": "https://openai.com/news/rss.xml"},
     {"type": "rss", "url": "https://www.anthropic.com/rss.xml"},
     {"type": "rss", "url": "https://blog.google/technology/ai/rss/"},
-    {"type": "rss", "url": "https://ai.meta.com/blog/feed/"},
+    {"type": "rss", "url": "https://ai.meta.com/blog/rss/"},
     {"type": "html", "url": "https://mistral.ai/news/"},
-    {"type": "rss", "url": "https://community.amd.com/rss/boards/ai"}
+    {"type": "html", "url": "https://www.amd.com/en/blogs/ai.html"}
   ]'::jsonb,
   'Focus on product launches, GA releases, partnerships, funding rounds, pricing changes, and availability announcements from AI companies. Cover business and strategic moves — acquisitions, leadership changes, enterprise deals. De-emphasise pure opinion, speculation, and research-only papers. De-emphasise benchmarks and architectural novelty unless they accompany a released product. Deduplicate against the most recent ai_models digest — do not repeat items already covered there.',
   true

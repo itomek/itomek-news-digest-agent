@@ -1,7 +1,8 @@
 """Tests for src/news_digest/tools/scraping.py — issues #5 (fetch_rss) and #6
-(fetch_html, parse_article)."""
+(fetch_html, parse_article) and #18 (fetch_pdf_text)."""
 
 import hashlib
+import io
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
@@ -12,7 +13,7 @@ import pytest
 
 from news_digest.tools import scraping
 from news_digest.tools.scraping import _validate_url as _REAL_VALIDATE_URL
-from news_digest.tools.scraping import fetch_html, fetch_rss, parse_article
+from news_digest.tools.scraping import fetch_html, fetch_pdf_text, fetch_rss, parse_article
 
 # ---------------------------------------------------------------------------
 # Synthetic feed XML helpers
@@ -930,3 +931,182 @@ def test_parse_article_against_real_page():
     assert "error" not in result
     assert result["title"]
     assert len(result["content"]) > 500
+
+
+# ===========================================================================
+# T10 — fetch_pdf_text (issue #18)
+# ===========================================================================
+
+
+def _make_pdf_bytes(pages: list[str]) -> bytes:
+    """Build a minimal valid PDF with text layers using pypdf's PdfWriter.
+
+    Each element of `pages` becomes the visible text on one page.  The output
+    is a real PDF that PdfReader can parse and extract_text() can read back —
+    no third-party fixture files needed.
+    """
+    from pypdf import PdfWriter
+
+    writer = PdfWriter()
+    for text in pages:
+        page = writer.add_blank_page(width=612, height=792)
+        page.compress_content_streams()
+        # Add a raw content stream with a simple text object.
+        stream = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode()
+        # PdfWriter doesn't have a high-level add_text API, so we inject the
+        # stream directly; /F1 may not resolve but extract_text still returns
+        # the string from the Tj operand.
+        from pypdf.generic import DecodedStreamObject, NameObject
+
+        content_obj = DecodedStreamObject()
+        content_obj.set_data(stream)
+        page[NameObject("/Contents")] = writer._add_object(content_obj)
+    buf = io.BytesIO()
+    writer.write(buf)
+    return buf.getvalue()
+
+
+def test_fetch_pdf_text_is_tool_with_doc_preserved():
+    assert callable(fetch_pdf_text)
+    assert fetch_pdf_text.__doc__ is not None
+    assert "url" in fetch_pdf_text.__doc__.lower()
+    assert "Returns:" in fetch_pdf_text.__doc__
+
+
+def test_fetch_pdf_text_returns_expected_keys(monkeypatch):
+    pdf = _make_pdf_bytes(["Hello world"])
+    _patch_make_client(monkeypatch, lambda req: _ok_response(pdf))
+
+    result = fetch_pdf_text("https://example.com/doc.pdf")
+
+    assert set(result.keys()) == {"title", "content", "url", "fetched_at", "pages"}
+    assert result["url"] == "https://example.com/doc.pdf"
+    assert isinstance(result["pages"], int)
+    assert isinstance(datetime.fromisoformat(result["fetched_at"]), datetime)
+
+
+def test_fetch_pdf_text_extracts_text_from_multi_page_pdf(monkeypatch):
+    pdf = _make_pdf_bytes(["Page one text", "Page two text"])
+    _patch_make_client(monkeypatch, lambda req: _ok_response(pdf))
+
+    result = fetch_pdf_text("https://example.com/two-pages.pdf")
+
+    assert "error" not in result
+    assert result["pages"] == 2
+    # Both pages' text must be present in content.
+    assert "Page one text" in result["content"]
+    assert "Page two text" in result["content"]
+    assert len(result["content"]) > 0
+
+
+def test_fetch_pdf_text_never_raises_on_corrupt_bytes(monkeypatch):
+    _patch_make_client(monkeypatch, lambda req: _ok_response(b"not a pdf at all"))
+
+    result = fetch_pdf_text("https://example.com/bad.pdf")
+
+    assert result["content"] == ""
+    assert "error" in result
+    assert result["pages"] == 0
+
+
+def test_fetch_pdf_text_corrupt_returns_pdf_parse_error(monkeypatch, mock_log):
+    _patch_make_client(monkeypatch, lambda req: _ok_response(b"%%garbage"))
+
+    result = fetch_pdf_text("https://example.com/bad.pdf")
+
+    assert result["content"] == ""
+    assert "error" in result
+    # The tool must log a warn for parse failures.
+    warn_calls = [c for c in mock_log.call_args_list if c.args[0] == "warn"]
+    assert len(warn_calls) >= 1
+
+
+def test_fetch_pdf_text_image_only_pdf_returns_no_text_error(monkeypatch, mock_log):
+    """A valid PDF that yields no extractable text (e.g. scanned image) must
+    return error='no_text' and log at info level, not warn."""
+    # Build a valid PDF where extract_text() returns "" for every page.
+    # We achieve this by making a real PDF but monkeypatching _extract_pdf_text
+    # to simulate the image-only case — this tests the tool's branching, not pypdf.
+    pdf = _make_pdf_bytes(["real text"])
+    _patch_make_client(monkeypatch, lambda req: _ok_response(pdf))
+    monkeypatch.setattr(scraping, "_extract_pdf_text", lambda raw: ("", 1))
+
+    result = fetch_pdf_text("https://example.com/scanned.pdf")
+
+    assert result["error"] == "no_text"
+    assert result["content"] == ""
+    assert result["pages"] == 1
+    info_calls = [c for c in mock_log.call_args_list if c.args[0] == "info"]
+    assert any("no_text" in c.args[2] for c in info_calls)
+
+
+def test_fetch_pdf_text_propagates_fetch_error(monkeypatch):
+    handler = _counting_handler([httpx.Response(404)])
+    _patch_make_client(monkeypatch, handler)
+
+    result = fetch_pdf_text("https://example.com/missing.pdf")
+
+    assert result["error"] == "http_404"
+    assert result["content"] == ""
+    assert result["pages"] == 0
+    assert handler.calls["i"] == 1
+
+
+def test_fetch_pdf_text_propagates_retry_exhaustion(monkeypatch):
+    def raise_connect(req):
+        raise httpx.ConnectError("timeout")
+
+    handler = _counting_handler([raise_connect])
+    _patch_make_client(monkeypatch, handler)
+
+    result = fetch_pdf_text("https://example.com/slow.pdf")
+
+    assert result["content"] == ""
+    assert "error" in result
+    # Must not raise
+    assert isinstance(result, dict)
+
+
+def test_fetch_pdf_text_rejects_unsafe_url(monkeypatch, mock_log):
+    monkeypatch.setattr(scraping, "_validate_url", _REAL_VALIDATE_URL)
+    handler = _counting_handler([_ok_response(b"%PDF")])
+    _patch_make_client(monkeypatch, handler)
+
+    result = fetch_pdf_text("http://127.0.0.1/admin.pdf")
+
+    assert result["error"].startswith("unsafe_url")
+    assert result["content"] == ""
+    assert result["pages"] == 0
+    assert handler.calls["i"] == 0  # never reached the network
+
+
+def test_fetch_pdf_text_truncates_very_long_content(monkeypatch, mock_log):
+    """Content exceeding _PDF_MAX_CHARS must be truncated and a warn logged."""
+    # Build a pdf; then monkeypatch _extract_pdf_text to return a very long string.
+    pdf = _make_pdf_bytes(["x"])
+    _patch_make_client(monkeypatch, lambda req: _ok_response(pdf))
+    long_text = "A" * (210_000)
+    monkeypatch.setattr(scraping, "_extract_pdf_text", lambda raw: (long_text, 1))
+
+    result = fetch_pdf_text("https://example.com/long.pdf")
+
+    assert len(result["content"]) <= scraping._PDF_MAX_CHARS
+    warn_calls = [c for c in mock_log.call_args_list if c.args[0] == "warn"]
+    assert any("truncat" in c.args[2].lower() for c in warn_calls)
+
+
+# ---------------------------------------------------------------------------
+# Integration — real PDF fetch (host-only)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_fetch_pdf_text_against_real_pdf():
+    """Fetch a stable, small public PDF and assert non-empty text extraction."""
+    # W3C spec PDF — stable, small, text-layer present.
+    result = fetch_pdf_text(
+        "https://www.w3.org/WAI/WCAG21/Techniques/pdf/PDF1.pdf"
+    )
+    assert "error" not in result
+    assert result["pages"] >= 1
+    assert len(result["content"]) > 50

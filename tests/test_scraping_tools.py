@@ -2,7 +2,6 @@
 (fetch_html, parse_article) and #18 (fetch_pdf_text)."""
 
 import hashlib
-import io
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
@@ -944,31 +943,109 @@ def test_parse_article_against_real_page():
 
 
 def _make_pdf_bytes(pages: list[str]) -> bytes:
-    """Build a minimal valid PDF with text layers using pypdf's PdfWriter.
+    """Build a minimal hand-rolled PDF with text-layer content for each page.
 
-    Each element of `pages` becomes the visible text on one page.  The output
-    is a real PDF that PdfReader can parse and extract_text() can read back —
-    no third-party fixture files needed.
+    Uses raw PDF syntax (no pypdf writer internals) so the output is stable
+    across pypdf versions.  pypdf's extract_text() reliably recovers ASCII text
+    from the Tj operator in a BT/ET block — this is the same pattern pypdf's
+    own test suite uses for synthetic PDFs.
+
+    Each element of `pages` becomes the ASCII text on one page.  Stick to
+    plain ASCII — no parens, no backslash — in test strings.
     """
-    from pypdf import PdfWriter
+    # We build a single-page or multi-page PDF by hand.  The structure is:
+    #   header, N content streams, N page objects, pages tree, catalog, xref, trailer.
+    parts: list[bytes] = []
+    offsets: list[int] = []
+    pos = 0
 
-    writer = PdfWriter()
-    for text in pages:
-        page = writer.add_blank_page(width=612, height=792)
-        page.compress_content_streams()
-        # Add a raw content stream with a simple text object.
-        stream = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode()
-        # PdfWriter doesn't have a high-level add_text API, so we inject the
-        # stream directly; /F1 may not resolve but extract_text still returns
-        # the string from the Tj operand.
-        from pypdf.generic import DecodedStreamObject, NameObject
+    header = b"%PDF-1.4\n"
+    parts.append(header)
+    pos += len(header)
 
-        content_obj = DecodedStreamObject()
-        content_obj.set_data(stream)
-        page[NameObject("/Contents")] = writer._add_object(content_obj)
-    buf = io.BytesIO()
-    writer.write(buf)
-    return buf.getvalue()
+    # Object numbering: 1=catalog, 2=pages, 3..N+2=page objects, N+3..2N+2=streams
+    n = len(pages)
+    catalog_obj_id = 1
+    pages_obj_id = 2
+    first_page_obj_id = 3
+    first_stream_obj_id = 3 + n
+
+    # Content stream objects (one per page).
+    stream_obj_ids: list[int] = []
+    for i, text in enumerate(pages):
+        obj_id = first_stream_obj_id + i
+        stream_obj_ids.append(obj_id)
+        content = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET\n".encode()
+        obj_bytes = (
+            (f"{obj_id} 0 obj\n<< /Length {len(content)} >>\nstream\n").encode()
+            + content
+            + b"endstream\nendobj\n"
+        )
+        offsets.append(pos)
+        parts.append(obj_bytes)
+        pos += len(obj_bytes)
+
+    # Page objects.
+    page_obj_ids: list[int] = []
+    for i in range(n):
+        obj_id = first_page_obj_id + i
+        page_obj_ids.append(obj_id)
+        obj_bytes = (
+            f"{obj_id} 0 obj\n"
+            f"<< /Type /Page /Parent {pages_obj_id} 0 R "
+            f"/MediaBox [0 0 612 792] "
+            f"/Contents {stream_obj_ids[i]} 0 R "
+            f"/Resources << /Font << /F1 << /Type /Font /Subtype /Type1 "
+            f"/BaseFont /Helvetica >> >> >> >>\n"
+            f">>\nendobj\n"
+        ).encode()
+        offsets.append(pos)
+        parts.append(obj_bytes)
+        pos += len(obj_bytes)
+
+    # Pages dictionary.
+    kids = " ".join(f"{oid} 0 R" for oid in page_obj_ids)
+    pages_bytes = (
+        f"{pages_obj_id} 0 obj\n<< /Type /Pages /Kids [{kids}] /Count {n} >>\nendobj\n"
+    ).encode()
+    offsets.append(pos)
+    parts.append(pages_bytes)
+    pos += len(pages_bytes)
+
+    # Catalog.
+    catalog_bytes = (
+        f"{catalog_obj_id} 0 obj\n"
+        f"<< /Type /Catalog /Pages {pages_obj_id} 0 R >>\n"
+        f"endobj\n"
+    ).encode()
+    offsets.append(pos)
+    parts.append(catalog_bytes)
+    pos += len(catalog_bytes)
+
+    # xref + trailer.
+    total_objects = 2 * n + 2  # streams + pages + pages_dict + catalog
+    xref_offset = pos
+    # Build a lookup: obj_id -> byte offset.
+    # Order: stream objects, page objects, pages, catalog.
+    id_to_offset: dict[int, int] = {}
+    for i, obj_id in enumerate(stream_obj_ids):
+        id_to_offset[obj_id] = offsets[i]
+    for i, obj_id in enumerate(page_obj_ids):
+        id_to_offset[obj_id] = offsets[n + i]
+    id_to_offset[pages_obj_id] = offsets[2 * n]
+    id_to_offset[catalog_obj_id] = offsets[2 * n + 1]
+
+    xref = f"xref\n0 {total_objects + 1}\n"
+    xref += "0000000000 65535 f \n"
+    for obj_id in range(1, total_objects + 1):
+        xref += f"{id_to_offset[obj_id]:010d} 00000 n \n"
+    trailer = (
+        f"trailer\n<< /Size {total_objects + 1} /Root {catalog_obj_id} 0 R >>\n"
+        f"startxref\n{xref_offset}\n%%EOF\n"
+    )
+    parts.append(xref.encode() + trailer.encode())
+
+    return b"".join(parts)
 
 
 def test_fetch_pdf_text_is_tool_with_doc_preserved():

@@ -1,5 +1,5 @@
 """Tests for src/news_digest/tools/scraping.py — issues #5 (fetch_rss) and #6
-(fetch_html, parse_article)."""
+(fetch_html, parse_article) and #18 (fetch_pdf_text)."""
 
 import hashlib
 from collections import Counter
@@ -12,7 +12,12 @@ import pytest
 
 from news_digest.tools import scraping
 from news_digest.tools.scraping import _validate_url as _REAL_VALIDATE_URL
-from news_digest.tools.scraping import fetch_html, fetch_rss, parse_article
+from news_digest.tools.scraping import (
+    fetch_html,
+    fetch_pdf_text,
+    fetch_rss,
+    parse_article,
+)
 
 # ---------------------------------------------------------------------------
 # Synthetic feed XML helpers
@@ -930,3 +935,258 @@ def test_parse_article_against_real_page():
     assert "error" not in result
     assert result["title"]
     assert len(result["content"]) > 500
+
+
+# ===========================================================================
+# T10 — fetch_pdf_text (issue #18)
+# ===========================================================================
+
+
+def _make_pdf_bytes(pages: list[str]) -> bytes:
+    """Build a minimal hand-rolled PDF with text-layer content for each page.
+
+    Uses raw PDF syntax (no pypdf writer internals) so the output is stable
+    across pypdf versions.  pypdf's extract_text() reliably recovers ASCII text
+    from the Tj operator in a BT/ET block — this is the same pattern pypdf's
+    own test suite uses for synthetic PDFs.
+
+    Each element of `pages` becomes the ASCII text on one page.  Stick to
+    plain ASCII — no parens, no backslash — in test strings.
+    """
+    # We build a single-page or multi-page PDF by hand.  The structure is:
+    #   header, N content streams, N page objects, pages tree, catalog, xref, trailer.
+    parts: list[bytes] = []
+    offsets: list[int] = []
+    pos = 0
+
+    header = b"%PDF-1.4\n"
+    parts.append(header)
+    pos += len(header)
+
+    # Object numbering: 1=catalog, 2=pages, 3..N+2=page objects, N+3..2N+2=streams
+    n = len(pages)
+    catalog_obj_id = 1
+    pages_obj_id = 2
+    first_page_obj_id = 3
+    first_stream_obj_id = 3 + n
+
+    # Content stream objects (one per page).
+    stream_obj_ids: list[int] = []
+    for i, text in enumerate(pages):
+        obj_id = first_stream_obj_id + i
+        stream_obj_ids.append(obj_id)
+        content = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET\n".encode()
+        obj_bytes = (
+            (f"{obj_id} 0 obj\n<< /Length {len(content)} >>\nstream\n").encode()
+            + content
+            + b"endstream\nendobj\n"
+        )
+        offsets.append(pos)
+        parts.append(obj_bytes)
+        pos += len(obj_bytes)
+
+    # Page objects.
+    page_obj_ids: list[int] = []
+    for i in range(n):
+        obj_id = first_page_obj_id + i
+        page_obj_ids.append(obj_id)
+        obj_bytes = (
+            f"{obj_id} 0 obj\n"
+            f"<< /Type /Page /Parent {pages_obj_id} 0 R "
+            f"/MediaBox [0 0 612 792] "
+            f"/Contents {stream_obj_ids[i]} 0 R "
+            f"/Resources << /Font << /F1 << /Type /Font /Subtype /Type1 "
+            f"/BaseFont /Helvetica >> >> >> >>\n"
+            f">>\nendobj\n"
+        ).encode()
+        offsets.append(pos)
+        parts.append(obj_bytes)
+        pos += len(obj_bytes)
+
+    # Pages dictionary.
+    kids = " ".join(f"{oid} 0 R" for oid in page_obj_ids)
+    pages_bytes = (
+        f"{pages_obj_id} 0 obj\n<< /Type /Pages /Kids [{kids}] /Count {n} >>\nendobj\n"
+    ).encode()
+    offsets.append(pos)
+    parts.append(pages_bytes)
+    pos += len(pages_bytes)
+
+    # Catalog.
+    catalog_bytes = (
+        f"{catalog_obj_id} 0 obj\n"
+        f"<< /Type /Catalog /Pages {pages_obj_id} 0 R >>\n"
+        f"endobj\n"
+    ).encode()
+    offsets.append(pos)
+    parts.append(catalog_bytes)
+    pos += len(catalog_bytes)
+
+    # xref + trailer.
+    total_objects = 2 * n + 2  # streams + pages + pages_dict + catalog
+    xref_offset = pos
+    # Build a lookup: obj_id -> byte offset.
+    # Order: stream objects, page objects, pages, catalog.
+    id_to_offset: dict[int, int] = {}
+    for i, obj_id in enumerate(stream_obj_ids):
+        id_to_offset[obj_id] = offsets[i]
+    for i, obj_id in enumerate(page_obj_ids):
+        id_to_offset[obj_id] = offsets[n + i]
+    id_to_offset[pages_obj_id] = offsets[2 * n]
+    id_to_offset[catalog_obj_id] = offsets[2 * n + 1]
+
+    xref = f"xref\n0 {total_objects + 1}\n"
+    xref += "0000000000 65535 f \n"
+    for obj_id in range(1, total_objects + 1):
+        xref += f"{id_to_offset[obj_id]:010d} 00000 n \n"
+    trailer = (
+        f"trailer\n<< /Size {total_objects + 1} /Root {catalog_obj_id} 0 R >>\n"
+        f"startxref\n{xref_offset}\n%%EOF\n"
+    )
+    parts.append(xref.encode() + trailer.encode())
+
+    return b"".join(parts)
+
+
+def test_fetch_pdf_text_is_tool_with_doc_preserved():
+    assert callable(fetch_pdf_text)
+    assert fetch_pdf_text.__doc__ is not None
+    assert "url" in fetch_pdf_text.__doc__.lower()
+    assert "Returns:" in fetch_pdf_text.__doc__
+
+
+def test_fetch_pdf_text_returns_expected_keys(monkeypatch):
+    pdf = _make_pdf_bytes(["Hello world"])
+    _patch_make_client(monkeypatch, lambda req: _ok_response(pdf))
+
+    result = fetch_pdf_text("https://example.com/doc.pdf")
+
+    assert set(result.keys()) == {"title", "content", "url", "fetched_at", "pages"}
+    assert result["url"] == "https://example.com/doc.pdf"
+    assert isinstance(result["pages"], int)
+    assert isinstance(datetime.fromisoformat(result["fetched_at"]), datetime)
+
+
+def test_fetch_pdf_text_extracts_text_from_multi_page_pdf(monkeypatch):
+    pdf = _make_pdf_bytes(["Page one text", "Page two text"])
+    _patch_make_client(monkeypatch, lambda req: _ok_response(pdf))
+
+    result = fetch_pdf_text("https://example.com/two-pages.pdf")
+
+    assert "error" not in result
+    assert result["pages"] == 2
+    # Both pages' text must be present in content.
+    assert "Page one text" in result["content"]
+    assert "Page two text" in result["content"]
+    assert len(result["content"]) > 0
+
+
+def test_fetch_pdf_text_never_raises_on_corrupt_bytes(monkeypatch):
+    _patch_make_client(monkeypatch, lambda req: _ok_response(b"not a pdf at all"))
+
+    result = fetch_pdf_text("https://example.com/bad.pdf")
+
+    assert result["content"] == ""
+    assert "error" in result
+    assert result["pages"] == 0
+
+
+def test_fetch_pdf_text_corrupt_returns_pdf_parse_error(monkeypatch, mock_log):
+    _patch_make_client(monkeypatch, lambda req: _ok_response(b"%%garbage"))
+
+    result = fetch_pdf_text("https://example.com/bad.pdf")
+
+    assert result["content"] == ""
+    assert "error" in result
+    # The tool must log a warn for parse failures.
+    warn_calls = [c for c in mock_log.call_args_list if c.args[0] == "warn"]
+    assert len(warn_calls) >= 1
+
+
+def test_fetch_pdf_text_image_only_pdf_returns_no_text_error(monkeypatch, mock_log):
+    """A valid PDF that yields no extractable text (e.g. scanned image) must
+    return error='no_text' and log at info level, not warn."""
+    # Build a valid PDF where extract_text() returns "" for every page.
+    # We achieve this by making a real PDF but monkeypatching _extract_pdf_text
+    # to simulate the image-only case — this tests the tool's branching, not pypdf.
+    pdf = _make_pdf_bytes(["real text"])
+    _patch_make_client(monkeypatch, lambda req: _ok_response(pdf))
+    monkeypatch.setattr(scraping, "_extract_pdf_text", lambda raw: ("", 1))
+
+    result = fetch_pdf_text("https://example.com/scanned.pdf")
+
+    assert result["error"] == "no_text"
+    assert result["content"] == ""
+    assert result["pages"] == 1
+    info_calls = [c for c in mock_log.call_args_list if c.args[0] == "info"]
+    assert any("no_text" in c.args[2] for c in info_calls)
+
+
+def test_fetch_pdf_text_propagates_fetch_error(monkeypatch):
+    handler = _counting_handler([httpx.Response(404)])
+    _patch_make_client(monkeypatch, handler)
+
+    result = fetch_pdf_text("https://example.com/missing.pdf")
+
+    assert result["error"] == "http_404"
+    assert result["content"] == ""
+    assert result["pages"] == 0
+    assert handler.calls["i"] == 1
+
+
+def test_fetch_pdf_text_propagates_retry_exhaustion(monkeypatch):
+    def raise_connect(req):
+        raise httpx.ConnectError("timeout")
+
+    handler = _counting_handler([raise_connect])
+    _patch_make_client(monkeypatch, handler)
+
+    result = fetch_pdf_text("https://example.com/slow.pdf")
+
+    assert result["content"] == ""
+    assert "error" in result
+    # Must not raise
+    assert isinstance(result, dict)
+
+
+def test_fetch_pdf_text_rejects_unsafe_url(monkeypatch, mock_log):
+    monkeypatch.setattr(scraping, "_validate_url", _REAL_VALIDATE_URL)
+    handler = _counting_handler([_ok_response(b"%PDF")])
+    _patch_make_client(monkeypatch, handler)
+
+    result = fetch_pdf_text("http://127.0.0.1/admin.pdf")
+
+    assert result["error"].startswith("unsafe_url")
+    assert result["content"] == ""
+    assert result["pages"] == 0
+    assert handler.calls["i"] == 0  # never reached the network
+
+
+def test_fetch_pdf_text_truncates_very_long_content(monkeypatch, mock_log):
+    """Content exceeding _PDF_MAX_CHARS must be truncated and a warn logged."""
+    # Build a pdf; then monkeypatch _extract_pdf_text to return a very long string.
+    pdf = _make_pdf_bytes(["x"])
+    _patch_make_client(monkeypatch, lambda req: _ok_response(pdf))
+    long_text = "A" * (210_000)
+    monkeypatch.setattr(scraping, "_extract_pdf_text", lambda raw: (long_text, 1))
+
+    result = fetch_pdf_text("https://example.com/long.pdf")
+
+    assert len(result["content"]) <= scraping._PDF_MAX_CHARS
+    warn_calls = [c for c in mock_log.call_args_list if c.args[0] == "warn"]
+    assert any("truncat" in c.args[2].lower() for c in warn_calls)
+
+
+# ---------------------------------------------------------------------------
+# Integration — real PDF fetch (host-only)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_fetch_pdf_text_against_real_pdf():
+    """Fetch a stable, small public PDF and assert non-empty text extraction."""
+    # W3C spec PDF — stable, small, text-layer present.
+    result = fetch_pdf_text("https://www.w3.org/WAI/WCAG21/Techniques/pdf/PDF1.pdf")
+    assert "error" not in result
+    assert result["pages"] >= 1
+    assert len(result["content"]) > 50

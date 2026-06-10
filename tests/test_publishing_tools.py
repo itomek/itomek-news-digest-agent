@@ -248,7 +248,9 @@ def test_push_to_supabase_items_persisted_unchanged(monkeypatch):
 
 def test_push_to_supabase_unknown_topic_returns_failure(monkeypatch):
     _install_client(monkeypatch, {"rows": {"digest_topics": []}})
-    result = push_to_supabase("ghost", summary="x", items=[], sources_used=[], token_count=0)
+    result = push_to_supabase(
+        "ghost", summary="x", items=[], sources_used=[], token_count=0
+    )
     assert result["success"] is False
     assert "error" in result
 
@@ -260,7 +262,9 @@ def test_push_to_supabase_handles_db_failure_gracefully(monkeypatch):
         {"slug": "ai_models", "cadence": "24h"},
     )
     _install_client(monkeypatch, {"raise": RuntimeError("db down")})
-    result = push_to_supabase("ai_models", summary="x", items=[], sources_used=[], token_count=0)
+    result = push_to_supabase(
+        "ai_models", summary="x", items=[], sources_used=[], token_count=0
+    )
     assert result["success"] is False
     assert "error" in result
 

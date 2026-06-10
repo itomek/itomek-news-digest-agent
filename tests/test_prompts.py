@@ -151,6 +151,7 @@ def test_enforce_length_reprompts_once_when_too_short():
     result = enforce_length(summary, items, regen)
     assert len(calls) == 1
     assert "short" in calls[0].lower()
+    assert result[0] == "a much longer result"
 
 
 def test_enforce_length_reprompts_at_most_once_even_if_still_out_of_range():

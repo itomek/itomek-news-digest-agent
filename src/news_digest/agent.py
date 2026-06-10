@@ -168,9 +168,11 @@ class NewsDigestAgent(Agent, DatabaseMixin):
         self.init_db(settings.sqlite_path)
 
     def _force_no_thinking(self) -> None:
-        """Inject chat_template_kwargs={'enable_thinking': False} on every LLM
-        call by wrapping the chat SDK send methods (process_query passes no extra
-        kwargs, so this is the single safe seam)."""
+        """Wrap the chat SDK send methods to (1) disable model "thinking" output
+        (it emits empty content and breaks GAIA's JSON-in-content tool parsing)
+        and (2) raise max_tokens to 4096. The chat SDK default is 512 (gaia
+        chat/sdk.py), which truncates a structured digest mid-JSON. process_query
+        passes no extra kwargs, so this wrap is the single safe seam for both."""
 
         def _wrap(method):
             def _inner(messages, system_prompt=None, **kw):
@@ -178,6 +180,9 @@ class NewsDigestAgent(Agent, DatabaseMixin):
                 # can never silently drop enable_thinking.
                 ctk = kw.setdefault("chat_template_kwargs", {})
                 ctk.setdefault("enable_thinking", False)
+                # Structured digests exceed the SDK's 512-token default; give the
+                # model room to emit the full summary + items JSON.
+                kw.setdefault("max_tokens", 4096)
                 return method(messages, system_prompt=system_prompt, **kw)
 
             return _inner

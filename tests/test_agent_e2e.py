@@ -65,7 +65,9 @@ def test_ensure_context_window_loads_model_with_large_ctx(monkeypatch):
         def __init__(self, base_url=None, **kw):
             captured["base_url"] = base_url
 
-        def load_model(self, model_name, ctx_size=None, save_options=False, prompt=True):
+        def load_model(
+            self, model_name, ctx_size=None, save_options=False, prompt=True
+        ):
             captured.update(
                 model_name=model_name,
                 ctx_size=ctx_size,

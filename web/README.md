@@ -42,6 +42,23 @@ npm run dev            # http://localhost:5173
 | `npm run test:unit`| Vitest (pure logic: auth/MFA gate, TOTP, grouping, query) |
 | `npm run test:e2e` | Playwright against the built app (real Supabase)      |
 
+### e2e and authenticated reads
+
+Reads are RLS-gated to the **`authenticated`** role (`supabase/migrations/0006`), so any
+spec that reads real digests needs a genuine signed-in session at **AAL2**. Those specs
+(`digest-render`, the live `history` test, `playback`, and `mfa`) run only when a test
+account is provided, and **skip cleanly otherwise**:
+
+| Var                    | Purpose                                              |
+| ---------------------- | ---------------------------------------------------- |
+| `MFA_TEST_EMAIL`       | Test account email                                   |
+| `MFA_TEST_PASSWORD`    | Test account password                                |
+| `MFA_TEST_TOTP_SECRET` | Base32 secret of the account's verified TOTP factor  |
+
+Set them locally in `web/.env`, or as repo secrets for CI (`.github/workflows/web.yml`
+passes them through). The fixture-mode `history` specs and the unauthenticated-gate
+specs need no credentials — they don't read live data.
+
 ## Architecture & extension points
 
 The app is intentionally split so issues **#11 (TTS)** and **#12 (history)** can be built
@@ -86,7 +103,8 @@ pre-existing account can ever log in.
 
 `src/lib/auth.ts` holds all wrappers (sign-in, MFA enroll, challenge, change-password) and
 the pure gate predicates (`hasValidSession`, `isMfaSatisfied`, `nextGateStep`). Data access
-is RLS-gated with the anon key regardless of auth state.
+is RLS-gated to the **`authenticated`** role: reads require a signed-in session, and the
+publishable key alone (anon role) sees nothing.
 
 ### Login flow
 

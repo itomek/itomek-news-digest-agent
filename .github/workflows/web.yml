@@ -21,6 +21,12 @@ jobs:
     env:
       VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://eedfyviypptfpghyffip.supabase.co' }}
       VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'sb_publishable_CCE4uRqvWCAonhnDis0BZQ_ixrd0jl2' }}
+      # Live authenticated-read e2e specs (digest render, history live, playback) run
+      # only when all three are set; otherwise they skip cleanly. Reads are RLS-gated
+      # to the `authenticated` role, so they need a real test account + its TOTP secret.
+      MFA_TEST_EMAIL: ${{ secrets.MFA_TEST_EMAIL }}
+      MFA_TEST_PASSWORD: ${{ secrets.MFA_TEST_PASSWORD }}
+      MFA_TEST_TOTP_SECRET: ${{ secrets.MFA_TEST_TOTP_SECRET }}
     steps:
       - uses: actions/checkout@v4
 

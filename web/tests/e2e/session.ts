@@ -1,14 +1,16 @@
 import type { Page } from "@playwright/test";
 
-// Supabase-js v2 persists the session in localStorage under
-// `sb-<projectRef>-auth-token`. The home page guard only checks that a
-// structurally-valid, non-expired session exists (hasValidSession).
+// GATE-ONLY seeded session. Supabase-js v2 persists the session in localStorage
+// under `sb-<projectRef>-auth-token`; the app's gate treats a structurally-valid,
+// non-expired session whose access_token can't be decoded as a JWT as "MFA satisfied"
+// (see src/lib/auth.ts getAalState), so this is enough to pass the auth gate.
 //
-// We set the session's access_token to the project's PUBLISHABLE/ANON key. When a
-// session is present, supabase-js sends access_token as the Bearer; PostgREST
-// accepts the publishable key and resolves to the anon role, so RLS-gated reads
-// (anon SELECT on digests/topics) succeed against REAL Supabase — no mocks, no
-// forged JWT. This exercises the authenticated render path end-to-end.
+// IMPORTANT: the access_token here is the PUBLISHABLE/ANON key, so any actual reads
+// resolve to the `anon` role at PostgREST. Since reads are RLS-gated to the
+// `authenticated` role (supabase/migrations/0006), seeded sessions CANNOT read live
+// digests. Use this ONLY for specs that don't hit the network for data — i.e. the
+// `?fixture=` history specs and the unauthenticated-gate checks. Specs that read real
+// data must use signInAal2() from ./live-auth instead.
 
 function projectRef(supabaseUrl: string): string {
   return new URL(supabaseUrl).host.split(".")[0];

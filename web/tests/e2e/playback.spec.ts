@@ -1,8 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
-import { seedSession } from "./session";
+import { LIVE_AUTH, LIVE_AUTH_SKIP, signInAal2 } from "./live-auth";
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL ?? "https://eedfyviypptfpghyffip.supabase.co";
-const ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY ?? "sb_publishable_CCE4uRqvWCAonhnDis0BZQ_ixrd0jl2";
+// Playback renders over real digests read from Supabase, so it needs a genuine
+// authenticated (AAL2) session — RLS gates reads to the `authenticated` role.
+test.skip(!LIVE_AUTH, LIVE_AUTH_SKIP);
 
 // Stub the Web Speech API before any app code runs. Headless chromium emits no
 // audio, so we record speak/pause/cancel calls and let tests fire `onend` to
@@ -78,7 +79,7 @@ async function stubSpeech(page: Page): Promise<void> {
 
 async function gotoApp(page: Page): Promise<void> {
   await stubSpeech(page);
-  await seedSession(page, SUPABASE_URL, ANON_KEY);
+  await signInAal2(page);
   await page.goto("/");
   await expect(page.locator(".digest-card").first()).toBeVisible({ timeout: 15_000 });
 }

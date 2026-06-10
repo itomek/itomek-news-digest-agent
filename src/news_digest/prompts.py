@@ -4,17 +4,18 @@ The system prompt defines the agent's overall behavior. Per-topic prompt_hints
 come from the Supabase digest_topics table and are injected at runtime.
 
 The agent IS the summarizer (see CLAUDE.md): its native reasoning, steered by
-SYSTEM_PROMPT plus the topic prompt_hint, produces the digest. enforce_length
-keeps the output within a target word range. Output is plain text; the delivery
-and formatting concern is intentionally deferred (CLAUDE.md), so the prompt does
+SYSTEM_PROMPT plus the topic prompt_hint, produces the structured digest.
+enforce_length keeps the output within a target word range, measuring over the
+flattened prose representation. Output is plain text; the delivery and
+formatting concern is intentionally deferred (CLAUDE.md), so the prompt does
 not optimize for any particular medium.
 """
 
 import hashlib
 from collections.abc import Callable
 
-SYSTEM_PROMPT = """You are a news digest agent. You produce a concise, readable \
-news digest from a set of curated sources.
+SYSTEM_PROMPT = """You are a news digest agent. You produce a structured, \
+readable news digest from a set of curated sources.
 
 How to work:
 1. Call list_topics to see the available topics, choose the one whose name best \
@@ -28,17 +29,29 @@ Do not repeat items already covered there.
    - A specific article page: call parse_article — it returns clean body text \
 with the navigation, ads, and footers already removed, which is what you want.
    - A listing or index page, or when you need the links on a page: call fetch_html.
-4. Read the gathered material and write one coherent digest in your own words.
-5. Call push_to_supabase to publish the finished digest, then log the result.
+4. Read the gathered material and compose a structured digest:
+   - A short top-level summary: one or two sentences capturing the most important \
+theme or development across all items.
+   - A ranked list of items. Each item must have:
+     - "headline": a single descriptive line.
+     - "blurb": one or two sentences describing what happened (shown to the reader \
+in the collapsed view).
+     - "detail": a fuller paragraph explaining why it matters, with specifics and \
+numbers where available (shown when the reader expands the item).
+     - "metadata": an object with a "sources" array of objects, each with a "title" \
+and a "url" (for example: [{"title": "AI Blog", "url": "https://example.com"}]). \
+Put source links only here — keep summary, blurb, and detail as clean prose with \
+no raw URLs. You may also include an optional "tags" array of short strings.
+   Rank items by significance. Explain why each item matters in the detail field. \
+Stay factual and grounded in the gathered material. Never invent facts that \
+were not in the sources. Skip dead sources and continue with the others.
+5. Call push_to_supabase(topic_slug, summary, items, sources_used, token_count) \
+to publish the finished digest, then log the result.
 
 Writing guidelines:
-- Write in clear, well-organized prose.
-- Lead with the most significant item, then move to the next most important. For \
-each item, explain what happened and why it matters. Do not try to cover \
-everything; choose the items worth the reader's time.
-- Stay factual and grounded in the gathered material. Never invent facts that \
-were not in the sources.
-- Aim for roughly 500 to 800 words.
+- Lead with the most significant item.
+- Aim for a summary of one to two sentences and roughly three to seven items.
+- Keep blurb concise (one to two sentences); use detail for context and numbers.
 - If a source is unreachable or returns nothing useful, skip it and continue with \
 the others."""
 
@@ -51,37 +64,71 @@ def count_words(text: str) -> int:
     return len(text.split())
 
 
+def flatten_digest(summary: str, items: list[dict]) -> str:
+    """Produce a flat TTS-safe prose string from structured digest data.
+
+    Generates the summary paragraph followed by one short paragraph per item
+    (headline and blurb, with detail appended where present). Plain prose only —
+    no URLs, no markdown. This is the canonical source of the ``content`` column.
+
+    Args:
+        summary: The top-level overview sentence(s).
+        items: Ranked list of digest item dicts, each optionally containing
+            ``headline``, ``blurb``, and ``detail`` keys.
+
+    Returns:
+        A single plain-prose string suitable for TTS consumption.
+    """
+    parts: list[str] = []
+    if summary:
+        parts.append(summary.strip())
+    for item in items:
+        headline = item.get("headline", "")
+        blurb = item.get("blurb", "")
+        detail = item.get("detail", "")
+        segments = [s.strip() for s in (headline, blurb, detail) if s and s.strip()]
+        if segments:
+            parts.append(" ".join(segments))
+    return "\n\n".join(parts)
+
+
 def enforce_length(
-    text: str,
-    regenerate: Callable[[str], str],
+    summary: str,
+    items: list[dict],
+    regenerate: Callable[[str], dict],
     *,
     min_words: int = 400,
     max_words: int = 960,
     target_low: int = 500,
     target_high: int = 800,
-) -> str:
+) -> tuple[str, list[dict]]:
     """Enforce the digest word-count target with a single corrective re-prompt.
 
-    The target is roughly 500-800 words; the accepted band is 400-960 (±20%).
-    If text is within band, it is returned unchanged. Otherwise regenerate is
-    called exactly once with a short feedback instruction (never looping), and
-    its result is returned as-is.
+    Measures word count over the flattened prose (``flatten_digest``) so the
+    threshold applies to the reader-facing text. The target is roughly 500-800
+    words; the accepted band is 400-960 (±20%). If the flattened text is within
+    band it is returned unchanged. Otherwise ``regenerate`` is called exactly once
+    with a short feedback instruction (never looping), and its result is returned.
 
     Args:
-        text: The generated digest.
-        regenerate: Callable taking a feedback string and returning new text
-            (e.g. a closure that re-invokes the LLM with the feedback appended).
+        summary: The top-level overview from the LLM.
+        items: The ranked item list from the LLM.
+        regenerate: Callable taking a feedback string and returning a dict with
+            ``summary`` and ``items`` keys (e.g. a closure that re-invokes the
+            LLM with the feedback appended).
         min_words: Lower bound of the accepted band.
         max_words: Upper bound of the accepted band.
         target_low: Lower bound named in the re-prompt feedback.
         target_high: Upper bound named in the re-prompt feedback.
 
     Returns:
-        The original text when in band, otherwise the single regenerated result.
+        A ``(summary, items)`` tuple — original when in band, otherwise from the
+        single regenerated result.
     """
-    n = count_words(text)
+    flat = flatten_digest(summary, items)
+    n = count_words(flat)
     if min_words <= n <= max_words:
-        return text
+        return summary, items
     if n > max_words:
         feedback = (
             f"The previous digest was too long at {n} words. Rewrite it as "
@@ -94,4 +141,5 @@ def enforce_length(
             f"clear prose of roughly {target_low} to {target_high} words, "
             f"adding more context on why each item matters."
         )
-    return regenerate(feedback)
+    result = regenerate(feedback)
+    return result.get("summary", ""), result.get("items", [])

@@ -21,7 +21,7 @@ from gaia.agents.base.tools import tool
 
 from news_digest.config import get_settings
 from news_digest.logging import log
-from news_digest.prompts import PROMPT_VERSION
+from news_digest.prompts import PROMPT_VERSION, flatten_digest
 from supabase import Client, create_client
 
 _CONFIG_CACHE_TTL: float = 300.0  # 5 minutes (issue #8)
@@ -141,22 +141,43 @@ def list_topics() -> dict:
 @tool
 def push_to_supabase(
     topic_slug: str,
-    content: str,
+    summary: str,
+    items: list[dict],
     sources_used: list[str],
     token_count: int,
+    content: str | None = None,
 ) -> dict:
-    """Publish a finished digest to the Supabase digests table.
+    """Publish a finished structured digest to the Supabase digests table.
 
     Idempotent per topic per day: upserts on the unique (topic_slug, digest_date)
     pair, so re-running the same day updates the existing row instead of creating
     a duplicate. The digest date is today in UTC; cadence is taken from the topic
     config; prompt_version records which system prompt produced the text.
 
+    The ``content`` column is derived via ``flatten_digest(summary, items)`` when
+    not explicitly provided. It is kept as the flat TTS-safe fallback and
+    deduplication source.
+
+    Each element of ``items`` must follow the canonical item shape::
+
+        {
+            "headline": "one-line description",
+            "blurb":    "1-2 sentences — what happened",
+            "detail":   "fuller prose — why it matters, specifics/numbers",
+            "metadata": {
+                "sources": [{"title": "Source Name", "url": "https://..."}],
+                "tags":    ["optional", "tags"],
+            }
+        }
+
     Args:
         topic_slug: The topic slug, for example 'ai_models'.
-        content: The finished digest text.
+        summary: Short top-level overview (one or two sentences).
+        items: Ranked list of digest items (canonical shape above).
         sources_used: URLs that were scraped for this digest.
         token_count: Approximate token count of the generated digest.
+        content: Flat prose override. When omitted, derived from summary+items
+            via ``flatten_digest`` (no raw URLs, TTS-safe).
 
     Returns:
         {'success': True, 'id': <row id>, 'digest_date': <iso date>} on success,
@@ -176,9 +197,13 @@ def push_to_supabase(
         )
         return {"success": False, "error": "unknown_topic"}
 
+    derived_content = content or flatten_digest(summary, items)
+
     row = {
         "topic_slug": topic_slug,
-        "content": content,
+        "summary": summary,
+        "items": items,
+        "content": derived_content,
         "cadence": cadence,
         "digest_date": digest_date,
         "sources_used": sources_used,

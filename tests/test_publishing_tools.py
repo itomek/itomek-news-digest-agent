@@ -1,4 +1,4 @@
-"""Tests for src/news_digest/tools/publishing.py — issue #8.
+"""Tests for src/news_digest/tools/publishing.py — issue #8, #58.
 
 These use a lightweight fake Supabase client. Per the project's testing policy
 the real pass gate is the live-Supabase integration run on the host; these
@@ -172,14 +172,29 @@ def test_fetch_topic_config_handles_exception_without_raising(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# push_to_supabase
+# push_to_supabase — issue #58: structured output (summary + items + derived content)
 # ---------------------------------------------------------------------------
+
+_SAMPLE_ITEMS = [
+    {
+        "headline": "AI Corp ships Model X",
+        "blurb": "A new frontier model. Beats previous baselines.",
+        "detail": "Scores 95 on MMLU. Six months of training.",
+        "metadata": {"sources": [{"title": "Blog", "url": "https://example.com"}]},
+    }
+]
 
 
 def test_push_to_supabase_upserts_expected_row_and_returns_id(monkeypatch):
     state = {"rows": {"digest_topics": [{"slug": "ai_models", "cadence": "24h"}]}}
     _install_client(monkeypatch, state)
-    result = push_to_supabase("ai_models", "Hello digest", ["https://a"], 123)
+    result = push_to_supabase(
+        "ai_models",
+        summary="Top AI news today.",
+        items=_SAMPLE_ITEMS,
+        sources_used=["https://example.com"],
+        token_count=123,
+    )
 
     assert result["success"] is True
     assert result["id"] == "fake-uuid-123"
@@ -189,17 +204,51 @@ def test_push_to_supabase_upserts_expected_row_and_returns_id(monkeypatch):
     assert up["on_conflict"] == "topic_slug,digest_date"
     row = up["row"]
     assert row["topic_slug"] == "ai_models"
-    assert row["content"] == "Hello digest"
-    assert row["sources_used"] == ["https://a"]
+    assert row["summary"] == "Top AI news today."
+    assert row["items"] == _SAMPLE_ITEMS
+    # content is derived, not empty, and contains no raw URLs
+    assert isinstance(row["content"], str) and len(row["content"]) > 0
+    assert "http" not in row["content"]
+    assert row["sources_used"] == ["https://example.com"]
     assert row["token_count"] == 123
-    assert row["cadence"] == "24h"  # sourced from topic config
+    assert row["cadence"] == "24h"
     assert row["prompt_version"] == publishing.PROMPT_VERSION
     assert row["digest_date"] == datetime.now(UTC).date().isoformat()
 
 
+def test_push_to_supabase_explicit_content_is_honored(monkeypatch):
+    state = {"rows": {"digest_topics": [{"slug": "ai_models", "cadence": "24h"}]}}
+    _install_client(monkeypatch, state)
+    result = push_to_supabase(
+        "ai_models",
+        summary="Summary here.",
+        items=_SAMPLE_ITEMS,
+        sources_used=[],
+        token_count=0,
+        content="Explicitly provided content, no override.",
+    )
+    assert result["success"] is True
+    row = state["upserts"][-1]["row"]
+    assert row["content"] == "Explicitly provided content, no override."
+
+
+def test_push_to_supabase_items_persisted_unchanged(monkeypatch):
+    state = {"rows": {"digest_topics": [{"slug": "ai_models", "cadence": "24h"}]}}
+    _install_client(monkeypatch, state)
+    push_to_supabase(
+        "ai_models",
+        summary="S",
+        items=_SAMPLE_ITEMS,
+        sources_used=[],
+        token_count=0,
+    )
+    row = state["upserts"][-1]["row"]
+    assert row["items"] == _SAMPLE_ITEMS
+
+
 def test_push_to_supabase_unknown_topic_returns_failure(monkeypatch):
     _install_client(monkeypatch, {"rows": {"digest_topics": []}})
-    result = push_to_supabase("ghost", "x", [], 0)
+    result = push_to_supabase("ghost", summary="x", items=[], sources_used=[], token_count=0)
     assert result["success"] is False
     assert "error" in result
 
@@ -211,7 +260,7 @@ def test_push_to_supabase_handles_db_failure_gracefully(monkeypatch):
         {"slug": "ai_models", "cadence": "24h"},
     )
     _install_client(monkeypatch, {"raise": RuntimeError("db down")})
-    result = push_to_supabase("ai_models", "x", [], 0)
+    result = push_to_supabase("ai_models", summary="x", items=[], sources_used=[], token_count=0)
     assert result["success"] is False
     assert "error" in result
 

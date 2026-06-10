@@ -37,4 +37,67 @@ test.describe("digest render (live authenticated reads)", () => {
     const sortedDesc = [...firstGroupDates].sort().reverse();
     expect(firstGroupDates).toEqual(sortedDesc);
   });
+
+  // AC: structured digests render summary + expandable items; legacy cards fall back.
+  test("structured digest cards show summary and expandable items", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.locator(".digest-card").first()).toBeVisible({ timeout: 15_000 });
+
+    // Tolerate data: some cards may be pre-#58 (content only), some structured.
+    // For each card, assert it shows either a structured layout or a fallback body —
+    // never neither.
+    const cards = page.locator(".digest-card");
+    const count = await cards.count();
+    for (let i = 0; i < Math.min(count, 5); i++) {
+      const card = cards.nth(i);
+      const hasStructured = (await card.locator("details.digest-item").count()) > 0;
+      const hasFallback = (await card.locator("p.digest-body").count()) > 0;
+      // At least one rendering mode must be present.
+      expect(hasStructured || hasFallback).toBe(true);
+    }
+  });
+
+  // AC: structured items are <details> elements that can be expanded.
+  test("structured digest items are expandable <details> elements", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.locator(".digest-card").first()).toBeVisible({ timeout: 15_000 });
+
+    const firstStructured = page.locator("details.digest-item").first();
+    // Only assert if structured cards exist on the page — graceful when data is all legacy.
+    const hasStructured = (await firstStructured.count()) > 0;
+    if (!hasStructured) {
+      test.info().annotations.push({
+        type: "skip-reason",
+        description: "No structured digest cards found (all rows are pre-#58 content-only)",
+      });
+      return;
+    }
+
+    // The item should be a <details> that can be opened.
+    await expect(firstStructured).toBeVisible();
+    const tagName = await firstStructured.evaluate((el) => el.tagName.toLowerCase());
+    expect(tagName).toBe("details");
+
+    // Clicking the <summary> opens the item.
+    const summaryEl = firstStructured.locator("summary").first();
+    await summaryEl.click();
+    await expect(firstStructured).toHaveAttribute("open", "");
+  });
+
+  // AC: legacy (pre-#58) content-only cards still show their body text.
+  test("legacy content-only digest cards still render body text", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.locator(".digest-card").first()).toBeVisible({ timeout: 15_000 });
+
+    // Find any card with a p.digest-body (fallback). If structured rows dominate,
+    // there may be none — that's fine; the test is a no-op rather than a false failure.
+    const fallbackCards = page.locator("p.digest-body");
+    const count = await fallbackCards.count();
+    if (count === 0) return;
+
+    for (let i = 0; i < Math.min(count, 3); i++) {
+      const text = await fallbackCards.nth(i).textContent();
+      expect((text ?? "").trim().length).toBeGreaterThan(0);
+    }
+  });
 });

@@ -175,6 +175,8 @@ export function generateFixtureDigests(count: number): Digest[] {
       token_count: 80 + (i % 50),
       prompt_version: "fixture",
       created_at: `${digestDate}T00:00:00Z`,
+      summary: null,
+      items: null,
     });
   }
   return out;

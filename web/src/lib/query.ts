@@ -9,7 +9,7 @@ export interface QuerySpec {
 }
 
 const DIGEST_COLUMNS =
-  "id, topic_slug, content, cadence, digest_date, sources_used, token_count, prompt_version, created_at";
+  "id, topic_slug, content, summary, items, cadence, digest_date, sources_used, token_count, prompt_version, created_at";
 const TOPIC_COLUMNS = "id, name, slug, cadence, enabled";
 
 export function digestsQuery(opts: { limit?: number } = {}): QuerySpec {

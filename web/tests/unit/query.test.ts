@@ -10,6 +10,12 @@ describe("digestsQuery", () => {
     expect(q.order).toEqual({ column: "digest_date", ascending: false });
   });
 
+  it("includes structured output columns summary and items", () => {
+    const q = digestsQuery();
+    expect(q.columns).toContain("summary");
+    expect(q.columns).toContain("items");
+  });
+
   it("honours a limit when provided", () => {
     expect(digestsQuery({ limit: 50 }).limit).toBe(50);
     expect(digestsQuery().limit).toBeUndefined();

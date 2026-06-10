@@ -116,9 +116,20 @@ def _publish_from_result(result: dict[str, Any]) -> dict[str, Any]:
         )
         return {"success": False, "error": "bad_answer_shape"}
 
-    # The model may nest the digest under "answer" or place it at the top level.
+    # The model may nest the digest under "answer" — as an object, or as a JSON
+    # string / fenced code block (models that return the answer as text) — or it
+    # may place the fields at the top level.
     answer = parsed.get("answer")
-    digest = answer if isinstance(answer, dict) else parsed
+    if isinstance(answer, dict):
+        digest = answer
+    elif isinstance(answer, str):
+        try:
+            inner = json.loads(_strip_code_fences(answer))
+        except (ValueError, TypeError):
+            inner = None
+        digest = inner if isinstance(inner, dict) else parsed
+    else:
+        digest = parsed
 
     summary = digest.get("summary")
     items = digest.get("items")

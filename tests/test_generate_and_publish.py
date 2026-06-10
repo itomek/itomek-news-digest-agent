@@ -271,3 +271,28 @@ def test_generate_and_publish_calls_process_query_then_publishes(
     assert out["success"] is True
     assert _capture_push[0]["topic_slug"] == "ai_models"
     assert _capture_push[0]["token_count"] == 321
+
+
+# ---------------------------------------------------------------------------
+# Answer returned as a fenced ```json string (Qwen shape; also avoids GAIA's
+# planning-guard, which calls .lower() on a bare-dict answer and crashes)
+# ---------------------------------------------------------------------------
+
+
+def test_publish_answer_is_fenced_json_string(_capture_push):
+    inner = "```json\n" + json.dumps(_answer_payload()) + "\n```"
+    raw = json.dumps({"thought": "done", "answer": inner})
+    result = {
+        "status": "success",
+        "result": raw,
+        "conversation": [],
+        "output_tokens": 7,
+    }
+
+    out = _publish_from_result(result)
+
+    assert out["success"] is True
+    assert len(_capture_push) == 1
+    assert _capture_push[0]["topic_slug"] == "ai_models"
+    assert _capture_push[0]["summary"] == "Top AI news today."
+    assert _capture_push[0]["token_count"] == 7

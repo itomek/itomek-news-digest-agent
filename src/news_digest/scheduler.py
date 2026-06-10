@@ -1,7 +1,7 @@
 """Scheduler for the News Digest Agent.
 
-Wraps APScheduler to trigger agent.process_query() on configured intervals.
-Designed to run as a long-lived daemon via systemd.
+Wraps APScheduler to trigger agent.generate_and_publish() on configured
+intervals. Designed to run as a long-lived daemon via systemd.
 """
 
 # TODO: Phase 2 implementation
@@ -33,7 +33,7 @@ Designed to run as a long-lived daemon via systemd.
 #     )
 #
 #     # TODO: Query digest_topics for enabled topics, check cadence vs last run,
-#     # and call agent.process_query() for each due topic.
+#     # and call agent.generate_and_publish() for each due topic.
 #     logger.info("Checking for due topics...")
 #
 #

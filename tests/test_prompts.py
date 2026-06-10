@@ -207,5 +207,14 @@ def test_system_prompt_describes_structured_output_contract():
     assert "blurb" in sp
     assert "detail" in sp
     assert "sources" in sp
-    # push_to_supabase call with correct args
-    assert "push_to_supabase" in sp
+
+
+def test_system_prompt_instructs_final_answer_json_not_publish_tool():
+    sp = SYSTEM_PROMPT
+    sp_lower = sp.lower()
+    # The model returns the digest as its FINAL ANSWER (JSON), not via a tool call.
+    assert "final answer" in sp_lower
+    assert "topic_slug" in sp
+    assert "sources_used" in sp
+    # It must NOT instruct the model to publish via push_to_supabase anymore.
+    assert "push_to_supabase" not in sp

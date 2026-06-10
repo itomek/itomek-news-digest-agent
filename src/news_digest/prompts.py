@@ -45,8 +45,14 @@ no raw URLs. You may also include an optional "tags" array of short strings.
    Rank items by significance. Explain why each item matters in the detail field. \
 Stay factual and grounded in the gathered material. Never invent facts that \
 were not in the sources. Skip dead sources and continue with the others.
-5. Call push_to_supabase(topic_slug, summary, items, sources_used, token_count) \
-to publish the finished digest, then log the result.
+5. When the digest is composed, return it as your FINAL ANSWER — a single JSON \
+object with exactly these keys:
+   - "topic_slug": the slug from fetch_topic_config.
+   - "summary": the short top-level overview.
+   - "items": the ranked list of items, using the same item shape described above \
+(headline, blurb, detail, metadata.sources).
+   - "sources_used": the list of source URLs you actually used.
+   Do NOT call any tool to publish — just return that JSON object as your answer.
 
 Writing guidelines:
 - Lead with the most significant item.

@@ -14,6 +14,7 @@ from typing import Any
 
 from gaia.agents.base.agent import Agent
 from gaia.database import DatabaseMixin
+from gaia.llm.lemonade_client import LemonadeClient
 
 from news_digest.config import get_settings
 from news_digest.logging import log
@@ -23,6 +24,12 @@ from news_digest.prompts import SYSTEM_PROMPT
 # tool registry at import time; the agent then advertises them to the model.
 from news_digest.tools import publishing, scraping  # noqa: F401
 from news_digest.tools.publishing import push_to_supabase
+
+# Lemonade serves models with a 4096-token context by default, which the agent's
+# accumulated scraped conversation overflows after a few sources (the prompt then
+# exceeds n_ctx and the completion is rejected). The digest models support up to
+# 131072; 32768 leaves ample headroom for a multi-source run.
+_HEAVY_CTX_SIZE = 32768
 
 
 def _strip_code_fences(text: str) -> str:
@@ -164,15 +171,16 @@ class NewsDigestAgent(Agent, DatabaseMixin):
         # chat models otherwise emit "thinking" output with empty content, which
         # breaks tool parsing — force thinking off on every completion.
         self._force_no_thinking()
+        # Serve the model with enough context for the accumulated scraped content;
+        # Lemonade's 4096 default overflows partway through a multi-source run.
+        self._ensure_context_window(model_id, settings.lemonade_base_url)
         # Local SQLite state (run log / article cache); Supabase stays primary.
         self.init_db(settings.sqlite_path)
 
     def _force_no_thinking(self) -> None:
-        """Wrap the chat SDK send methods to (1) disable model "thinking" output
-        (it emits empty content and breaks GAIA's JSON-in-content tool parsing)
-        and (2) raise max_tokens to 4096. The chat SDK default is 512 (gaia
-        chat/sdk.py), which truncates a structured digest mid-JSON. process_query
-        passes no extra kwargs, so this wrap is the single safe seam for both."""
+        """Inject chat_template_kwargs={'enable_thinking': False} on every LLM
+        call by wrapping the chat SDK send methods (process_query passes no extra
+        kwargs, so this is the single safe seam)."""
 
         def _wrap(method):
             def _inner(messages, system_prompt=None, **kw):
@@ -180,9 +188,6 @@ class NewsDigestAgent(Agent, DatabaseMixin):
                 # can never silently drop enable_thinking.
                 ctk = kw.setdefault("chat_template_kwargs", {})
                 ctk.setdefault("enable_thinking", False)
-                # Structured digests exceed the SDK's 512-token default; give the
-                # model room to emit the full summary + items JSON.
-                kw.setdefault("max_tokens", 4096)
                 return method(messages, system_prompt=system_prompt, **kw)
 
             return _inner
@@ -190,6 +195,28 @@ class NewsDigestAgent(Agent, DatabaseMixin):
         self.chat.send_messages = _wrap(self.chat.send_messages)
         if hasattr(self.chat, "send_messages_stream"):
             self.chat.send_messages_stream = _wrap(self.chat.send_messages_stream)
+
+    def _ensure_context_window(self, model_id: str | None, base_url: str) -> None:
+        """Load the model with a context window large enough for the run.
+
+        Lemonade serves models with a 4096-token context by default. The agent
+        accumulates the system prompt plus every scraped feed and article body in
+        the conversation, so after a few sources the prompt exceeds 4096 and the
+        completion request is rejected (n_ctx exceeded). Request _HEAVY_CTX_SIZE
+        tokens and persist it so scheduled runs inherit it. Best-effort: a failure
+        here must never block agent startup.
+        """
+        if not model_id:
+            return
+        try:
+            LemonadeClient(base_url=base_url).load_model(
+                model_id,
+                ctx_size=_HEAVY_CTX_SIZE,
+                save_options=True,
+                prompt=False,
+            )
+        except Exception as exc:  # noqa: BLE001 - startup must survive this
+            log("warn", "system", f"could not set context window: {exc!r}")
 
     def generate_and_publish(self, query: str) -> dict[str, Any]:
         """Run a digest query and persist the structured result.

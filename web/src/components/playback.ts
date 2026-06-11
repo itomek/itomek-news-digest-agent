@@ -10,7 +10,8 @@
 
 import { registerPlaybackControls as registerCardHook } from "../views/digest-card";
 import type { Digest } from "../lib/types";
-import { TtsPlayer, type TtsItem, type TtsState, loadPrefs } from "../lib/tts";
+import { TtsPlayer, type TtsItem, type TtsState } from "../lib/tts";
+import { buildSettingsControls } from "./settings";
 
 let player: TtsPlayer | null = null;
 // Ordered registry: insertion order === card render order.
@@ -56,42 +57,17 @@ function injectStyles(): void {
   style.id = "tts-styles";
   style.textContent = `
     .tts-controls { display:flex; flex-wrap:wrap; gap:0.4rem; align-items:center; margin-bottom:0.6rem; }
-    .tts-controls button { min-height:40px; padding:0.4rem 0.7rem; font-size:0.9rem; }
-    .tts-controls .tts-prefs { display:flex; gap:0.4rem; align-items:center; margin-left:auto; }
-    .tts-controls select.tts-voice { font:inherit; min-height:40px; max-width:9rem; border:1px solid var(--border); border-radius:var(--radius); background:var(--bg); color:var(--fg); padding:0 0.4rem; }
-    .tts-controls input.tts-rate { accent-color: var(--accent); }
-    .tts-rate-label { font-size:0.8rem; color:var(--muted); white-space:nowrap; }
+    .tts-controls button { min-height:44px; padding:0.4rem 0.7rem; font-size:0.9rem; }
     .tts-playall { display:flex; align-items:center; gap:0.5rem; margin:0 0 1rem; }
     .tts-playall button[aria-pressed="true"] { background: var(--card); color: var(--accent); }
     .digest-card[data-tts-state="playing"] { outline:2px solid var(--accent); outline-offset:2px; }
+    .digest-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:0.6rem; padding:0.5rem 0 0.75rem; border-bottom:1px solid var(--border); margin-bottom:1rem; }
+    .tts-settings { display:flex; flex-wrap:wrap; gap:0.4rem; align-items:center; }
+    .tts-settings select.tts-voice { font:inherit; min-height:44px; max-width:9rem; border:1px solid var(--border); border-radius:var(--radius); background:var(--bg); color:var(--fg); padding:0 0.4rem; }
+    .tts-settings input.tts-rate { accent-color: var(--accent); min-height:44px; }
+    .tts-rate-label { font-size:0.8rem; color:var(--muted); white-space:nowrap; }
   `;
   document.head.appendChild(style);
-}
-
-function populateVoices(select: HTMLSelectElement): void {
-  const synth = (globalThis as unknown as { speechSynthesis?: SpeechSynthesis }).speechSynthesis;
-  if (!synth) return;
-  const render = (): void => {
-    const voices = synth.getVoices();
-    const current = loadPrefs().voiceURI;
-    select.replaceChildren();
-    const def = document.createElement("option");
-    def.value = "";
-    def.textContent = "Default voice";
-    select.appendChild(def);
-    for (const v of voices) {
-      const opt = document.createElement("option");
-      opt.value = v.voiceURI;
-      opt.textContent = v.name;
-      if (current && (v.voiceURI === current || v.name === current)) opt.selected = true;
-      select.appendChild(opt);
-    }
-  };
-  render();
-  // Voices often load asynchronously.
-  if (typeof synth.addEventListener === "function") {
-    synth.addEventListener("voiceschanged", render);
-  }
 }
 
 function makeButton(label: string, cls: string): HTMLButtonElement {
@@ -129,6 +105,16 @@ function finalize(): void {
   document.querySelectorAll(".tts-playall").forEach((el) => el.remove());
   playAllBtn = null;
   if (firstSlot) firstSlot.prepend(buildPlayAllBar());
+
+  // Mount a single global settings toolbar above the digest list.
+  document.querySelectorAll(".digest-toolbar").forEach((el) => el.remove());
+  const digestList = document.querySelector<HTMLElement>(".digest-list");
+  if (digestList) {
+    const toolbar = document.createElement("div");
+    toolbar.className = "digest-toolbar";
+    toolbar.appendChild(buildSettingsControls(getPlayer()));
+    digestList.prepend(toolbar);
+  }
 }
 
 function scheduleFinalize(): void {
@@ -184,42 +170,6 @@ function mountControls(slot: HTMLElement, digest: Digest): void {
   skip.addEventListener("click", () => getPlayer().skip(30));
 
   controls.append(play, pause, stop, skip);
-
-  // Voice + rate prefs (shared across cards, but each card carries a copy so the
-  // controls are reachable per-card).
-  const prefs = document.createElement("div");
-  prefs.className = "tts-prefs";
-
-  const voice = document.createElement("select");
-  voice.className = "tts-voice";
-  voice.setAttribute("aria-label", "Voice");
-  populateVoices(voice);
-  voice.addEventListener("change", () => {
-    getPlayer().setVoiceURI(voice.value || null);
-  });
-
-  const rateLabel = document.createElement("label");
-  rateLabel.className = "tts-rate-label";
-  const rate = document.createElement("input");
-  rate.type = "range";
-  rate.className = "tts-rate";
-  rate.min = "0.5";
-  rate.max = "2";
-  rate.step = "0.1";
-  const stored = loadPrefs().rate;
-  rate.value = String(stored);
-  rateLabel.textContent = `Speed ${stored.toFixed(1)}x`;
-  rate.setAttribute("aria-label", "Speech rate");
-  rate.addEventListener("input", () => {
-    const r = Number(rate.value);
-    rateLabel.textContent = `Speed ${r.toFixed(1)}x`;
-    getPlayer().setRate(r);
-  });
-
-  rateLabel.appendChild(rate);
-  prefs.append(voice, rateLabel);
-  controls.appendChild(prefs);
-
   slot.appendChild(controls);
 }
 

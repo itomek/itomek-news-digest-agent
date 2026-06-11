@@ -161,9 +161,10 @@ test("Play all advances the queue across multiple digests", async ({ page }) => 
   expect(total).toBeGreaterThan(first);
 });
 
-test("voice and rate persist to localStorage", async ({ page }) => {
+test("voice and rate persist to localStorage via global toolbar", async ({ page }) => {
   await gotoApp(page);
-  const rate = page.locator(".digest-card").first().locator(".tts-controls input.tts-rate");
+  // Controls are now in the single global toolbar, not per-card.
+  const rate = page.locator(".digest-toolbar input.tts-rate");
   await expect(rate).toBeVisible();
   // type=range isn't fillable; set the value and fire input/change so the
   // component's listener persists it.
@@ -174,4 +175,24 @@ test("voice and rate persist to localStorage", async ({ page }) => {
   });
   const stored = await page.evaluate(() => window.localStorage.getItem("tts.rate"));
   expect(Number(stored)).toBeCloseTo(1.5);
+});
+
+test("global toolbar exists once with voice+rate controls; cards have no per-card pickers", async ({
+  page,
+}) => {
+  await gotoApp(page);
+  // Exactly one toolbar in the page.
+  await expect(page.locator(".digest-toolbar")).toHaveCount(1);
+  // Toolbar has the voice select and rate slider.
+  await expect(page.locator(".digest-toolbar .tts-voice")).toHaveCount(1);
+  await expect(page.locator(".digest-toolbar input.tts-rate")).toHaveCount(1);
+  // No per-card voice/rate pickers.
+  expect(await page.locator(".digest-card .tts-voice").count()).toBe(0);
+  expect(await page.locator(".digest-card input.tts-rate").count()).toBe(0);
+  // Toolbar is rendered above the first card.
+  const toolbarBox = await page.locator(".digest-toolbar").boundingBox();
+  const firstCardBox = await page.locator(".digest-card").first().boundingBox();
+  expect(toolbarBox).not.toBeNull();
+  expect(firstCardBox).not.toBeNull();
+  expect(toolbarBox!.y).toBeLessThan(firstCardBox!.y);
 });

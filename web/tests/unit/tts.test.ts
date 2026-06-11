@@ -476,3 +476,88 @@ describe("TtsPlayer with an injected backend", () => {
     expect(player.listVoices()).toEqual([{ id: "fake_voice", label: "Fake Voice" }]);
   });
 });
+
+// --- FakeBackend with prefetch + getProgress support (Fix #2 & #3) -----------------
+
+class FakeBackendWithExtras extends FakeBackend {
+  prefetchCalls: { text: string; rate: number; voiceURI: string | null }[] = [];
+  progressResult: { currentTime: number; duration: number } | null = null;
+
+  prefetch(text: string, opts: { rate: number; voiceURI: string | null }): Promise<void> {
+    this.prefetchCalls.push({ text, ...opts });
+    return Promise.resolve();
+  }
+
+  getProgress(): { currentTime: number; duration: number } | null {
+    return this.progressResult;
+  }
+}
+
+// --- TtsPlayer.prefetch (Fix #2) ----------------------------------------------------
+
+describe("TtsPlayer prefetch", () => {
+  it("fires prefetch for the next chunk when a chunk starts playing", async () => {
+    const backend = new FakeBackendWithExtras();
+    // Use a small chunk size so a multi-sentence item splits into chunks.
+    // Each sentence is ~45 chars; at max=50 each goes in its own chunk.
+    backend.maxChunkChars = 50;
+    const player = new TtsPlayer({ backend });
+    const text =
+      "This is sentence one of the item here. This is sentence two of the item here.";
+    player.play([{ id: "a", text }]);
+
+    // chunk 0 is playing; prefetch should have been called for chunk 1
+    expect(backend.speaks.length).toBeGreaterThanOrEqual(1);
+    expect(backend.prefetchCalls.length).toBeGreaterThanOrEqual(1);
+    const prefetchedText = backend.prefetchCalls[0].text;
+    // The prefetched text should be the second chunk (not the first)
+    expect(prefetchedText).not.toBe(backend.speaks[0].text);
+  });
+
+  it("does not fire prefetch when there is no next chunk", () => {
+    const backend = new FakeBackendWithExtras();
+    const player = new TtsPlayer({ backend });
+    // Single short item -> single chunk -> no next chunk to prefetch
+    player.play([{ id: "a", text: "Short." }]);
+    expect(backend.prefetchCalls.length).toBe(0);
+  });
+
+  it("prefetch failures do not crash the player", async () => {
+    const backend = new FakeBackendWithExtras();
+    backend.maxChunkChars = 50;
+    // Make prefetch throw
+    backend.prefetch = () => Promise.reject(new Error("network"));
+    const player = new TtsPlayer({ backend });
+    // Must not throw
+    expect(() =>
+      player.play([{ id: "a", text: "First sentence here. Second sentence here." }])
+    ).not.toThrow();
+  });
+});
+
+// --- TtsPlayer.getPlaybackProgress (Fix #3) -----------------------------------------
+
+describe("TtsPlayer.getPlaybackProgress", () => {
+  it("returns null when the backend has no getProgress", () => {
+    const backend = new FakeBackend(); // no getProgress
+    const player = new TtsPlayer({ backend });
+    player.play([{ id: "a", text: "Hi." }]);
+    expect(player.getPlaybackProgress()).toBeNull();
+  });
+
+  it("delegates to backend.getProgress when available", () => {
+    const backend = new FakeBackendWithExtras();
+    backend.progressResult = { currentTime: 4.0, duration: 10.0 };
+    const player = new TtsPlayer({ backend });
+    player.play([{ id: "a", text: "Hi." }]);
+    expect(player.getPlaybackProgress()).toEqual({ currentTime: 4.0, duration: 10.0 });
+  });
+
+  it("returns null when backend.getProgress returns null (buffering)", () => {
+    const backend = new FakeBackendWithExtras();
+    backend.progressResult = null;
+    const player = new TtsPlayer({ backend });
+    player.play([{ id: "a", text: "Hi." }]);
+    expect(player.getPlaybackProgress()).toBeNull();
+  });
+});

@@ -69,6 +69,21 @@ export interface TtsBackend {
    */
   seekWithinCurrent?(seconds: number): boolean;
 
+  /**
+   * Warm the audio cache for `text` without playing it, so the next chunk
+   * is ready by the time the current one ends.  Optional — Web Speech omits
+   * this; only real-audio backends (neural) implement it.
+   * Must never reject; all failures must be swallowed internally.
+   */
+  prefetch?(text: string, opts: { rate: number; voiceURI: string | null }): Promise<void>;
+
+  /**
+   * Return the current audio element's playback position, or null when no
+   * audio is loaded or duration is not yet finite.
+   * Optional — only real-audio backends implement this.
+   */
+  getProgress?(): { currentTime: number; duration: number } | null;
+
   /** Return the voices this backend can use, for populating the UI. */
   listVoices(): TtsVoice[] | Promise<TtsVoice[]>;
 }
@@ -471,6 +486,16 @@ export class TtsPlayer {
     return this.backend.listVoices();
   }
 
+  /**
+   * Delegate to backend.getProgress() for real-audio backends (neural).
+   * Returns null for Web Speech or when no audio is loaded / buffering.
+   * playback.ts uses this to drive the progress bar from actual audio time
+   * instead of the word-count estimate, so the bar never runs ahead of synthesis.
+   */
+  getPlaybackProgress(): { currentTime: number; duration: number } | null {
+    return this.backend.getProgress?.() ?? null;
+  }
+
   /** Build the queue and start speaking the first chunk. Must be called from a
    *  user gesture (we never auto-speak). */
   play(items: readonly TtsItem[]): void {
@@ -586,6 +611,14 @@ export class TtsPlayer {
       { rate: this.rate, voiceURI: this.voiceURI },
       () => this.handleChunkEnd(gen),
     );
+    // Prefetch the next chunk (within the same item) while this one plays.
+    // Failures are swallowed inside the backend — never propagate here.
+    if (this.backend.prefetch) {
+      const nextChunk = item.chunks[item.chunkIndex + 1];
+      if (nextChunk) {
+        void this.backend.prefetch(nextChunk, { rate: this.rate, voiceURI: this.voiceURI });
+      }
+    }
   }
 
   private handleChunkEnd(gen: number): void {

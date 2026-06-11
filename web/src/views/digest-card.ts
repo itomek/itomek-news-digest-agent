@@ -50,6 +50,28 @@ function renderStructured(card: HTMLElement, digest: Digest): void {
   }
 }
 
+/**
+ * Extract the first sentence of a string (terminated by `.`, `!`, or `?`).
+ * Returns the full string trimmed if no sentence-ending punctuation is found.
+ */
+function firstSentence(text: string): string {
+  const trimmed = text.trim();
+  const match = trimmed.match(/^.+?[.!?]/);
+  return match ? match[0] : trimmed;
+}
+
+/**
+ * Derive a non-empty headline for a digest item.
+ * Priority: item.headline → first sentence of item.blurb → first sentence of item.detail
+ * Returns null only when all three are empty/whitespace.
+ */
+function deriveHeadline(item: DigestItem): string | null {
+  if (item.headline.trim()) return item.headline.trim();
+  if (item.blurb.trim()) return firstSentence(item.blurb);
+  if (item.detail.trim()) return firstSentence(item.detail);
+  return null;
+}
+
 function renderItem(item: DigestItem): HTMLElement {
   const details = document.createElement("details");
   details.className = "digest-item";
@@ -58,8 +80,11 @@ function renderItem(item: DigestItem): HTMLElement {
   // Headline and blurb go in the collapsed header.
   const headlineSpan = document.createElement("span");
   headlineSpan.className = "item-headline";
-  headlineSpan.textContent = item.headline;
-  summaryEl.appendChild(headlineSpan);
+  const headlineText = deriveHeadline(item);
+  if (headlineText !== null) {
+    headlineSpan.textContent = headlineText;
+    summaryEl.appendChild(headlineSpan);
+  }
 
   if (item.blurb) {
     const blurbSpan = document.createElement("span");

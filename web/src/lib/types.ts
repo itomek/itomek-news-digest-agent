@@ -1,5 +1,22 @@
 // Shared data shapes. Mirrors the Supabase schema (docs/architecture.md §3.1).
 
+/** One source reference attached to a digest item. */
+export interface DigestItemSource {
+  title: string;
+  url: string;
+}
+
+/** One ranked item in a structured digest (issue #58). */
+export interface DigestItem {
+  headline: string;
+  blurb: string;
+  detail: string;
+  metadata?: {
+    sources?: DigestItemSource[];
+    tags?: string[];
+  };
+}
+
 export interface Digest {
   id: string;
   topic_slug: string;
@@ -10,6 +27,10 @@ export interface Digest {
   token_count: number | null;
   prompt_version: string;
   created_at: string;
+  /** Short top-level overview; null on pre-#58 rows. */
+  summary: string | null;
+  /** Ranked structured items; null on pre-#58 rows. */
+  items: DigestItem[] | null;
 }
 
 export interface Topic {

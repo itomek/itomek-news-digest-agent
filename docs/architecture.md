@@ -59,7 +59,7 @@ All tools are module-level functions decorated with `@gaia.agents.base.tools.too
 - `scraping.fetch_html(url, selector=None) -> dict` (#6)
 - `scraping.parse_article(url) -> dict` (#6, uses `trafilatura`)
 - `publishing.fetch_topic_config(slug) -> dict` (#8)
-- `publishing.push_to_supabase(topic_slug, content, sources_used, token_count) -> dict` (#8)
+- `publishing.push_to_supabase(topic_slug, summary, items, sources_used, token_count, content=None) -> dict` (#8, #58)
 - `publishing.get_last_digest_date(topic_slug) -> str | None` (#8)
 - `social.fetch_reddit(subreddit, ...) -> list[dict]` (#21, Epic 7)
 
@@ -104,7 +104,9 @@ CREATE TABLE digest_topics (
 CREATE TABLE digests (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   topic_slug text NOT NULL REFERENCES digest_topics(slug),
-  content text NOT NULL,
+  content text NOT NULL,            -- flat TTS-safe prose; derived from summary+items on #58+ rows
+  summary text,                     -- short top-level overview; null on pre-#58 rows
+  items jsonb,                      -- ranked items (see §7.1); null on pre-#58 rows
   cadence text NOT NULL,
   digest_date date NOT NULL,
   sources_used jsonb NOT NULL,
@@ -267,13 +269,35 @@ Before dispatching to any topic, the scheduler re-reads `digest_topics.enabled`.
 
 ## §7 Prompt architecture
 
-### §7.1 System prompt
-Single `SYSTEM_PROMPT` constant in `prompts.py`. Hard rules, baked in:
-- Plain prose only. No markdown, bullets, headings, URLs, parentheses.
-- Write "versus" not "vs.", "and so on" not "etc.", spell out numbers under 10.
-- Conversational tone, news-anchor cadence.
-- 500–800 words target.
-- Two good / two bad examples inline.
+### §7.1 System prompt and output contract
+Single `SYSTEM_PROMPT` constant in `prompts.py`. The LLM assembles a
+**structured digest** — a short top-level `summary` plus a ranked `items` array —
+and calls `push_to_supabase(topic_slug, summary, items, sources_used, token_count)`.
+
+Canonical item shape (Python dict keys and TypeScript `DigestItem` interface match verbatim):
+```jsonc
+{
+  "headline": "one-line description",
+  "blurb":    "1–2 sentences — what happened (shown collapsed)",
+  "detail":   "fuller prose — why it matters, specifics/numbers (expandable)",
+  "metadata": {
+    "sources": [{"title": "Source Name", "url": "https://…"}],
+    "tags":    ["optional", "tags"]
+  }
+}
+```
+
+`content` (the `text NOT NULL` column) is **derived** by `flatten_digest(summary, items)`
+inside `push_to_supabase`. It is plain prose, no URLs or markdown — kept as the TTS
+source (#11) and the backward-compat fallback for pre-#58 rows where `summary`/`items`
+are null. Source links live only in `metadata.sources`.
+
+Hard rules for the output:
+- `summary` and `blurb`: clean prose, no raw URLs.
+- `metadata.sources`: machine-readable source links (rendered as `<a>` in the web app,
+  guarded to http(s) only against XSS via LLM-injected `javascript:` / `data:` schemes).
+- Rank items by significance; explain why each item matters in `detail`.
+- Aim for one to two sentences of `summary` and three to seven items.
 
 ### §7.2 Per-topic prompt hint
 `digest_topics.prompt_hint` contains topic-specific steering: what to emphasize, what to exclude. Concatenated after `SYSTEM_PROMPT` at run time.
@@ -285,7 +309,12 @@ When running a topic that overlaps with another (e.g., `ai_updates` after `ai_mo
 At generation time, compute `sha256(SYSTEM_PROMPT + '\n' + prompt_hint)[:12]` and store on `digests.prompt_version`. A history of prompt changes lives in git; `prompt_version` ties any published digest to its exact prompt text.
 
 ### §7.5 Length enforcement
-Post-generation: word count. If outside 500–800 × ±20 %, re-prompt once with a length-correction hint. Accept the second attempt regardless.
+Post-generation: `enforce_length(summary, items, regenerate)` measures word count over
+`flatten_digest(summary, items)` — the flattened structured text, not the raw LLM
+output. If the word count is outside the 500–800 ± 20 % band (400–960), re-prompt
+once with a length-correction hint. Accept the second attempt regardless. Returns a
+`(summary, items)` tuple. `enforce_length` is a pure function and is not currently
+wired into the agent loop; it is available for future integration.
 
 ---
 

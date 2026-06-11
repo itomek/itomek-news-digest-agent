@@ -22,6 +22,8 @@ function digest(
     token_count: null,
     prompt_version: "v",
     created_at: `${partial.digest_date}T00:00:00Z`,
+    summary: null,
+    items: null,
     ...partial,
   };
 }

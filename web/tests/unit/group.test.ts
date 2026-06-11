@@ -11,6 +11,8 @@ function digest(partial: Partial<Digest> & { topic_slug: string; digest_date: st
     token_count: null,
     prompt_version: "v",
     created_at: "2026-06-01T00:00:00Z",
+    summary: null,
+    items: null,
     ...partial,
   };
 }

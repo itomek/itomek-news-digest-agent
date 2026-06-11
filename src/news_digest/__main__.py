@@ -16,7 +16,7 @@ def main(argv: list[str]) -> int:
 
     query = argv[1]
     agent = NewsDigestAgent()
-    result = agent.process_query(query)
+    result = agent.generate_and_publish(query)
     print(result)
     return 0
 

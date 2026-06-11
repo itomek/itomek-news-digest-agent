@@ -37,7 +37,7 @@
 
     /* ── Accent ───────────────────────────────────────────────────────── */
     --accent:       #4d8ef0;     /* lighter blue for dark bg — AA on --card (4.8:1) */
-    --accent-fg:    #0d1a38;
+    --accent-fg:    #06101f;     /* near-black on accent fill — 5.85:1 (AA) */
 
     /* ── Extended tokens ──────────────────────────────────────────────── */
     --accent-strong: #6aa4f7;
@@ -66,10 +66,10 @@ body {
   line-height: 1.6;
   background: var(--bg);
   color: var(--fg);
-  /* Subtle grid pattern via radial gradient — pure CSS, zero cost */
+  /* Subtle grid pattern via radial gradient — pure CSS, zero cost.
+     Default (scroll) attachment avoids the mobile compositing cost of fixed. */
   background-image:
     radial-gradient(ellipse 80% 60% at 50% -10%, rgba(26,86,219,.08) 0%, transparent 60%);
-  background-attachment: fixed;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -167,7 +167,9 @@ button:hover:not(:disabled) {
 }
 
 button:focus-visible {
-  outline: none;
+  /* transparent outline stays invisible normally but becomes a visible ring
+     in Windows High Contrast / forced-colors mode (box-shadow is dropped there). */
+  outline: 2px solid transparent;
   box-shadow: var(--accent-glow);
 }
 
@@ -340,7 +342,7 @@ button:disabled {
 }
 
 .auth-form input:focus {
-  outline: none;
+  outline: 2px solid transparent;   /* visible focus ring in forced-colors mode */
   border-color: var(--accent);
   box-shadow: var(--accent-glow);
 }
@@ -460,7 +462,7 @@ button:disabled {
 
 .history-filters .filter-topic:focus,
 .history-filters .filter-search:focus {
-  outline: none;
+  outline: 2px solid transparent;   /* visible focus ring in forced-colors mode */
   border-color: var(--accent);
   box-shadow: var(--accent-glow);
 }

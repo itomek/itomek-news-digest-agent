@@ -108,12 +108,42 @@ def _clear_cache():
 def _install_client(monkeypatch, state):
     calls = {"count": 0}
 
-    def _fake_client(write=False):
+    def _fake_client():
         calls["count"] += 1
         return FakeClient(state)
 
     monkeypatch.setattr(publishing, "_client", _fake_client)
     return calls
+
+
+# ---------------------------------------------------------------------------
+# _client — agent authenticates as service_role (issue #60)
+# ---------------------------------------------------------------------------
+
+
+def test_client_authenticates_as_service_role(monkeypatch):
+    """The agent is a trusted backend and authenticates as service_role for ALL
+    Supabase access, reads included. Anon reads return zero rows since read
+    policies moved to the `authenticated` role (#57 / migration 0006)."""
+    captured = {}
+
+    def fake_create_client(url, key):
+        captured["url"] = url
+        captured["key"] = key
+        return MagicMock()
+
+    settings = MagicMock(
+        supabase_url="https://x.supabase.co",
+        supabase_service_key="SERVICE_KEY",
+        supabase_anon_key="ANON_KEY",
+    )
+    monkeypatch.setattr(publishing, "create_client", fake_create_client)
+    monkeypatch.setattr(publishing, "get_settings", lambda: settings)
+
+    publishing._client()
+
+    assert captured["url"] == "https://x.supabase.co"
+    assert captured["key"] == "SERVICE_KEY"  # never the anon key
 
 
 # ---------------------------------------------------------------------------

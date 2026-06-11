@@ -34,11 +34,16 @@ def _now() -> float:
     return time.monotonic()
 
 
-def _client(write: bool = False) -> Client:
-    """Build a Supabase client. Writes use the service-role key; reads the anon key."""
+def _client() -> Client:
+    """Build a Supabase client authenticated as service_role.
+
+    The agent is a trusted backend process; it uses the service-role key for all
+    Supabase access. Reads previously used the anon key, but anon reads return
+    zero rows since read policies moved to the ``authenticated`` role (migration
+    0006 / #57); service_role bypasses RLS. The service key never leaves the host.
+    """
     settings = get_settings()
-    key = settings.supabase_service_key if write else settings.supabase_anon_key
-    return create_client(settings.supabase_url, key)
+    return create_client(settings.supabase_url, settings.supabase_service_key)
 
 
 @tool
@@ -212,7 +217,7 @@ def push_to_supabase(
     }
     try:
         resp = (
-            _client(write=True)
+            _client()
             .table("digests")
             .upsert(row, on_conflict="topic_slug,digest_date")
             .execute()

@@ -90,8 +90,19 @@ function startTicker(digestId: string): void {
   progress.elapsed = 0;
   progress.total = estimateTotal(digest);
   progress.timerId = setInterval(() => {
-    progress.elapsed += TICK_MS / 1000;
-    setProgressFill(digestId, progress.total > 0 ? progress.elapsed / progress.total : 0);
+    // For real-audio backends (neural), use actual audio currentTime/duration so
+    // the bar tracks true playback and never runs ahead during synthesis.
+    // The bar stays at 0 until currentTime > 0, preventing the "running during
+    // buffering" bug.  Web Speech falls back to the word-count estimate.
+    const realProg = getPlayer().getPlaybackProgress();
+    if (realProg !== null && realProg.currentTime > 0) {
+      setProgressFill(digestId, realProg.currentTime / realProg.duration);
+    } else if (realProg === null) {
+      // Web Speech path: advance the estimate-based counter as before.
+      progress.elapsed += TICK_MS / 1000;
+      setProgressFill(digestId, progress.total > 0 ? progress.elapsed / progress.total : 0);
+    }
+    // realProg !== null but currentTime === 0 means buffering — bar stays at 0.
   }, TICK_MS);
 }
 
@@ -189,8 +200,13 @@ function handleStateChange(state: TtsState, currentId: string | null): void {
       const digest = knownDigests.get(currentId);
       if (digest) progress.total = estimateTotal(digest);
       progress.timerId = setInterval(() => {
-        progress.elapsed += TICK_MS / 1000;
-        setProgressFill(currentId, progress.total > 0 ? progress.elapsed / progress.total : 0);
+        const realProg = getPlayer().getPlaybackProgress();
+        if (realProg !== null && realProg.currentTime > 0) {
+          setProgressFill(currentId, realProg.currentTime / realProg.duration);
+        } else if (realProg === null) {
+          progress.elapsed += TICK_MS / 1000;
+          setProgressFill(currentId, progress.total > 0 ? progress.elapsed / progress.total : 0);
+        }
       }, TICK_MS);
     }
   } else if (state === "paused") {

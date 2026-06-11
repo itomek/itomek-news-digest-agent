@@ -38,7 +38,10 @@ function jsonResponse(req: Request, status: number, body: unknown): Response {
 }
 
 async function handleVoices(req: Request, key: string): Promise<Response> {
-  const res = await fetch(`${GOOGLE_BASE}/voices?languageCode=en-US&key=${key}`);
+  // Key travels in a header, never in the URL, so it can't surface in logs.
+  const res = await fetch(`${GOOGLE_BASE}/voices?languageCode=en-US`, {
+    headers: { "X-Goog-Api-Key": key },
+  });
   if (!res.ok) {
     return jsonResponse(req, res.status, { error: "voice list fetch failed" });
   }
@@ -60,13 +63,16 @@ async function handleSpeech(req: Request, key: string): Promise<Response> {
 
   const input = typeof body.input === "string" ? body.input.trim() : "";
   if (!input) return jsonResponse(req, 400, { error: "input must be a non-empty string" });
+  // Server-side quota guard: the client chunks at 4000 chars, so anything well
+  // past that is not our app.
+  if (input.length > 5000) return jsonResponse(req, 400, { error: "input too long" });
 
   const voice =
     typeof body.voice === "string" && body.voice.trim() ? body.voice.trim() : DEFAULT_VOICE;
 
-  const res = await fetch(`${GOOGLE_BASE}/text:synthesize?key=${key}`, {
+  const res = await fetch(`${GOOGLE_BASE}/text:synthesize`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-Goog-Api-Key": key },
     body: JSON.stringify({
       input: { text: input },
       voice: { languageCode: languageCodeOf(voice), name: voice },

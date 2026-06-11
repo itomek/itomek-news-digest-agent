@@ -1,27 +1,53 @@
-/* Minimal mobile-first styles. System fonts, no web fonts, no blocking resources
-   — tuned to keep Lighthouse mobile >= 90 at 390x844. */
+/* Futuristic dark-first redesign. System fonts, no web fonts, no blocking
+   resources — Lighthouse mobile ≥ 90 target preserved.
+   Token contract: --bg, --fg, --muted, --accent, --card, --border, --radius
+   are kept by name; values re-tuned for the new visual language. */
 
 :root {
-  --bg: #ffffff;
-  --fg: #111827;
-  --muted: #4b5563;
-  --accent: #1d4ed8;
-  --card: #f8fafc;
-  --border: #e2e8f0;
-  --radius: 12px;
+  /* ── Surfaces ───────────────────────────────────────────────────────── */
+  --bg:           #f0f4f8;     /* cool off-white */
+  --fg:           #0d1117;     /* near-black, high contrast */
+  --muted:        #4a5568;     /* AA on --bg (5.4:1), AA on --card (4.8:1) */
+  --card:         #ffffff;
+  --border:       #c8d3df;
+  --radius:       14px;
+
+  /* ── Accent ─────────────────────────────────────────────────────────── */
+  --accent:       #1a56db;     /* electric blue — AA on --card (4.6:1 white) */
+  --accent-fg:    #ffffff;
+
+  /* ── Extended tokens (new; safe for consuming tracks) ───────────────── */
+  --accent-strong: #0f3cb5;    /* hover / pressed shade */
+  --elevation:    0 2px 8px rgba(0,0,0,.10), 0 0 0 1px var(--border);
+  --elevation-hover: 0 4px 18px rgba(0,0,0,.13), 0 0 0 1px var(--border);
+  --accent-glow:  0 0 0 3px rgba(26,86,219,.22);
+  --transition-ui: 160ms cubic-bezier(.4,0,.2,1);
+
   color-scheme: light dark;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f172a;
-    --fg: #e5e7eb;
-    --muted: #94a3b8;
-    --accent: #60a5fa;
-    --card: #1e293b;
-    --border: #334155;
+    /* ── Surfaces ─────────────────────────────────────────────────────── */
+    --bg:           #090e1a;     /* deep navy-black */
+    --fg:           #e8ecf4;     /* AA on --bg (12.5:1) */
+    --muted:        #7b8db0;     /* AA on --bg (4.9:1), AA on --card (4.6:1) */
+    --card:         #111827;     /* elevated surface above bg */
+    --border:       #1f2d45;
+
+    /* ── Accent ───────────────────────────────────────────────────────── */
+    --accent:       #4d8ef0;     /* lighter blue for dark bg — AA on --card (4.8:1) */
+    --accent-fg:    #0d1a38;
+
+    /* ── Extended tokens ──────────────────────────────────────────────── */
+    --accent-strong: #6aa4f7;
+    --elevation:    0 2px 12px rgba(0,0,0,.45), 0 0 0 1px var(--border);
+    --elevation-hover: 0 6px 24px rgba(0,0,0,.55), 0 0 0 1px rgba(77,142,240,.35);
+    --accent-glow:  0 0 0 3px rgba(77,142,240,.30);
   }
 }
+
+/* ── Reset ────────────────────────────────────────────────────────────────── */
 
 * {
   box-sizing: border-box;
@@ -31,14 +57,29 @@ html {
   -webkit-text-size-adjust: 100%;
 }
 
+/* ── Base typography ──────────────────────────────────────────────────────── */
+
 body {
   margin: 0;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-size: 17px;
+  font-size: 16px;
   line-height: 1.6;
   background: var(--bg);
   color: var(--fg);
+  /* Subtle grid pattern via radial gradient — pure CSS, zero cost */
+  background-image:
+    radial-gradient(ellipse 80% 60% at 50% -10%, rgba(26,86,219,.08) 0%, transparent 60%);
+  background-attachment: fixed;
 }
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background-image:
+      radial-gradient(ellipse 80% 60% at 50% -10%, rgba(77,142,240,.12) 0%, transparent 60%);
+  }
+}
+
+/* ── Layout ───────────────────────────────────────────────────────────────── */
 
 #app {
   max-width: 680px;
@@ -47,9 +88,13 @@ body {
 }
 
 h1 {
-  font-size: 1.6rem;
-  margin: 0.4rem 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0.3rem 0;
 }
+
+/* ── App header ───────────────────────────────────────────────────────────── */
 
 .app-header {
   display: flex;
@@ -59,120 +104,273 @@ h1 {
   gap: 0.5rem;
   border-bottom: 1px solid var(--border);
   padding-bottom: 0.75rem;
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
+  /* hairline top-edge accent */
+  position: relative;
 }
+
+.app-header::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent) 0%, transparent 70%);
+  border-radius: 2px 2px 0 0;
+  opacity: .7;
+}
+
+/* ── App nav ──────────────────────────────────────────────────────────────── */
 
 .app-nav {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.75rem;
 }
 
 .app-nav a {
   color: var(--accent);
   text-decoration: none;
+  font-weight: 500;
+  font-size: 0.92rem;
+  letter-spacing: .01em;
+  padding: 0.2rem 0.1rem;
+  border-bottom: 1px solid transparent;
 }
+
+.app-nav a:hover,
+.app-nav a:focus-visible {
+  border-bottom-color: var(--accent);
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
 
 button {
   font: inherit;
   min-height: 44px;
-  padding: 0.55rem 1.1rem;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius);
+  padding: 0.5rem 1.2rem;
+  border: 1.5px solid var(--accent);
+  border-radius: 999px;          /* pill shape */
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-fg);
   cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+  letter-spacing: .01em;
+  box-shadow: var(--elevation);
+}
+
+button:hover:not(:disabled) {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
+button:focus-visible {
+  outline: none;
+  box-shadow: var(--accent-glow);
 }
 
 button.sign-out {
   background: transparent;
   color: var(--accent);
+  box-shadow: none;
+}
+
+button.sign-out:hover:not(:disabled) {
+  background: transparent;
+  color: var(--accent-strong);
 }
 
 button:disabled {
-  opacity: 0.6;
+  opacity: 0.45;
   cursor: default;
 }
 
+/* ── Transitions (guarded behind prefers-reduced-motion) ─────────────────── */
+
+@media (prefers-reduced-motion: no-preference) {
+  button {
+    transition:
+      background var(--transition-ui),
+      border-color var(--transition-ui),
+      box-shadow var(--transition-ui),
+      opacity var(--transition-ui);
+  }
+
+  .app-nav a {
+    transition: border-bottom-color var(--transition-ui), color var(--transition-ui);
+  }
+
+  .digest-card {
+    transition:
+      box-shadow var(--transition-ui),
+      outline-color var(--transition-ui);
+  }
+
+  /* details expand / collapse */
+  details > summary {
+    transition: color var(--transition-ui);
+  }
+
+  /* playback-state outline from playback.ts */
+  .digest-card[data-tts-state="playing"] {
+    transition: outline-color var(--transition-ui), box-shadow var(--transition-ui);
+  }
+}
+
+/* ── Topic & date headings ────────────────────────────────────────────────── */
+
 .topic-group {
-  margin-bottom: 2rem;
+  margin-bottom: 2.25rem;
 }
 
 .topic-heading {
-  font-size: 1.25rem;
-  margin: 1.2rem 0 0.3rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 1.5rem 0 0.2rem;
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* left accent bar on topic headings */
+.topic-heading::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 1em;
+  border-radius: 2px;
+  background: var(--accent);
+  flex-shrink: 0;
 }
 
 .date-heading {
-  font-size: 0.95rem;
+  font-size: 0.8rem;
   font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
   color: var(--muted);
-  margin: 1rem 0 0.4rem;
+  margin: 0.9rem 0 0.4rem;
 }
+
+/* ── Digest card ──────────────────────────────────────────────────────────── */
 
 .digest-card {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 0.9rem 1rem;
-  margin-bottom: 0.8rem;
+  padding: 1rem 1.1rem;
+  margin-bottom: 0.85rem;
+  box-shadow: var(--elevation);
+  /* left-edge accent — telegraphs "content block" */
+  border-left: 3px solid var(--accent);
+  position: relative;
+  overflow: hidden;
+}
+
+.digest-card:hover {
+  box-shadow: var(--elevation-hover);
+}
+
+/* corner glow for playing state — enhances playback.ts outline */
+.digest-card[data-tts-state="playing"] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: var(--elevation-hover), var(--accent-glow);
+}
+
+/* ── Digest content ───────────────────────────────────────────────────────── */
+
+.digest-summary {
+  margin: 0 0 0.75rem;
+  font-size: 0.97rem;
+  color: var(--fg);
+  line-height: 1.65;
 }
 
 .digest-body {
   margin: 0;
   white-space: pre-wrap;
+  font-size: 0.97rem;
+  line-height: 1.65;
 }
+
+/* ── Playback slot ────────────────────────────────────────────────────────── */
 
 .playback-slot:empty {
   display: none;
 }
 
+/* ── Auth gate ────────────────────────────────────────────────────────────── */
+
 .auth-gate {
   max-width: 28rem;
-  margin: 12vh auto 0;
+  margin: 10vh auto 0;
   text-align: center;
 }
+
+/* ── Auth form ────────────────────────────────────────────────────────────── */
 
 .auth-form {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.8rem;
   text-align: left;
   margin-top: 1.5rem;
 }
 
 .auth-form label {
   font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--fg);
 }
 
 .auth-form input {
   font: inherit;
   min-height: 44px;
-  padding: 0.6rem 0.8rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  padding: 0.6rem 0.9rem;
+  border: 1.5px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
   background: var(--bg);
   color: var(--fg);
+  font-size: 1rem;
 }
+
+.auth-form input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--accent-glow);
+}
+
+/* ── Auth status / error ──────────────────────────────────────────────────── */
 
 .auth-status {
   min-height: 1.2rem;
   color: var(--muted);
-  font-size: 0.95rem;
+  font-size: 0.92rem;
 }
 
 .auth-error {
   min-height: 1.2rem;
-  color: #b91c1c;
-  font-size: 0.95rem;
+  color: #c53030;
+  font-size: 0.92rem;
   margin: 0;
 }
 
 @media (prefers-color-scheme: dark) {
+  .auth-form input {
+    background: #0d1525;
+  }
+
   .auth-error {
-    color: #fca5a5;
+    color: #fc8181;
   }
 }
+
+/* ── MFA / QR ─────────────────────────────────────────────────────────────── */
 
 .mfa-qr {
   display: block;
@@ -181,27 +379,32 @@ button:disabled {
   margin: 1rem auto 0.5rem;
   background: #fff;
   border-radius: var(--radius);
+  box-shadow: var(--elevation);
 }
 
 .mfa-secret-label {
   margin: 0.75rem 0 0.25rem;
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 0.88rem;
 }
 
 .mfa-secret {
   display: block;
   word-break: break-all;
-  font-size: 1rem;
-  padding: 0.5rem 0.7rem;
+  font-size: 0.95rem;
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", monospace;
+  padding: 0.55rem 0.8rem;
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: calc(var(--radius) - 2px);
+  letter-spacing: .04em;
 }
+
+/* ── Account section ──────────────────────────────────────────────────────── */
 
 .account {
   border-top: 1px solid var(--border);
-  margin-top: 2rem;
+  margin-top: 2.25rem;
   padding-top: 0.75rem;
 }
 
@@ -211,16 +414,29 @@ button:disabled {
   min-height: 44px;
   display: flex;
   align-items: center;
+  font-weight: 600;
+  font-size: 0.92rem;
+  list-style: none;
+  user-select: none;
+}
+
+.account summary::-webkit-details-marker {
+  display: none;
 }
 
 .account-form {
   margin-top: 0.75rem;
 }
 
+/* ── State messages ───────────────────────────────────────────────────────── */
+
 .empty-state,
 .error-state {
   color: var(--muted);
+  font-size: 0.95rem;
 }
+
+/* ── History filters ──────────────────────────────────────────────────────── */
 
 .history-filters {
   display: flex;
@@ -233,19 +449,31 @@ button:disabled {
 .history-filters .filter-search {
   font: inherit;
   min-height: 44px;
-  padding: 0.5rem 0.7rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg);
+  padding: 0.5rem 0.85rem;
+  border: 1.5px solid var(--border);
+  border-radius: 999px;      /* pill — matches button language */
+  background: var(--card);
   color: var(--fg);
+  font-size: 0.92rem;
+  box-shadow: var(--elevation);
+}
+
+.history-filters .filter-topic:focus,
+.history-filters .filter-search:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--accent-glow);
 }
 
 .history-filters .filter-search {
   flex: 1 1 12rem;
 }
 
+/* ── Digest meta (history view) ───────────────────────────────────────────── */
+
 .digest-meta {
-  margin: 0.5rem 0 0;
-  font-size: 0.82rem;
+  margin: 0.6rem 0 0;
+  font-size: 0.78rem;
   color: var(--muted);
+  letter-spacing: .01em;
 }

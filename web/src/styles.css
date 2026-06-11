@@ -484,13 +484,13 @@ button:disabled {
 
 /* Item block — <details> inside a .digest-card */
 .digest-item {
-  border-top: 1px solid var(--border);
   margin: 0;
   padding: 0;
 }
 
-.digest-item:first-of-type {
-  border-top: none;
+/* Draw divider only between adjacent items — robust regardless of sibling type order */
+.digest-item + .digest-item {
+  border-top: 1px solid var(--border);
 }
 
 /* The collapsed header — replaces browser default list-style triangle with a

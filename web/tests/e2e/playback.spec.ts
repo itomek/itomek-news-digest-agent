@@ -227,3 +227,98 @@ test("global toolbar exists once with voice+rate controls; cards have no per-car
   expect(firstCardBox).not.toBeNull();
   expect(toolbarBox!.y).toBeLessThan(firstCardBox!.y);
 });
+
+// --- neural TTS backend (#63) ------------------------------------------------
+//
+// The neural URL is baked at build time (Vite env), so these specs only run
+// when the app was built with VITE_TTS_NEURAL_URL set — same convention as the
+// LIVE_AUTH skip at the top of this file. The endpoint itself is route-stubbed;
+// no real TTS server is needed.
+const NEURAL_URL = process.env.VITE_TTS_NEURAL_URL;
+const NEURAL_SKIP = "build with VITE_TTS_NEURAL_URL set to run neural playback specs";
+
+const CORS_HEADERS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET, POST, OPTIONS",
+  "access-control-allow-headers": "content-type",
+};
+
+test.describe("neural TTS backend", () => {
+  test.skip(!NEURAL_URL, NEURAL_SKIP);
+
+  test("fetches and plays neural audio when the endpoint is reachable", async ({ page }) => {
+    const speechBodies: string[] = [];
+    await page.route("**/v1/audio/voices", (route) => {
+      if (route.request().method() === "OPTIONS") {
+        return route.fulfill({ status: 204, headers: CORS_HEADERS });
+      }
+      return route.fulfill({
+        headers: { ...CORS_HEADERS, "content-type": "application/json" },
+        body: JSON.stringify({ voices: [{ id: "af_heart", name: "Heart" }] }),
+      });
+    });
+    await page.route("**/v1/audio/speech", (route) => {
+      if (route.request().method() === "OPTIONS") {
+        return route.fulfill({ status: 204, headers: CORS_HEADERS });
+      }
+      speechBodies.push(route.request().postData() ?? "");
+      return route.fulfill({
+        headers: { ...CORS_HEADERS, "content-type": "audio/mpeg" },
+        body: Buffer.from([0x49, 0x44, 0x33, 0x00]), // fake mp3 bytes
+      });
+    });
+    // Replace Audio so the fake bytes don't error-cascade in headless chromium;
+    // record created sources on window.__neuralSrcs.
+    await page.addInitScript(() => {
+      (window as any).__neuralSrcs = [];
+      class RecAudio {
+        src: string;
+        currentTime = 0;
+        duration = NaN;
+        onended: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        constructor(src: string) {
+          this.src = src;
+          (window as any).__neuralSrcs.push(src);
+        }
+        play() {
+          return Promise.resolve();
+        }
+        pause() {}
+      }
+      (window as any).Audio = RecAudio;
+    });
+
+    await gotoApp(page);
+    await page.locator(".digest-card").first().locator("button.tts-toggle").click();
+
+    // The app POSTed the locked contract body to the neural endpoint…
+    await expect.poll(() => speechBodies.length, { timeout: 10_000 }).toBeGreaterThan(0);
+    const body = JSON.parse(speechBodies[0]);
+    expect(body.model).toBe("kokoro");
+    expect(body.response_format).toBe("mp3");
+    expect(typeof body.input).toBe("string");
+    expect(body.input.length).toBeGreaterThan(0);
+
+    // …and played the result through an audio element fed by a blob URL.
+    const srcs = await page.evaluate(() => (window as any).__neuralSrcs as string[]);
+    expect(srcs.length).toBeGreaterThan(0);
+    expect(srcs[0]).toMatch(/^blob:/);
+
+    // Web Speech stayed silent — neural handled playback.
+    expect(await page.evaluate(() => (window as any).__tts.speaks.length)).toBe(0);
+  });
+
+  test("falls back to Web Speech when the neural endpoint is unreachable", async ({ page }) => {
+    // Kill the whole neural API: the reachability probe fails, so the player
+    // must come up on the Web Speech backend.
+    await page.route("**/v1/audio/**", (route) => route.abort());
+
+    await gotoApp(page);
+    await page.locator(".digest-card").first().locator("button.tts-toggle").click();
+
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__tts.speaks.length), { timeout: 10_000 })
+      .toBeGreaterThan(0);
+  });
+});

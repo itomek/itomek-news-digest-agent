@@ -175,6 +175,11 @@ ruff format src tests
 - **API:** OpenAI-compatible (`/v1/chat/completions`)
 - **Model:** TBD — needs smoke test to confirm what's loaded and context window size
 
+### Neural TTS (Kokoro-FastAPI — digest playback voice)
+- **Deploy:** `deploy/tts/docker-compose.yml` (pinned CPU image, port 8880); see `deploy/tts/README.md`
+- **Web app config:** `VITE_TTS_NEURAL_URL` in `web/.env` — unset means Web Speech API fallback
+- **API:** OpenAI-compatible (`POST /v1/audio/speech`, `GET /v1/audio/voices`); client is `web/src/lib/tts-neural.ts`
+
 ## Digest Topics
 
 | # | Topic                              | Cadence | Slug              |

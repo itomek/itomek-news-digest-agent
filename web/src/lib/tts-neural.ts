@@ -20,9 +20,13 @@
 import type { TtsBackend, TtsVoice } from "./tts";
 
 const MAX_CACHE_ENTRIES = 64;
-// ~700 chars keeps first-audio latency ~1–2s on Google Chirp 3 HD; the player
-// covers gaps between small chunks via prefetch (Fix #2).
-const NEURAL_MAX_CHUNK_CHARS = 700;
+// Google Chirp 3 HD synthesis costs ~9 ms/char, so first-audio latency is set
+// by the FIRST chunk's size: ~240 chars measures ~2.3s (vs ~6.6s at 700, ~36s
+// at 4000). Each chunk's audio runs ~3x longer than its own synth time, so the
+// player's prefetch (Fix #2) keeps every later chunk ready with no gap; only
+// the first chunk is unavoidably synchronous. ~240 chars is also 1–3 whole
+// sentences, so per-chunk prosody stays natural.
+const NEURAL_MAX_CHUNK_CHARS = 240;
 
 export type HeadersProvider = () =>
   | Record<string, string>

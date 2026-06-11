@@ -297,9 +297,10 @@ describe("NeuralHttpBackend transport", () => {
     const { fetchImpl } = makeFetch();
     const backend = makeBackend(fetchImpl, []);
     expect(backend.supportsRealSeek).toBe(true);
-    // Fix #1: ~700 chars so first audio arrives in ~1–2s, not 4000 chars (~10s).
-    expect(backend.maxChunkChars).toBeGreaterThanOrEqual(600);
-    expect(backend.maxChunkChars).toBeLessThanOrEqual(800);
+    // Fix #1: small chunks so first audio arrives in ~2s, not 4000 chars (~36s).
+    // Measured ~9ms/char on Chirp 3 HD; ~240 chars ≈ 2.3s first audio.
+    expect(backend.maxChunkChars).toBeGreaterThanOrEqual(160);
+    expect(backend.maxChunkChars).toBeLessThanOrEqual(320);
   });
 });
 

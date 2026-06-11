@@ -203,3 +203,84 @@ describe("buildSettingsControls", () => {
     expect(select.value).toBe("com.example.Samantha");
   });
 });
+
+// --- active-backend voices (#63) ---------------------------------------------
+
+/** Minimal TtsBackend whose voices stand in for a neural endpoint's ids. */
+class FakeNeuralBackend {
+  supportsRealSeek = true;
+  maxChunkChars = 4000;
+  voices: { id: string; label: string }[] = [
+    { id: "af_heart", label: "Heart" },
+    { id: "am_adam", label: "Adam" },
+  ];
+  async = false;
+  speak(_t: string, _o: { rate: number; voiceURI: string | null }, _end: () => void): void {}
+  pause(): void {}
+  resume(): void {}
+  cancel(): void {}
+  listVoices(): { id: string; label: string }[] | Promise<{ id: string; label: string }[]> {
+    return this.async ? Promise.resolve(this.voices) : this.voices;
+  }
+}
+
+describe("buildSettingsControls with a neural backend", () => {
+  it("lists the active backend's voices instead of speechSynthesis voices", () => {
+    // speechSynthesis (installed by beforeEach) has NO voices; the backend does.
+    const backend = new FakeNeuralBackend();
+    const player = new TtsPlayer({ backend });
+    const el = buildSettingsControls(player);
+    const select = el.querySelector<HTMLSelectElement>("select.tts-voice")!;
+    const values = Array.from(select.options).map((o) => o.value);
+    expect(values).toContain("af_heart");
+    expect(values).toContain("am_adam");
+    const labels = Array.from(select.options).map((o) => o.textContent);
+    expect(labels).toContain("Heart");
+    expect(labels).toContain("Adam");
+  });
+
+  it("populates asynchronously when listVoices returns a promise", async () => {
+    const backend = new FakeNeuralBackend();
+    backend.async = true;
+    const player = new TtsPlayer({ backend });
+    const el = buildSettingsControls(player);
+    const select = el.querySelector<HTMLSelectElement>("select.tts-voice")!;
+    await new Promise((r) => setTimeout(r, 0));
+    const values = Array.from(select.options).map((o) => o.value);
+    expect(values).toContain("af_heart");
+  });
+
+  it("persists a selected neural voice id via prefs", () => {
+    const backend = new FakeNeuralBackend();
+    const player = new TtsPlayer({ backend });
+    const el = buildSettingsControls(player);
+    document.body.appendChild(el);
+
+    const select = el.querySelector<HTMLSelectElement>("select.tts-voice")!;
+    select.value = "am_adam";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(localStorage.getItem("tts.voiceURI")).toBe("am_adam");
+    expect(player.getVoiceURI()).toBe("am_adam");
+
+    document.body.removeChild(el);
+  });
+
+  it("pre-selects the stored neural voice id when it exists in the list", () => {
+    savePrefs({ voiceURI: "am_adam" });
+    const backend = new FakeNeuralBackend();
+    const player = new TtsPlayer({ backend });
+    const el = buildSettingsControls(player);
+    const select = el.querySelector<HTMLSelectElement>("select.tts-voice")!;
+    expect(select.value).toBe("am_adam");
+  });
+
+  it("falls back to the default option when the stored id is not in the active backend's list", () => {
+    savePrefs({ voiceURI: "com.example.Samantha" }); // an OS voice id, not a neural one
+    const backend = new FakeNeuralBackend();
+    const player = new TtsPlayer({ backend });
+    const el = buildSettingsControls(player);
+    const select = el.querySelector<HTMLSelectElement>("select.tts-voice")!;
+    expect(select.value).toBe(""); // "Default voice"
+  });
+});

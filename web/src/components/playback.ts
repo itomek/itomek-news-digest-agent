@@ -10,10 +10,21 @@
 
 import { registerPlaybackControls as registerCardHook } from "../views/digest-card";
 import type { Digest } from "../lib/types";
-import { TtsPlayer, type TtsItem, type TtsState, wordsForSkip } from "../lib/tts";
+import {
+  TtsPlayer,
+  createDefaultBackend,
+  type TtsBackend,
+  type TtsItem,
+  type TtsState,
+  wordsForSkip,
+} from "../lib/tts";
 import { buildSettingsControls } from "./settings";
 
 let player: TtsPlayer | null = null;
+// Resolved by the env+probe backend selection kicked off at module load. When
+// a player is constructed before the probe settles, it starts on Web Speech
+// and is swapped (only while idle) once the neural backend proves reachable.
+let probedBackend: TtsBackend | null = null;
 // Ordered registry: insertion order === card render order.
 const registry = new Map<string, { digest: Digest; card: HTMLElement }>();
 // All digests ever mounted, keyed by id, so finalize can resolve content even
@@ -86,9 +97,33 @@ function startTicker(digestId: string): void {
 
 function getPlayer(): TtsPlayer {
   if (player) return player;
-  player = new TtsPlayer({ onStateChange: handleStateChange });
+  player = probedBackend
+    ? new TtsPlayer({ backend: probedBackend, onStateChange: handleStateChange })
+    : new TtsPlayer({ onStateChange: handleStateChange });
   return player;
 }
+
+// Select the backend once per page load. Runs in the background so the first
+// user gesture never waits on the probe; Web Speech covers the gap.
+void createDefaultBackend()
+  .then((backend) => {
+    probedBackend = backend;
+    // Neural came up after a Web Speech player was already built (toolbar
+    // mounted before the probe settled): swap while idle and refresh the
+    // settings so the dropdown lists the neural voices.
+    if (player && backend.supportsRealSeek && player.getState() === "idle") {
+      player.dispose();
+      player = new TtsPlayer({ backend, onStateChange: handleStateChange });
+      const toolbar = document.querySelector<HTMLElement>(".digest-toolbar");
+      const oldSettings = toolbar?.querySelector(".tts-settings");
+      if (toolbar && oldSettings) {
+        toolbar.replaceChild(buildSettingsControls(player), oldSettings);
+      }
+    }
+  })
+  .catch(() => {
+    // Probe failed outright — Web Speech default stands.
+  });
 
 function setCardState(cardEl: HTMLElement, state: TtsState): void {
   cardEl.setAttribute("data-tts-state", state);

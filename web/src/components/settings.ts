@@ -4,13 +4,10 @@
 // owns the voice-list UI (including async `voiceschanged` repopulation) that was
 // previously duplicated inside every card via `populateVoices` in playback.ts.
 
-import { type TtsPlayer, loadPrefs } from "../lib/tts";
+import { type TtsPlayer, type TtsVoice, loadPrefs } from "../lib/tts";
 
-function populateVoices(select: HTMLSelectElement): void {
-  const synth = (globalThis as unknown as { speechSynthesis?: SpeechSynthesis }).speechSynthesis;
-  if (!synth) return;
-  const render = (): void => {
-    const voices = synth.getVoices();
+function populateVoices(select: HTMLSelectElement, player: TtsPlayer): void {
+  const render = (voices: TtsVoice[]): void => {
     const current = loadPrefs().voiceURI;
     select.replaceChildren();
     const def = document.createElement("option");
@@ -19,16 +16,27 @@ function populateVoices(select: HTMLSelectElement): void {
     select.appendChild(def);
     for (const v of voices) {
       const opt = document.createElement("option");
-      opt.value = v.voiceURI;
-      opt.textContent = v.name;
-      if (current && (v.voiceURI === current || v.name === current)) opt.selected = true;
+      opt.value = v.id;
+      opt.textContent = v.label;
+      // A stored id that isn't in the active backend's list simply never
+      // matches, leaving "Default voice" (the backend's default) selected.
+      if (current && (v.id === current || v.label === current)) opt.selected = true;
       select.appendChild(opt);
     }
   };
-  render();
-  // Voices often load asynchronously — re-render when the list arrives.
-  if (typeof synth.addEventListener === "function") {
-    synth.addEventListener("voiceschanged", render);
+  // The active backend decides the voice list: neural ids when neural is
+  // active, OS voices otherwise. A sync result renders immediately so stored
+  // selections are reflected without a flash.
+  const apply = (): void => {
+    const res = player.listVoices();
+    if (Array.isArray(res)) render(res);
+    else void res.then(render).catch(() => render([]));
+  };
+  apply();
+  // Web Speech loads its voices asynchronously — re-render when they arrive.
+  const synth = (globalThis as unknown as { speechSynthesis?: SpeechSynthesis }).speechSynthesis;
+  if (synth && typeof synth.addEventListener === "function") {
+    synth.addEventListener("voiceschanged", apply);
   }
 }
 
@@ -48,7 +56,7 @@ export function buildSettingsControls(player: TtsPlayer): HTMLElement {
   const voice = document.createElement("select");
   voice.className = "tts-voice";
   voice.setAttribute("aria-label", "Voice");
-  populateVoices(voice);
+  populateVoices(voice, player);
   voice.addEventListener("change", () => {
     player.setVoiceURI(voice.value || null);
   });

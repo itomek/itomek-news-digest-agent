@@ -387,7 +387,7 @@ describe("NeuralHttpBackend cache", () => {
     expect(URL.revokeObjectURL).toHaveBeenCalled();
   });
 
-  it("does NOT revoke a blob URL that is currently set as the element's src", async () => {
+  it("does NOT revoke a blob URL while it is still the element's live src", async () => {
     const { fetchImpl } = makeFetch();
     const audioRef = { ref: null as FakeAudio | null };
     // cap=1 so every new speak() evicts the previous entry
@@ -397,16 +397,47 @@ describe("NeuralHttpBackend cache", () => {
     backend.speak("One.", { rate: 1, voiceURI: null }, () => {});
     await flush();
     const urlForOne = audioRef.ref!.src;
+    expect(urlForOne).toMatch(/^blob:fake-/);
 
-    // Speak "Two." — evicts "One." from cache, but "One."'s URL is still the
-    // element's current src — must NOT be revoked yet.
+    // The eviction of "One." (which happens inside getAudioUrl for "Two.",
+    // before the new src is assigned) must NOT revoke urlForOne — at that
+    // instant the element is still streaming it. We assert by spying on the
+    // moment of revocation: when revokeObjectURL is called for urlForOne, the
+    // element's src must already have moved on (it is no longer the live src).
+    const revokedWhileLive: string[] = [];
+    (URL.revokeObjectURL as ReturnType<typeof vi.fn>).mockImplementation((u: string) => {
+      if (u === urlForOne && audioRef.ref!.src === urlForOne) {
+        revokedWhileLive.push(u);
+      }
+    });
+
+    backend.speak("Two.", { rate: 1, voiceURI: null }, () => {});
+    await flush();
+
+    // urlForOne was never revoked while it was still the element's src.
+    expect(revokedWhileLive).toEqual([]);
+  });
+
+  it("eventually revokes a deferred URL once the element's src moves on (no leak)", async () => {
+    const { fetchImpl } = makeFetch();
+    const audioRef = { ref: null as FakeAudio | null };
+    const backend = makeBackend(fetchImpl, audioRef, 1);
+
+    backend.speak("One.", { rate: 1, voiceURI: null }, () => {});
+    await flush();
+    const urlForOne = audioRef.ref!.src;
+
+    // "Two." evicts "One." (deferred, since it's live), then reassigns src and
+    // revokes the now-orphaned urlForOne so it does not leak.
     backend.speak("Two.", { rate: 1, voiceURI: null }, () => {});
     await flush();
 
     const revoked = (URL.revokeObjectURL as ReturnType<typeof vi.fn>).mock.calls.map(
       (c: unknown[]) => c[0],
     );
-    expect(revoked).not.toContain(urlForOne);
+    expect(revoked).toContain(urlForOne);
+    // And the element has moved on to "Two."'s URL.
+    expect(audioRef.ref!.src).not.toBe(urlForOne);
   });
 });
 

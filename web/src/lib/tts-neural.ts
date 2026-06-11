@@ -153,11 +153,19 @@ export class NeuralHttpBackend implements TtsBackend {
         // Detach any handlers from a previous chunk before reassigning.
         audio.onended = null;
         audio.onerror = null;
+        const previousSrc = this.elementSrc;
         // Swap the SAME element's source to this chunk. elementSrc records the
         // URL the element is now streaming so eviction never revokes it.
         this.elementSrc = url;
         this.hasCurrentTrack = true;
         audio.src = url;
+        // The element has moved on from previousSrc. If that URL was evicted
+        // from the cache while it was the live src (its revocation deferred),
+        // revoke it now — nothing references it anymore, so it would otherwise
+        // leak. Done AFTER reassigning src so we never revoke the live source.
+        if (previousSrc && previousSrc !== url && !this.cacheHasUrl(previousSrc)) {
+          URL.revokeObjectURL(previousSrc);
+        }
         const finish = (): void => {
           if (session !== this.session) return;
           this.hasCurrentTrack = false;
@@ -276,6 +284,14 @@ export class NeuralHttpBackend implements TtsBackend {
       this.audioEl = this.audioFactory();
     }
     return this.audioEl;
+  }
+
+  /** True when `url` is still held by the cache (so it must not be revoked). */
+  private cacheHasUrl(url: string): boolean {
+    for (const v of this.cache.values()) {
+      if (v === url) return true;
+    }
+    return false;
   }
 
   private async resolveHeaders(): Promise<Record<string, string>> {

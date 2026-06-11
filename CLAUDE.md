@@ -175,10 +175,10 @@ ruff format src tests
 - **API:** OpenAI-compatible (`/v1/chat/completions`)
 - **Model:** TBD — needs smoke test to confirm what's loaded and context window size
 
-### Neural TTS (Kokoro-FastAPI — digest playback voice)
-- **Deploy:** `deploy/tts/docker-compose.yml` (pinned CPU image, port 8880); see `deploy/tts/README.md`
-- **Web app config:** `VITE_TTS_NEURAL_URL` in `web/.env` — unset means Web Speech API fallback
-- **API:** OpenAI-compatible (`POST /v1/audio/speech`, `GET /v1/audio/voices`); client is `web/src/lib/tts-neural.ts`
+### Neural TTS (Google Cloud TTS via Supabase Edge Function — digest playback voice)
+- **Function:** `supabase/functions/tts/` proxies Google Cloud TTS behind an OpenAI-style API (`POST /v1/audio/speech`, `GET /v1/audio/voices`); deployed with JWT verification on
+- **Secret:** `GOOGLE_TTS_API_KEY` lives in Supabase function secrets — never in the repo
+- **Web app config:** `VITE_TTS_NEURAL_URL=https://<project>.supabase.co/functions/v1/tts` in `web/.env` — unset means Web Speech API fallback; client is `web/src/lib/tts-neural.ts`
 
 ## Digest Topics
 

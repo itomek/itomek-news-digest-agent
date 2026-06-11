@@ -254,7 +254,7 @@ test.describe("neural TTS backend", () => {
       }
       return route.fulfill({
         headers: { ...CORS_HEADERS, "content-type": "application/json" },
-        body: JSON.stringify({ voices: [{ id: "af_heart", name: "Heart" }] }),
+        body: JSON.stringify({ voices: [{ id: "en-US-Chirp3-HD-Aoede", name: "Aoede" }] }),
       });
     });
     await page.route("**/v1/audio/speech", (route) => {
@@ -295,7 +295,7 @@ test.describe("neural TTS backend", () => {
     // The app POSTed the locked contract body to the neural endpoint…
     await expect.poll(() => speechBodies.length, { timeout: 10_000 }).toBeGreaterThan(0);
     const body = JSON.parse(speechBodies[0]);
-    expect(body.model).toBe("kokoro");
+    expect(body.model).toBe("tts-1");
     expect(body.response_format).toBe("mp3");
     expect(typeof body.input).toBe("string");
     expect(body.input.length).toBeGreaterThan(0);

@@ -47,8 +47,8 @@ function makeFetch(opts: { failSpeech?: boolean; failVoices?: boolean } = {}) {
         ok: true,
         json: async () => ({
           voices: [
-            { id: "af_heart", name: "Heart" },
-            { id: "am_adam", name: "Adam" },
+            { id: "en-US-Chirp3-HD-Aoede", name: "Aoede" },
+            { id: "en-US-Chirp3-HD-Puck", name: "Puck" },
           ],
         }),
       } as unknown as Response;
@@ -113,7 +113,7 @@ describe("NeuralHttpBackend.speak", () => {
     const audios: FakeAudio[] = [];
     const backend = makeBackend(fetchImpl, audios);
 
-    backend.speak("Hello world.", { rate: 1.5, voiceURI: "am_adam" }, () => {});
+    backend.speak("Hello world.", { rate: 1.5, voiceURI: "en-US-Chirp3-HD-Puck" }, () => {});
     await flush();
 
     expect(calls.length).toBe(1);
@@ -123,7 +123,7 @@ describe("NeuralHttpBackend.speak", () => {
     expect(body).toEqual({
       model: "tts-1",
       input: "Hello world.",
-      voice: "am_adam",
+      voice: "en-US-Chirp3-HD-Puck",
       response_format: "mp3",
       speed: 1.5,
     });
@@ -196,9 +196,9 @@ describe("NeuralHttpBackend cache", () => {
     const audios: FakeAudio[] = [];
     const backend = makeBackend(fetchImpl, audios);
 
-    backend.speak("Same text.", { rate: 1.2, voiceURI: "af_heart" }, () => {});
+    backend.speak("Same text.", { rate: 1.2, voiceURI: "en-US-Chirp3-HD-Aoede" }, () => {});
     await flush();
-    backend.speak("Same text.", { rate: 1.2, voiceURI: "af_heart" }, () => {});
+    backend.speak("Same text.", { rate: 1.2, voiceURI: "en-US-Chirp3-HD-Aoede" }, () => {});
     await flush();
 
     const speechCalls = calls.filter((c) => c.url.endsWith("/v1/audio/speech"));
@@ -209,11 +209,11 @@ describe("NeuralHttpBackend cache", () => {
   it("misses the cache when rate or voice differs", async () => {
     const { fetchImpl, calls } = makeFetch();
     const backend = makeBackend(fetchImpl, []);
-    backend.speak("Same text.", { rate: 1.2, voiceURI: "af_heart" }, () => {});
+    backend.speak("Same text.", { rate: 1.2, voiceURI: "en-US-Chirp3-HD-Aoede" }, () => {});
     await flush();
-    backend.speak("Same text.", { rate: 1.5, voiceURI: "af_heart" }, () => {});
+    backend.speak("Same text.", { rate: 1.5, voiceURI: "en-US-Chirp3-HD-Aoede" }, () => {});
     await flush();
-    backend.speak("Same text.", { rate: 1.2, voiceURI: "am_adam" }, () => {});
+    backend.speak("Same text.", { rate: 1.2, voiceURI: "en-US-Chirp3-HD-Puck" }, () => {});
     await flush();
     const speechCalls = calls.filter((c) => c.url.endsWith("/v1/audio/speech"));
     expect(speechCalls.length).toBe(3);
@@ -310,21 +310,21 @@ describe("NeuralHttpBackend.listVoices", () => {
     const voices = await backend.listVoices();
     expect(calls[0].url).toBe("http://tts.local:8880/v1/audio/voices");
     expect(voices).toEqual([
-      { id: "af_heart", label: "Heart" },
-      { id: "am_adam", label: "Adam" },
+      { id: "en-US-Chirp3-HD-Aoede", label: "Aoede" },
+      { id: "en-US-Chirp3-HD-Puck", label: "Puck" },
     ]);
   });
 
   it("handles a bare string voice list defensively", async () => {
     const fetchImpl = vi.fn(async () => ({
       ok: true,
-      json: async () => ({ voices: ["af_heart", "am_adam"] }),
+      json: async () => ({ voices: ["en-US-Chirp3-HD-Aoede", "en-US-Chirp3-HD-Puck"] }),
     })) as unknown as typeof fetch;
     const backend = new NeuralHttpBackend("http://tts.local:8880", { fetchImpl });
     const voices = await backend.listVoices();
     expect(voices).toEqual([
-      { id: "af_heart", label: "af_heart" },
-      { id: "am_adam", label: "am_adam" },
+      { id: "en-US-Chirp3-HD-Aoede", label: "en-US-Chirp3-HD-Aoede" },
+      { id: "en-US-Chirp3-HD-Puck", label: "en-US-Chirp3-HD-Puck" },
     ]);
   });
 

@@ -293,11 +293,13 @@ describe("NeuralHttpBackend transport", () => {
     expect(backend.seekWithinCurrent(30)).toBe(false);
   });
 
-  it("advertises real seek and large chunks", () => {
+  it("advertises real seek and small chunks for low-latency first audio", () => {
     const { fetchImpl } = makeFetch();
     const backend = makeBackend(fetchImpl, []);
     expect(backend.supportsRealSeek).toBe(true);
-    expect(backend.maxChunkChars).toBeGreaterThanOrEqual(2000);
+    // Fix #1: ~700 chars so first audio arrives in ~1–2s, not 4000 chars (~10s).
+    expect(backend.maxChunkChars).toBeGreaterThanOrEqual(600);
+    expect(backend.maxChunkChars).toBeLessThanOrEqual(800);
   });
 });
 
@@ -473,5 +475,108 @@ describe("NeuralHttpBackend headers provider", () => {
     });
     await flush();
     expect(ended).toBe(1);
+  });
+});
+
+// --- prefetch (Fix #2) ----------------------------------------------------------------
+
+describe("NeuralHttpBackend.prefetch", () => {
+  it("warms the cache so a subsequent speak causes no new fetch", async () => {
+    const { fetchImpl, calls } = makeFetch();
+    const audios: FakeAudio[] = [];
+    const backend = makeBackend(fetchImpl, audios);
+
+    // prefetch the text without playing it
+    await backend.prefetch("Prefetched text.", { rate: 1.2, voiceURI: "en-US-Chirp3-HD-Aoede" });
+
+    const callsAfterPrefetch = calls.filter((c) => c.url.endsWith("/v1/audio/speech")).length;
+    expect(callsAfterPrefetch).toBe(1); // one fetch to warm cache
+
+    // speak the same text — must use cache, no new request
+    backend.speak("Prefetched text.", { rate: 1.2, voiceURI: "en-US-Chirp3-HD-Aoede" }, () => {});
+    await flush();
+
+    const callsAfterSpeak = calls.filter((c) => c.url.endsWith("/v1/audio/speech")).length;
+    expect(callsAfterSpeak).toBe(1); // still 1 — cache was hit
+    expect(audios.length).toBe(1); // audio was created and played
+  });
+
+  it("prefetch failure is swallowed (never rejects)", async () => {
+    const { fetchImpl } = makeFetch({ failSpeech: true });
+    const backend = makeBackend(fetchImpl, []);
+    // Must not throw or reject
+    await expect(
+      backend.prefetch("Some text.", { rate: 1, voiceURI: null }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("prefetch does not start audio playback", async () => {
+    const { fetchImpl } = makeFetch();
+    const audios: FakeAudio[] = [];
+    const backend = makeBackend(fetchImpl, audios);
+    await backend.prefetch("No play.", { rate: 1, voiceURI: null });
+    expect(audios.length).toBe(0); // no audio element created
+  });
+
+  it("prefetch does not disturb current session (ongoing speak is unaffected)", async () => {
+    const { fetchImpl } = makeFetch();
+    const audios: FakeAudio[] = [];
+    const backend = makeBackend(fetchImpl, audios);
+
+    let ended = 0;
+    backend.speak("Current chunk.", { rate: 1, voiceURI: null }, () => { ended += 1; });
+    await flush();
+    const currentAudio = audios[0];
+
+    // prefetch a different chunk while audio is playing
+    await backend.prefetch("Next chunk.", { rate: 1, voiceURI: null });
+
+    // current audio still active; simulating end fires our onEnd
+    currentAudio.onended?.();
+    expect(ended).toBe(1);
+    expect(audios.length).toBe(1); // prefetch created no audio
+  });
+});
+
+// --- getProgress (Fix #3) ------------------------------------------------------------
+
+describe("NeuralHttpBackend.getProgress", () => {
+  it("returns null when no audio is playing", () => {
+    const { fetchImpl } = makeFetch();
+    const backend = makeBackend(fetchImpl, []);
+    expect(backend.getProgress()).toBeNull();
+  });
+
+  it("returns null when audio duration is not finite yet (still buffering)", async () => {
+    const { fetchImpl } = makeFetch();
+    const audios: FakeAudio[] = [];
+    const backend = makeBackend(fetchImpl, audios);
+    backend.speak("Hi.", { rate: 1, voiceURI: null }, () => {});
+    await flush();
+    // duration is NaN by default in FakeAudio
+    expect(backend.getProgress()).toBeNull();
+  });
+
+  it("returns { currentTime, duration } once duration is finite", async () => {
+    const { fetchImpl } = makeFetch();
+    const audios: FakeAudio[] = [];
+    const backend = makeBackend(fetchImpl, audios);
+    backend.speak("Hi.", { rate: 1, voiceURI: null }, () => {});
+    await flush();
+    audios[0].duration = 12.5;
+    audios[0].currentTime = 3.0;
+    const prog = backend.getProgress();
+    expect(prog).toEqual({ currentTime: 3.0, duration: 12.5 });
+  });
+
+  it("returns null after cancel", async () => {
+    const { fetchImpl } = makeFetch();
+    const audios: FakeAudio[] = [];
+    const backend = makeBackend(fetchImpl, audios);
+    backend.speak("Hi.", { rate: 1, voiceURI: null }, () => {});
+    await flush();
+    audios[0].duration = 5;
+    backend.cancel();
+    expect(backend.getProgress()).toBeNull();
   });
 });

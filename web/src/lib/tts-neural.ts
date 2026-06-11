@@ -20,7 +20,9 @@
 import type { TtsBackend, TtsVoice } from "./tts";
 
 const MAX_CACHE_ENTRIES = 64;
-const NEURAL_MAX_CHUNK_CHARS = 4000;
+// ~700 chars keeps first-audio latency ~1–2s on Google Chirp 3 HD; the player
+// covers gaps between small chunks via prefetch (Fix #2).
+const NEURAL_MAX_CHUNK_CHARS = 700;
 
 export type HeadersProvider = () =>
   | Record<string, string>
@@ -170,6 +172,31 @@ export class NeuralHttpBackend implements TtsBackend {
       const o = v as { id: string; name?: string };
       return { id: o.id, label: o.name ?? o.id };
     });
+  }
+
+  /**
+   * Warm the cache for `text` without playing it. Call this while the current
+   * chunk is playing so the next chunk is ready when its turn arrives.
+   * All failures are swallowed — a cache miss is the only side-effect.
+   */
+  prefetch(text: string, opts: { rate: number; voiceURI: string | null }): Promise<void> {
+    const voice = opts.voiceURI ?? "";
+    return this.getAudioUrl(text, voice, opts.rate).then(
+      () => { /* cached; no playback */ },
+      () => { /* silently ignore fetch errors */ },
+    );
+  }
+
+  /**
+   * Return the current audio element's playback position.
+   * Returns null when no audio is loaded or duration is not yet finite
+   * (still buffering), so callers can tell the difference between "no audio"
+   * and "audio is playing but metadata not ready yet".
+   */
+  getProgress(): { currentTime: number; duration: number } | null {
+    const audio = this.current;
+    if (!audio || !Number.isFinite(audio.duration)) return null;
+    return { currentTime: audio.currentTime, duration: audio.duration };
   }
 
   // --- internals ------------------------------------------------------------

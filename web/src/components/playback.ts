@@ -58,10 +58,11 @@ function injectStyles(): void {
   style.textContent = `
     .tts-controls { display:flex; flex-wrap:wrap; gap:0.4rem; align-items:center; margin-bottom:0.6rem; }
     .tts-controls button { min-height:44px; padding:0.4rem 0.7rem; font-size:0.9rem; }
-    .tts-playall { display:flex; align-items:center; gap:0.5rem; margin:0 0 1rem; }
+    .tts-playall { display:flex; align-items:center; gap:0.5rem; }
     .tts-playall button[aria-pressed="true"] { background: var(--card); color: var(--accent); }
     .digest-card[data-tts-state="playing"] { outline:2px solid var(--accent); outline-offset:2px; }
     .digest-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:0.6rem; padding:0.5rem 0 0.75rem; border-bottom:1px solid var(--border); margin-bottom:1rem; }
+    .digest-toolbar .tts-settings { margin-left:auto; }
     .tts-settings { display:flex; flex-wrap:wrap; gap:0.4rem; align-items:center; }
     .tts-settings select.tts-voice { font:inherit; min-height:44px; max-width:9rem; border:1px solid var(--border); border-radius:var(--radius); background:var(--bg); color:var(--fg); padding:0 0.4rem; }
     .tts-settings input.tts-rate { accent-color: var(--accent); min-height:44px; }
@@ -101,17 +102,17 @@ function finalize(): void {
     if (!firstSlot) firstSlot = card.querySelector<HTMLElement>(".playback-slot");
   }
 
-  // Drop any stale play-all bar, then mount exactly one above the first card.
+  // Drop any stale play-all bar.
   document.querySelectorAll(".tts-playall").forEach((el) => el.remove());
   playAllBtn = null;
-  if (firstSlot) firstSlot.prepend(buildPlayAllBar());
 
-  // Mount a single global settings toolbar above the digest list.
+  // Mount a single global toolbar above the digest list: [play-all] … [settings].
   document.querySelectorAll(".digest-toolbar").forEach((el) => el.remove());
   const digestList = document.querySelector<HTMLElement>(".digest-list");
   if (digestList) {
     const toolbar = document.createElement("div");
     toolbar.className = "digest-toolbar";
+    toolbar.appendChild(buildPlayAllBar());
     toolbar.appendChild(buildSettingsControls(getPlayer()));
     digestList.prepend(toolbar);
   }

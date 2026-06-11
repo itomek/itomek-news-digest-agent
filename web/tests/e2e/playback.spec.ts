@@ -86,8 +86,8 @@ async function gotoApp(page: Page): Promise<void> {
 
 test("each digest card renders playback controls", async ({ page }) => {
   await gotoApp(page);
-  // Scope to the per-card control group (.tts-controls) so the first card's
-  // play-all bar (which shares a Stop label) doesn't cause ambiguity.
+  // Scope to the per-card control group (.tts-controls) to avoid ambiguity with
+  // the global toolbar's Stop button.
   const controls = page.locator(".digest-card").first().locator(".tts-controls");
   await expect(controls.locator("button.tts-play")).toBeVisible();
   await expect(controls.locator("button.tts-pause")).toBeVisible();
@@ -141,6 +141,23 @@ test("skip-30s utters again from an advanced position", async ({ page }) => {
   await controls.locator("button.tts-skip").click();
   const after = await page.evaluate(() => (window as any).__tts.speaks.length);
   expect(after).toBeGreaterThan(before);
+});
+
+test("play-all control is inside .digest-toolbar at the top, not inside any card", async ({
+  page,
+}) => {
+  await gotoApp(page);
+  // Exactly one play-all button in the whole page.
+  await expect(page.locator(".tts-playall")).toHaveCount(1);
+  // It lives inside the toolbar, not inside a card's playback-slot.
+  await expect(page.locator(".digest-toolbar .tts-playall")).toHaveCount(1);
+  expect(await page.locator(".digest-card .playback-slot .tts-playall").count()).toBe(0);
+  // Toolbar (and therefore play-all) is above the first card.
+  const toolbarBox = await page.locator(".digest-toolbar").boundingBox();
+  const firstCardBox = await page.locator(".digest-card").first().boundingBox();
+  expect(toolbarBox).not.toBeNull();
+  expect(firstCardBox).not.toBeNull();
+  expect(toolbarBox!.y).toBeLessThan(firstCardBox!.y);
 });
 
 test("Play all advances the queue across multiple digests", async ({ page }) => {

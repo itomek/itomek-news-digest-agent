@@ -148,6 +148,47 @@ export class WebSpeechBackend implements TtsBackend {
   }
 }
 
+// --- createDefaultBackend ----------------------------------------------------
+
+export interface CreateBackendOptions {
+  /** Override the endpoint; defaults to import.meta.env.VITE_TTS_NEURAL_URL. */
+  neuralUrl?: string;
+  /** Injectable for tests; passed through to NeuralHttpBackend. */
+  fetchImpl?: typeof fetch;
+  /** Injectable for tests; passed through to NeuralHttpBackend. */
+  audioFactory?: (src: string) => HTMLAudioElement;
+}
+
+/**
+ * Build the right backend for this environment.
+ * If VITE_TTS_NEURAL_URL is set AND the endpoint answers the reachability
+ * probe (GET /v1/audio/voices), use the neural backend; otherwise fall back
+ * to Web Speech. URL absent by default → Web Speech, zero dependencies.
+ */
+export async function createDefaultBackend(opts: CreateBackendOptions = {}): Promise<TtsBackend> {
+  const neuralUrl = opts.neuralUrl ?? import.meta.env.VITE_TTS_NEURAL_URL;
+  if (neuralUrl) {
+    try {
+      // Dynamic import keeps the neural code out of the bundle's hot path.
+      const { NeuralHttpBackend } = await import("./tts-neural");
+      const backend = new NeuralHttpBackend(neuralUrl, {
+        fetchImpl: opts.fetchImpl,
+        audioFactory: opts.audioFactory,
+      });
+      // Probe: listVoices rejects when the endpoint is unreachable.
+      await backend.listVoices();
+      return backend;
+    } catch {
+      // Neural endpoint unreachable — fall through to Web Speech.
+    }
+  }
+  const g = globalThis as unknown as {
+    speechSynthesis: SpeechSynthesis;
+    SpeechSynthesisUtterance: new (text: string) => SpeechSynthesisUtterance;
+  };
+  return new WebSpeechBackend(g.speechSynthesis, (text) => new g.SpeechSynthesisUtterance(text));
+}
+
 const RATE_KEY = "tts.rate";
 const VOICE_KEY = "tts.voiceURI";
 export const DEFAULT_RATE = 1.2;

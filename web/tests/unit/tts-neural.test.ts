@@ -1,0 +1,385 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_NEURAL_VOICE, NeuralHttpBackend } from "../../src/lib/tts-neural";
+import { createDefaultBackend, WebSpeechBackend } from "../../src/lib/tts";
+
+// --- fakes -------------------------------------------------------------------
+
+/** Minimal HTMLAudioElement stand-in: records calls, lets tests fire events. */
+class FakeAudio {
+  src: string;
+  currentTime = 0;
+  duration = NaN;
+  paused = true;
+  playCalls = 0;
+  pauseCalls = 0;
+  onended: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+
+  constructor(src: string) {
+    this.src = src;
+  }
+  play(): Promise<void> {
+    this.playCalls += 1;
+    this.paused = false;
+    return Promise.resolve();
+  }
+  pause(): void {
+    this.pauseCalls += 1;
+    this.paused = true;
+  }
+}
+
+interface FetchCall {
+  url: string;
+  init?: RequestInit;
+}
+
+/** fetch stub returning fake mp3 bytes for speech and a voice list for voices. */
+function makeFetch(opts: { failSpeech?: boolean; failVoices?: boolean } = {}) {
+  const calls: FetchCall[] = [];
+  const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    const u = String(url);
+    calls.push({ url: u, init });
+    if (u.endsWith("/v1/audio/voices")) {
+      if (opts.failVoices) throw new Error("connection refused");
+      return {
+        ok: true,
+        json: async () => ({
+          voices: [
+            { id: "af_heart", name: "Heart" },
+            { id: "am_adam", name: "Adam" },
+          ],
+        }),
+      } as unknown as Response;
+    }
+    if (opts.failSpeech) throw new Error("connection refused");
+    return {
+      ok: true,
+      blob: async () => new Blob([new Uint8Array([1, 2, 3])], { type: "audio/mpeg" }),
+    } as unknown as Response;
+  });
+  return { fetchImpl: fetchImpl as unknown as typeof fetch, calls };
+}
+
+function makeBackend(
+  fetchImpl: typeof fetch,
+  audios: FakeAudio[],
+  cacheCap?: number,
+): NeuralHttpBackend {
+  return new NeuralHttpBackend("http://tts.local:8880", {
+    fetchImpl,
+    audioFactory: (src: string) => {
+      const a = new FakeAudio(src);
+      audios.push(a);
+      return a as unknown as HTMLAudioElement;
+    },
+    maxCacheEntries: cacheCap,
+  });
+}
+
+/** Flush pending microtasks/timers so speak()'s fetch chain settles. */
+async function flush(): Promise<void> {
+  await new Promise((r) => setTimeout(r, 0));
+}
+
+let urlCounter = 0;
+
+beforeEach(() => {
+  localStorage.clear();
+  urlCounter = 0;
+  // jsdom lacks createObjectURL; the backend turns blobs into object URLs.
+  Object.defineProperty(URL, "createObjectURL", {
+    value: vi.fn(() => `blob:fake-${urlCounter++}`),
+    configurable: true,
+    writable: true,
+  });
+  Object.defineProperty(URL, "revokeObjectURL", {
+    value: vi.fn(),
+    configurable: true,
+    writable: true,
+  });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+// --- speak: request contract ---------------------------------------------------
+
+describe("NeuralHttpBackend.speak", () => {
+  it("POSTs the locked OpenAI-compatible body to /v1/audio/speech", async () => {
+    const { fetchImpl, calls } = makeFetch();
+    const audios: FakeAudio[] = [];
+    const backend = makeBackend(fetchImpl, audios);
+
+    backend.speak("Hello world.", { rate: 1.5, voiceURI: "am_adam" }, () => {});
+    await flush();
+
+    expect(calls.length).toBe(1);
+    expect(calls[0].url).toBe("http://tts.local:8880/v1/audio/speech");
+    expect(calls[0].init?.method).toBe("POST");
+    const body = JSON.parse(String(calls[0].init?.body));
+    expect(body).toEqual({
+      model: "kokoro",
+      input: "Hello world.",
+      voice: "am_adam",
+      response_format: "mp3",
+      speed: 1.5,
+    });
+  });
+
+  it("uses the default voice when voiceURI is null", async () => {
+    const { fetchImpl, calls } = makeFetch();
+    const backend = makeBackend(fetchImpl, []);
+    backend.speak("Hi.", { rate: 1, voiceURI: null }, () => {});
+    await flush();
+    const body = JSON.parse(String(calls[0].init?.body));
+    expect(body.voice).toBe(DEFAULT_NEURAL_VOICE);
+    expect(DEFAULT_NEURAL_VOICE).toBe("af_heart");
+  });
+
+  it("turns the response blob into an object URL and plays it", async () => {
+    const { fetchImpl } = makeFetch();
+    const audios: FakeAudio[] = [];
+    const backend = makeBackend(fetchImpl, audios);
+    backend.speak("Hi.", { rate: 1, voiceURI: null }, () => {});
+    await flush();
+    expect(audios.length).toBe(1);
+    expect(audios[0].src).toMatch(/^blob:fake-/);
+    expect(audios[0].playCalls).toBe(1);
+  });
+
+  it("fires onEnd when the audio element ends", async () => {
+    const { fetchImpl } = makeFetch();
+    const audios: FakeAudio[] = [];
+    const backend = makeBackend(fetchImpl, audios);
+    let ended = 0;
+    backend.speak("Hi.", { rate: 1, voiceURI: null }, () => {
+      ended += 1;
+    });
+    await flush();
+    audios[0].onended?.();
+    expect(ended).toBe(1);
+  });
+
+  it("fires onEnd (graceful, no crash) when fetch rejects", async () => {
+    const { fetchImpl } = makeFetch({ failSpeech: true });
+    const backend = makeBackend(fetchImpl, []);
+    let ended = 0;
+    backend.speak("Hi.", { rate: 1, voiceURI: null }, () => {
+      ended += 1;
+    });
+    await flush();
+    expect(ended).toBe(1);
+  });
+
+  it("does not play or call onEnd when cancelled before the fetch resolves", async () => {
+    const { fetchImpl } = makeFetch();
+    const audios: FakeAudio[] = [];
+    const backend = makeBackend(fetchImpl, audios);
+    let ended = 0;
+    backend.speak("Hi.", { rate: 1, voiceURI: null }, () => {
+      ended += 1;
+    });
+    backend.cancel(); // before flush — fetch still in flight
+    await flush();
+    expect(audios.length).toBe(0);
+    expect(ended).toBe(0);
+  });
+});
+
+// --- caching -------------------------------------------------------------------
+
+describe("NeuralHttpBackend cache", () => {
+  it("serves a repeat of the same voice|rate|text from cache (no 2nd fetch)", async () => {
+    const { fetchImpl, calls } = makeFetch();
+    const audios: FakeAudio[] = [];
+    const backend = makeBackend(fetchImpl, audios);
+
+    backend.speak("Same text.", { rate: 1.2, voiceURI: "af_heart" }, () => {});
+    await flush();
+    backend.speak("Same text.", { rate: 1.2, voiceURI: "af_heart" }, () => {});
+    await flush();
+
+    const speechCalls = calls.filter((c) => c.url.endsWith("/v1/audio/speech"));
+    expect(speechCalls.length).toBe(1);
+    expect(audios.length).toBe(2); // played twice, fetched once
+  });
+
+  it("misses the cache when rate or voice differs", async () => {
+    const { fetchImpl, calls } = makeFetch();
+    const backend = makeBackend(fetchImpl, []);
+    backend.speak("Same text.", { rate: 1.2, voiceURI: "af_heart" }, () => {});
+    await flush();
+    backend.speak("Same text.", { rate: 1.5, voiceURI: "af_heart" }, () => {});
+    await flush();
+    backend.speak("Same text.", { rate: 1.2, voiceURI: "am_adam" }, () => {});
+    await flush();
+    const speechCalls = calls.filter((c) => c.url.endsWith("/v1/audio/speech"));
+    expect(speechCalls.length).toBe(3);
+  });
+
+  it("evicts the oldest entry (and revokes its URL) past the cap", async () => {
+    const { fetchImpl, calls } = makeFetch();
+    const backend = makeBackend(fetchImpl, [], 2); // tiny cap for the test
+
+    backend.speak("One.", { rate: 1, voiceURI: null }, () => {});
+    await flush();
+    backend.speak("Two.", { rate: 1, voiceURI: null }, () => {});
+    await flush();
+    backend.speak("Three.", { rate: 1, voiceURI: null }, () => {});
+    await flush();
+    // "One." should have been evicted — speaking it again re-fetches.
+    backend.speak("One.", { rate: 1, voiceURI: null }, () => {});
+    await flush();
+
+    const speechCalls = calls.filter((c) => c.url.endsWith("/v1/audio/speech"));
+    expect(speechCalls.length).toBe(4);
+    expect(URL.revokeObjectURL).toHaveBeenCalled();
+  });
+});
+
+// --- transport controls ---------------------------------------------------------
+
+describe("NeuralHttpBackend transport", () => {
+  async function playing(): Promise<{ backend: NeuralHttpBackend; audio: FakeAudio }> {
+    const { fetchImpl } = makeFetch();
+    const audios: FakeAudio[] = [];
+    const backend = makeBackend(fetchImpl, audios);
+    backend.speak("Hello.", { rate: 1, voiceURI: null }, () => {});
+    await flush();
+    return { backend, audio: audios[0] };
+  }
+
+  it("pause/resume drive the audio element", async () => {
+    const { backend, audio } = await playing();
+    backend.pause();
+    expect(audio.pauseCalls).toBe(1);
+    backend.resume();
+    expect(audio.playCalls).toBe(2);
+  });
+
+  it("cancel pauses and detaches the current audio", async () => {
+    const { backend, audio } = await playing();
+    let endedAfterCancel = 0;
+    audio.onended = () => {
+      endedAfterCancel += 1;
+    };
+    backend.cancel();
+    expect(audio.pauseCalls).toBe(1);
+    // Handlers detached: a late ended event must not fire through.
+    expect(audio.onended).toBeNull();
+    expect(endedAfterCancel).toBe(0);
+  });
+
+  it("seekWithinCurrent bumps currentTime and returns true within bounds", async () => {
+    const { backend, audio } = await playing();
+    audio.duration = 100;
+    audio.currentTime = 10;
+    expect(backend.seekWithinCurrent(30)).toBe(true);
+    expect(audio.currentTime).toBe(40);
+  });
+
+  it("seekWithinCurrent returns false past the end so the player advances", async () => {
+    const { backend, audio } = await playing();
+    audio.duration = 20;
+    audio.currentTime = 10;
+    expect(backend.seekWithinCurrent(30)).toBe(false);
+  });
+
+  it("seekWithinCurrent returns false with no current audio", () => {
+    const { fetchImpl } = makeFetch();
+    const backend = makeBackend(fetchImpl, []);
+    expect(backend.seekWithinCurrent(30)).toBe(false);
+  });
+
+  it("advertises real seek and large chunks", () => {
+    const { fetchImpl } = makeFetch();
+    const backend = makeBackend(fetchImpl, []);
+    expect(backend.supportsRealSeek).toBe(true);
+    expect(backend.maxChunkChars).toBeGreaterThanOrEqual(2000);
+  });
+});
+
+// --- listVoices ------------------------------------------------------------------
+
+describe("NeuralHttpBackend.listVoices", () => {
+  it("GETs /v1/audio/voices and maps {id, name} to {id, label}", async () => {
+    const { fetchImpl, calls } = makeFetch();
+    const backend = makeBackend(fetchImpl, []);
+    const voices = await backend.listVoices();
+    expect(calls[0].url).toBe("http://tts.local:8880/v1/audio/voices");
+    expect(voices).toEqual([
+      { id: "af_heart", label: "Heart" },
+      { id: "am_adam", label: "Adam" },
+    ]);
+  });
+
+  it("handles a bare string voice list defensively", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ voices: ["af_heart", "am_adam"] }),
+    })) as unknown as typeof fetch;
+    const backend = new NeuralHttpBackend("http://tts.local:8880", { fetchImpl });
+    const voices = await backend.listVoices();
+    expect(voices).toEqual([
+      { id: "af_heart", label: "af_heart" },
+      { id: "am_adam", label: "am_adam" },
+    ]);
+  });
+
+  it("rejects when the endpoint is unreachable (probe contract)", async () => {
+    const { fetchImpl } = makeFetch({ failVoices: true });
+    const backend = makeBackend(fetchImpl, []);
+    await expect(backend.listVoices()).rejects.toThrow();
+  });
+});
+
+// --- createDefaultBackend ----------------------------------------------------------
+
+describe("createDefaultBackend", () => {
+  function installSpeechStubs(): void {
+    Object.defineProperty(globalThis, "speechSynthesis", {
+      value: { getVoices: () => [], speak() {}, pause() {}, resume() {}, cancel() {} },
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "SpeechSynthesisUtterance", {
+      value: class {
+        text: string;
+        constructor(t: string) {
+          this.text = t;
+        }
+      },
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  it("returns NeuralHttpBackend when a URL is set and the probe succeeds", async () => {
+    installSpeechStubs();
+    const { fetchImpl } = makeFetch();
+    const backend = await createDefaultBackend({
+      neuralUrl: "http://tts.local:8880",
+      fetchImpl,
+    });
+    expect(backend).toBeInstanceOf(NeuralHttpBackend);
+  });
+
+  it("falls back to WebSpeechBackend when the probe fails", async () => {
+    installSpeechStubs();
+    const { fetchImpl } = makeFetch({ failVoices: true });
+    const backend = await createDefaultBackend({
+      neuralUrl: "http://tts.local:8880",
+      fetchImpl,
+    });
+    expect(backend).toBeInstanceOf(WebSpeechBackend);
+  });
+
+  it("returns WebSpeechBackend when no URL is configured", async () => {
+    installSpeechStubs();
+    const backend = await createDefaultBackend({ neuralUrl: "" });
+    expect(backend).toBeInstanceOf(WebSpeechBackend);
+  });
+});

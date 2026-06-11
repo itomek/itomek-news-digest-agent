@@ -19,6 +19,8 @@ import {
   wordsForSkip,
 } from "../lib/tts";
 import { buildSettingsControls } from "./settings";
+import { getSupabase } from "../lib/supabase";
+import { getCurrentSession } from "../lib/auth";
 
 let player: TtsPlayer | null = null;
 // Resolved by the env+probe backend selection kicked off at module load. When
@@ -103,9 +105,21 @@ function getPlayer(): TtsPlayer {
   return player;
 }
 
+// The tts Edge Function verifies Supabase JWTs, so every neural request (and
+// the reachability probe) carries the current session's access token. The app
+// gates digest reads behind login, so a token exists whenever playback can.
+async function neuralAuthHeaders(): Promise<Record<string, string>> {
+  try {
+    const session = await getCurrentSession(getSupabase());
+    return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+  } catch {
+    return {};
+  }
+}
+
 // Select the backend once per page load. Runs in the background so the first
 // user gesture never waits on the probe; Web Speech covers the gap.
-void createDefaultBackend()
+void createDefaultBackend({ headers: neuralAuthHeaders })
   .then((backend) => {
     probedBackend = backend;
     // Neural came up after a Web Speech player was already built (toolbar

@@ -1,7 +1,7 @@
 // Web Speech API text-to-speech wrapper for digest playback (#11).
-// Extended in #63 to support a pluggable TtsBackend interface so neural HTTP
-// backends (Kokoro-FastAPI) can be swapped in while Web Speech remains the
-// zero-dependency fallback.
+// Extended in #63 to support a pluggable TtsBackend interface so a neural HTTP
+// backend (the `tts` Supabase Edge Function proxying Google Cloud TTS) can be
+// swapped in while Web Speech remains the zero-dependency fallback.
 //
 // Responsibilities:
 //   - Strip markdown/formatting artifacts so the synth never reads "asterisk" etc.
@@ -157,6 +157,8 @@ export interface CreateBackendOptions {
   fetchImpl?: typeof fetch;
   /** Injectable for tests; passed through to NeuralHttpBackend. */
   audioFactory?: (src: string) => HTMLAudioElement;
+  /** Auth headers provider, applied to the probe and all neural requests. */
+  headers?: () => Record<string, string> | Promise<Record<string, string>>;
 }
 
 /**
@@ -174,6 +176,7 @@ export async function createDefaultBackend(opts: CreateBackendOptions = {}): Pro
       const backend = new NeuralHttpBackend(neuralUrl, {
         fetchImpl: opts.fetchImpl,
         audioFactory: opts.audioFactory,
+        headers: opts.headers,
       });
       // Probe: listVoices rejects when the endpoint is unreachable.
       await backend.listVoices();

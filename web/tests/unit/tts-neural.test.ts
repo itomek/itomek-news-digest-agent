@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_NEURAL_VOICE, NeuralHttpBackend } from "../../src/lib/tts-neural";
+import { NeuralHttpBackend } from "../../src/lib/tts-neural";
 import { createDefaultBackend, WebSpeechBackend } from "../../src/lib/tts";
 
 // --- fakes -------------------------------------------------------------------
@@ -121,7 +121,7 @@ describe("NeuralHttpBackend.speak", () => {
     expect(calls[0].init?.method).toBe("POST");
     const body = JSON.parse(String(calls[0].init?.body));
     expect(body).toEqual({
-      model: "kokoro",
+      model: "tts-1",
       input: "Hello world.",
       voice: "am_adam",
       response_format: "mp3",
@@ -129,14 +129,13 @@ describe("NeuralHttpBackend.speak", () => {
     });
   });
 
-  it("uses the default voice when voiceURI is null", async () => {
+  it("sends an empty voice when voiceURI is null so the server default applies", async () => {
     const { fetchImpl, calls } = makeFetch();
     const backend = makeBackend(fetchImpl, []);
     backend.speak("Hi.", { rate: 1, voiceURI: null }, () => {});
     await flush();
     const body = JSON.parse(String(calls[0].init?.body));
-    expect(body.voice).toBe(DEFAULT_NEURAL_VOICE);
-    expect(DEFAULT_NEURAL_VOICE).toBe("af_heart");
+    expect(body.voice).toBe("");
   });
 
   it("turns the response blob into an object URL and plays it", async () => {
@@ -381,5 +380,98 @@ describe("createDefaultBackend", () => {
     installSpeechStubs();
     const backend = await createDefaultBackend({ neuralUrl: "" });
     expect(backend).toBeInstanceOf(WebSpeechBackend);
+  });
+
+  it("passes the headers provider through to the probe request", async () => {
+    installSpeechStubs();
+    const { fetchImpl, calls } = makeFetch();
+    await createDefaultBackend({
+      neuralUrl: "http://tts.local:8880",
+      fetchImpl,
+      headers: () => ({ Authorization: "Bearer probe-token" }),
+    });
+    const probe = calls.find((c) => c.url.endsWith("/v1/audio/voices"));
+    expect(probe).toBeTruthy();
+    expect((probe!.init?.headers as Record<string, string>).Authorization).toBe(
+      "Bearer probe-token",
+    );
+  });
+});
+
+// --- auth headers ------------------------------------------------------------------
+
+describe("NeuralHttpBackend headers provider", () => {
+  function authedBackend(fetchImpl: typeof fetch, audios: FakeAudio[]) {
+    return new NeuralHttpBackend("http://tts.local:8880", {
+      fetchImpl,
+      audioFactory: (src: string) => {
+        const a = new FakeAudio(src);
+        audios.push(a);
+        return a as unknown as HTMLAudioElement;
+      },
+      headers: () => ({ Authorization: "Bearer test-token", apikey: "anon-key" }),
+    });
+  }
+
+  it("attaches headers to the speech POST", async () => {
+    const { fetchImpl, calls } = makeFetch();
+    const backend = authedBackend(fetchImpl, []);
+    backend.speak("Hi.", { rate: 1, voiceURI: null }, () => {});
+    await flush();
+    const speech = calls.find((c) => c.url.endsWith("/v1/audio/speech"))!;
+    const headers = speech.init?.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer test-token");
+    expect(headers.apikey).toBe("anon-key");
+    // Content type is still set alongside the auth headers.
+    expect(headers["Content-Type"]).toBe("application/json");
+  });
+
+  it("attaches headers to listVoices", async () => {
+    const { fetchImpl, calls } = makeFetch();
+    const backend = authedBackend(fetchImpl, []);
+    await backend.listVoices();
+    const voices = calls.find((c) => c.url.endsWith("/v1/audio/voices"))!;
+    expect((voices.init?.headers as Record<string, string>).Authorization).toBe(
+      "Bearer test-token",
+    );
+  });
+
+  it("supports an async headers provider", async () => {
+    const { fetchImpl, calls } = makeFetch();
+    const backend = new NeuralHttpBackend("http://tts.local:8880", {
+      fetchImpl,
+      headers: async () => ({ Authorization: "Bearer async-token" }),
+    });
+    await backend.listVoices();
+    expect((calls[0].init?.headers as Record<string, string>).Authorization).toBe(
+      "Bearer async-token",
+    );
+  });
+
+  it("speaks fine (no headers) when the provider is omitted", async () => {
+    const { fetchImpl, calls } = makeFetch();
+    const audios: FakeAudio[] = [];
+    const backend = makeBackend(fetchImpl, audios);
+    backend.speak("Hi.", { rate: 1, voiceURI: null }, () => {});
+    await flush();
+    expect(audios.length).toBe(1);
+    const headers = calls[0].init?.headers as Record<string, string>;
+    expect(headers.Authorization).toBeUndefined();
+  });
+
+  it("still ends gracefully when the headers provider throws", async () => {
+    const { fetchImpl } = makeFetch();
+    const backend = new NeuralHttpBackend("http://tts.local:8880", {
+      fetchImpl,
+      headers: () => {
+        throw new Error("no session");
+      },
+    });
+    let ended = 0;
+    backend.speak("Hi.", { rate: 1, voiceURI: null }, () => {
+      ended += 1;
+    });
+    await flush();
+    expect(ended).toBe(1);
   });
 });

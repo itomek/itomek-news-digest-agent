@@ -1,12 +1,14 @@
 // Neural HTTP TtsBackend for digest playback (#63).
 //
-// Talks to a self-hosted Kokoro-FastAPI instance over its OpenAI-compatible
-// speech API:
+// Talks to the `tts` Supabase Edge Function (a proxy over Google Cloud TTS,
+// see supabase/functions/tts/) through an OpenAI-style speech API:
 //   POST /v1/audio/speech  { model, input, voice, response_format, speed } -> mp3 bytes
 //   GET  /v1/audio/voices  -> { voices: [{ id, name }] }
 //
 // Responsibilities:
 //   - Synthesize one chunk per request, play via HTMLAudioElement.
+//   - Attach caller-provided headers (Supabase JWT) to every request — the
+//     function is deployed with JWT verification on.
 //   - In-memory cache keyed `${voice}|${rate}|hash(text)` -> object URL so a
 //     replay within the session skips the round-trip (soft cap, evict oldest).
 //   - Real seek within the current chunk via `currentTime`.
@@ -17,10 +19,12 @@
 
 import type { TtsBackend, TtsVoice } from "./tts";
 
-export const DEFAULT_NEURAL_VOICE = "af_heart";
-
 const MAX_CACHE_ENTRIES = 64;
 const NEURAL_MAX_CHUNK_CHARS = 4000;
+
+export type HeadersProvider = () =>
+  | Record<string, string>
+  | Promise<Record<string, string>>;
 
 export interface NeuralHttpBackendOptions {
   /** Injectable for tests; defaults to global fetch. */
@@ -29,6 +33,8 @@ export interface NeuralHttpBackendOptions {
   audioFactory?: (src: string) => HTMLAudioElement;
   /** Cache size cap; defaults to 64. */
   maxCacheEntries?: number;
+  /** Extra request headers (auth) applied to every voices/speech request. */
+  headers?: HeadersProvider;
 }
 
 /** Tiny non-cryptographic string hash (djb2) for cache keys. */
@@ -48,6 +54,7 @@ export class NeuralHttpBackend implements TtsBackend {
   private readonly fetchImpl: typeof fetch;
   private readonly audioFactory: (src: string) => HTMLAudioElement;
   private readonly maxCacheEntries: number;
+  private readonly headers?: HeadersProvider;
 
   // key -> object URL. Map preserves insertion order, so the first key is the
   // oldest entry when we need to evict.
@@ -65,6 +72,7 @@ export class NeuralHttpBackend implements TtsBackend {
       ((src: string) =>
         new (globalThis as unknown as { Audio: new (s: string) => HTMLAudioElement }).Audio(src));
     this.maxCacheEntries = opts.maxCacheEntries ?? MAX_CACHE_ENTRIES;
+    this.headers = opts.headers;
   }
 
   speak(
@@ -74,7 +82,8 @@ export class NeuralHttpBackend implements TtsBackend {
   ): void {
     this.cancel();
     const session = this.session;
-    const voice = opts.voiceURI || DEFAULT_NEURAL_VOICE;
+    // Empty voice -> the proxy applies its server-side default.
+    const voice = opts.voiceURI ?? "";
 
     void this.getAudioUrl(text, voice, opts.rate)
       .then((url) => {
@@ -149,7 +158,9 @@ export class NeuralHttpBackend implements TtsBackend {
   }
 
   async listVoices(): Promise<TtsVoice[]> {
-    const res = await this.fetchImpl(`${this.baseUrl}/v1/audio/voices`);
+    const res = await this.fetchImpl(`${this.baseUrl}/v1/audio/voices`, {
+      headers: await this.resolveHeaders(),
+    });
     if (!res.ok) throw new Error(`voices endpoint returned ${res.status}`);
     const data = (await res.json()) as { voices?: unknown[] };
     const voices = Array.isArray(data.voices) ? data.voices : [];
@@ -163,6 +174,11 @@ export class NeuralHttpBackend implements TtsBackend {
 
   // --- internals ------------------------------------------------------------
 
+  private async resolveHeaders(): Promise<Record<string, string>> {
+    if (!this.headers) return {};
+    return await this.headers();
+  }
+
   private async getAudioUrl(text: string, voice: string, rate: number): Promise<string> {
     const key = `${voice}|${rate}|${hashText(text)}`;
     const cached = this.cache.get(key);
@@ -175,9 +191,9 @@ export class NeuralHttpBackend implements TtsBackend {
 
     const res = await this.fetchImpl(`${this.baseUrl}/v1/audio/speech`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { ...(await this.resolveHeaders()), "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "kokoro",
+        model: "tts-1",
         input: text,
         voice,
         response_format: "mp3",

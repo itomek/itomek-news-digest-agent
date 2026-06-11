@@ -63,6 +63,15 @@ export interface TtsBackend {
   cancel(): void;
 
   /**
+   * Prime the engine inside the user gesture that started playback (Safari
+   * binds HTMLAudioElement autoplay permission to an element unlocked by a
+   * gesture).  TtsPlayer.play() calls this synchronously, before any await, so
+   * the gesture is still active.  Idempotent.  Optional — Web Speech, which
+   * needs no element unlock, omits it.
+   */
+  unlock?(): void;
+
+  /**
    * Seek forward/back within the currently-playing chunk by `seconds`.
    * Return false when the seek position is past the end (caller should advance).
    * Optional — backends that don't support real seek omit this method.
@@ -171,7 +180,7 @@ export interface CreateBackendOptions {
   /** Injectable for tests; passed through to NeuralHttpBackend. */
   fetchImpl?: typeof fetch;
   /** Injectable for tests; passed through to NeuralHttpBackend. */
-  audioFactory?: (src: string) => HTMLAudioElement;
+  audioFactory?: () => HTMLAudioElement;
   /** Auth headers provider, applied to the probe and all neural requests. */
   headers?: () => Record<string, string> | Promise<Record<string, string>>;
 }
@@ -499,6 +508,11 @@ export class TtsPlayer {
   /** Build the queue and start speaking the first chunk. Must be called from a
    *  user gesture (we never auto-speak). */
   play(items: readonly TtsItem[]): void {
+    // Unlock the backend's audio element synchronously, before any await or
+    // queue building, so it runs inside the user gesture that called play().
+    // Safari grants autoplay permission to the element only when primed within
+    // the gesture; later chunks then play on that same unlocked element.
+    this.backend.unlock?.();
     this.cancel();
     this.queue = items
       .map((it) => this.buildItem(it.id, it.text, 0))

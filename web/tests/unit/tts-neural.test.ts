@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NeuralHttpBackend } from "../../src/lib/tts-neural";
-import { createDefaultBackend, WebSpeechBackend } from "../../src/lib/tts";
+import { createDefaultBackend, TtsPlayer, WebSpeechBackend } from "../../src/lib/tts";
 
 // --- fakes -------------------------------------------------------------------
 
 /** Minimal HTMLAudioElement stand-in: records calls, lets tests fire events. */
 class FakeAudio {
-  src: string;
+  src = "";
   currentTime = 0;
   duration = NaN;
   paused = true;
@@ -16,9 +16,6 @@ class FakeAudio {
   onended: (() => void) | null = null;
   onerror: (() => void) | null = null;
 
-  constructor(src: string) {
-    this.src = src;
-  }
   play(): Promise<void> {
     this.playCalls += 1;
     this.paused = false;
@@ -62,16 +59,21 @@ function makeFetch(opts: { failSpeech?: boolean; failVoices?: boolean } = {}) {
   return { fetchImpl: fetchImpl as unknown as typeof fetch, calls };
 }
 
+/**
+ * Build a backend with an injectable audioFactory that returns a single
+ * FakeAudio.  The factory is called at most once (lazy element creation);
+ * subsequent speaks just reassign .src on the same element.
+ */
 function makeBackend(
   fetchImpl: typeof fetch,
-  audios: FakeAudio[],
+  singleAudio: { ref: FakeAudio | null },
   cacheCap?: number,
 ): NeuralHttpBackend {
   return new NeuralHttpBackend("http://tts.local:8880", {
     fetchImpl,
-    audioFactory: (src: string) => {
-      const a = new FakeAudio(src);
-      audios.push(a);
+    audioFactory: () => {
+      const a = new FakeAudio();
+      singleAudio.ref = a;
       return a as unknown as HTMLAudioElement;
     },
     maxCacheEntries: cacheCap,
@@ -110,8 +112,8 @@ afterEach(() => {
 describe("NeuralHttpBackend.speak", () => {
   it("POSTs the locked OpenAI-compatible body to /v1/audio/speech", async () => {
     const { fetchImpl, calls } = makeFetch();
-    const audios: FakeAudio[] = [];
-    const backend = makeBackend(fetchImpl, audios);
+    const audio = { ref: null as FakeAudio | null };
+    const backend = makeBackend(fetchImpl, audio);
 
     backend.speak("Hello world.", { rate: 1.5, voiceURI: "en-US-Chirp3-HD-Puck" }, () => {});
     await flush();
@@ -131,40 +133,40 @@ describe("NeuralHttpBackend.speak", () => {
 
   it("sends an empty voice when voiceURI is null so the server default applies", async () => {
     const { fetchImpl, calls } = makeFetch();
-    const backend = makeBackend(fetchImpl, []);
+    const backend = makeBackend(fetchImpl, { ref: null });
     backend.speak("Hi.", { rate: 1, voiceURI: null }, () => {});
     await flush();
     const body = JSON.parse(String(calls[0].init?.body));
     expect(body.voice).toBe("");
   });
 
-  it("turns the response blob into an object URL and plays it", async () => {
+  it("turns the response blob into an object URL and plays it via the single element", async () => {
     const { fetchImpl } = makeFetch();
-    const audios: FakeAudio[] = [];
-    const backend = makeBackend(fetchImpl, audios);
+    const audioRef = { ref: null as FakeAudio | null };
+    const backend = makeBackend(fetchImpl, audioRef);
     backend.speak("Hi.", { rate: 1, voiceURI: null }, () => {});
     await flush();
-    expect(audios.length).toBe(1);
-    expect(audios[0].src).toMatch(/^blob:fake-/);
-    expect(audios[0].playCalls).toBe(1);
+    expect(audioRef.ref).not.toBeNull();
+    expect(audioRef.ref!.src).toMatch(/^blob:fake-/);
+    expect(audioRef.ref!.playCalls).toBe(1);
   });
 
   it("fires onEnd when the audio element ends", async () => {
     const { fetchImpl } = makeFetch();
-    const audios: FakeAudio[] = [];
-    const backend = makeBackend(fetchImpl, audios);
+    const audioRef = { ref: null as FakeAudio | null };
+    const backend = makeBackend(fetchImpl, audioRef);
     let ended = 0;
     backend.speak("Hi.", { rate: 1, voiceURI: null }, () => {
       ended += 1;
     });
     await flush();
-    audios[0].onended?.();
+    audioRef.ref!.onended?.();
     expect(ended).toBe(1);
   });
 
   it("fires onEnd (graceful, no crash) when fetch rejects", async () => {
     const { fetchImpl } = makeFetch({ failSpeech: true });
-    const backend = makeBackend(fetchImpl, []);
+    const backend = makeBackend(fetchImpl, { ref: null });
     let ended = 0;
     backend.speak("Hi.", { rate: 1, voiceURI: null }, () => {
       ended += 1;
@@ -175,16 +177,162 @@ describe("NeuralHttpBackend.speak", () => {
 
   it("does not play or call onEnd when cancelled before the fetch resolves", async () => {
     const { fetchImpl } = makeFetch();
-    const audios: FakeAudio[] = [];
-    const backend = makeBackend(fetchImpl, audios);
+    const audioRef = { ref: null as FakeAudio | null };
+    const backend = makeBackend(fetchImpl, audioRef);
     let ended = 0;
     backend.speak("Hi.", { rate: 1, voiceURI: null }, () => {
       ended += 1;
     });
     backend.cancel(); // before flush — fetch still in flight
     await flush();
-    expect(audios.length).toBe(0);
+    // Even if element was created by unlock(), play() must not have been called.
+    expect(audioRef.ref?.playCalls ?? 0).toBe(0);
     expect(ended).toBe(0);
+  });
+});
+
+// --- single reused element (Fix #63) -------------------------------------------
+
+describe("NeuralHttpBackend single reused audio element", () => {
+  it("reuses the same element instance across multiple speak() calls", async () => {
+    const { fetchImpl } = makeFetch();
+    const audioRef = { ref: null as FakeAudio | null };
+    const backend = makeBackend(fetchImpl, audioRef);
+
+    backend.speak("Chunk one.", { rate: 1, voiceURI: null }, () => {});
+    await flush();
+    const firstInstance = audioRef.ref;
+    expect(firstInstance).not.toBeNull();
+    // Simulate chunk end so second speak happens next in queue.
+    firstInstance!.onended?.();
+
+    backend.speak("Chunk two.", { rate: 1, voiceURI: null }, () => {});
+    await flush();
+
+    // The element instance is the same object — no new element was created.
+    expect(audioRef.ref).toBe(firstInstance);
+    // .src was updated to the new chunk's URL.
+    expect(audioRef.ref!.src).toMatch(/^blob:fake-1/);
+    // play() was called for both chunks.
+    expect(audioRef.ref!.playCalls).toBe(2);
+  });
+
+  it("sets .src on the existing element rather than creating a fresh one per chunk", async () => {
+    const { fetchImpl } = makeFetch();
+    let factoryCalls = 0;
+    const backend = new NeuralHttpBackend("http://tts.local:8880", {
+      fetchImpl,
+      audioFactory: () => {
+        factoryCalls += 1;
+        const a = new FakeAudio();
+        return a as unknown as HTMLAudioElement;
+      },
+    });
+
+    backend.speak("A.", { rate: 1, voiceURI: null }, () => {});
+    await flush();
+    backend.speak("B.", { rate: 1, voiceURI: null }, () => {});
+    await flush();
+    backend.speak("C.", { rate: 1, voiceURI: null }, () => {});
+    await flush();
+
+    // Factory called exactly once regardless of how many speak()s.
+    expect(factoryCalls).toBe(1);
+  });
+
+  it("onended on the reused element advances the queue to the next chunk", async () => {
+    const { fetchImpl } = makeFetch();
+    const audioRef = { ref: null as FakeAudio | null };
+    const backend = makeBackend(fetchImpl, audioRef);
+
+    const endedOrder: string[] = [];
+    // Simulate TtsPlayer driving two sequential chunks on the backend.
+    const speakNext = () => {
+      backend.speak("Chunk two.", { rate: 1, voiceURI: null }, () => {
+        endedOrder.push("two");
+      });
+    };
+    backend.speak("Chunk one.", { rate: 1, voiceURI: null }, () => {
+      endedOrder.push("one");
+      speakNext();
+    });
+    await flush();
+
+    // Fire onended on the element — should advance queue.
+    audioRef.ref!.onended?.();
+    await flush();
+
+    audioRef.ref!.onended?.();
+    await flush();
+
+    expect(endedOrder).toEqual(["one", "two"]);
+  });
+});
+
+// --- unlock (Fix #63 Safari) -----------------------------------------------------
+
+describe("NeuralHttpBackend.unlock", () => {
+  it("unlock() is callable and idempotent (no throws)", () => {
+    const { fetchImpl } = makeFetch();
+    const audioRef = { ref: null as FakeAudio | null };
+    const backend = makeBackend(fetchImpl, audioRef);
+    // Must not throw and must be callable multiple times.
+    expect(() => {
+      backend.unlock();
+      backend.unlock();
+      backend.unlock();
+    }).not.toThrow();
+  });
+
+  it("unlock() creates and primes the audio element (play+pause pattern)", () => {
+    const { fetchImpl } = makeFetch();
+    const audioRef = { ref: null as FakeAudio | null };
+    const backend = makeBackend(fetchImpl, audioRef);
+
+    backend.unlock();
+
+    // Element must be created synchronously inside unlock.
+    expect(audioRef.ref).not.toBeNull();
+    // Safari unlock pattern: play() was called to prime the element.
+    expect(audioRef.ref!.playCalls).toBeGreaterThanOrEqual(1);
+    // Followed immediately by pause() — Safari doesn't actually play silent audio.
+    expect(audioRef.ref!.pauseCalls).toBeGreaterThanOrEqual(1);
+  });
+
+  it("unlock() called twice does not create a second element", () => {
+    const { fetchImpl } = makeFetch();
+    let factoryCalls = 0;
+    const backend = new NeuralHttpBackend("http://tts.local:8880", {
+      fetchImpl,
+      audioFactory: () => {
+        factoryCalls += 1;
+        return new FakeAudio() as unknown as HTMLAudioElement;
+      },
+    });
+    backend.unlock();
+    backend.unlock();
+    expect(factoryCalls).toBe(1);
+  });
+
+  it("TtsPlayer.play() calls unlock() on the backend before speakCurrentChunk", () => {
+    const { fetchImpl } = makeFetch();
+    const unlockCalls: number[] = [];
+    const backend = new NeuralHttpBackend("http://tts.local:8880", {
+      fetchImpl,
+      audioFactory: () => new FakeAudio() as unknown as HTMLAudioElement,
+    });
+    // Spy on unlock.
+    const origUnlock = backend.unlock.bind(backend);
+    backend.unlock = () => {
+      unlockCalls.push(Date.now());
+      origUnlock();
+    };
+
+    const player = new TtsPlayer({ backend });
+    player.play([{ id: "1", text: "Hello." }]);
+
+    // unlock must have been called (synchronously in play()).
+    expect(unlockCalls.length).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -193,8 +341,8 @@ describe("NeuralHttpBackend.speak", () => {
 describe("NeuralHttpBackend cache", () => {
   it("serves a repeat of the same voice|rate|text from cache (no 2nd fetch)", async () => {
     const { fetchImpl, calls } = makeFetch();
-    const audios: FakeAudio[] = [];
-    const backend = makeBackend(fetchImpl, audios);
+    const audioRef = { ref: null as FakeAudio | null };
+    const backend = makeBackend(fetchImpl, audioRef);
 
     backend.speak("Same text.", { rate: 1.2, voiceURI: "en-US-Chirp3-HD-Aoede" }, () => {});
     await flush();
@@ -203,12 +351,13 @@ describe("NeuralHttpBackend cache", () => {
 
     const speechCalls = calls.filter((c) => c.url.endsWith("/v1/audio/speech"));
     expect(speechCalls.length).toBe(1);
-    expect(audios.length).toBe(2); // played twice, fetched once
+    // Played twice on the same element.
+    expect(audioRef.ref!.playCalls).toBe(2);
   });
 
   it("misses the cache when rate or voice differs", async () => {
     const { fetchImpl, calls } = makeFetch();
-    const backend = makeBackend(fetchImpl, []);
+    const backend = makeBackend(fetchImpl, { ref: null });
     backend.speak("Same text.", { rate: 1.2, voiceURI: "en-US-Chirp3-HD-Aoede" }, () => {});
     await flush();
     backend.speak("Same text.", { rate: 1.5, voiceURI: "en-US-Chirp3-HD-Aoede" }, () => {});
@@ -221,7 +370,7 @@ describe("NeuralHttpBackend cache", () => {
 
   it("evicts the oldest entry (and revokes its URL) past the cap", async () => {
     const { fetchImpl, calls } = makeFetch();
-    const backend = makeBackend(fetchImpl, [], 2); // tiny cap for the test
+    const backend = makeBackend(fetchImpl, { ref: null }, 2); // tiny cap for the test
 
     backend.speak("One.", { rate: 1, voiceURI: null }, () => {});
     await flush();
@@ -237,6 +386,28 @@ describe("NeuralHttpBackend cache", () => {
     expect(speechCalls.length).toBe(4);
     expect(URL.revokeObjectURL).toHaveBeenCalled();
   });
+
+  it("does NOT revoke a blob URL that is currently set as the element's src", async () => {
+    const { fetchImpl } = makeFetch();
+    const audioRef = { ref: null as FakeAudio | null };
+    // cap=1 so every new speak() evicts the previous entry
+    const backend = makeBackend(fetchImpl, audioRef, 1);
+
+    // Speak "One." — its URL goes into cache and becomes current src.
+    backend.speak("One.", { rate: 1, voiceURI: null }, () => {});
+    await flush();
+    const urlForOne = audioRef.ref!.src;
+
+    // Speak "Two." — evicts "One." from cache, but "One."'s URL is still the
+    // element's current src — must NOT be revoked yet.
+    backend.speak("Two.", { rate: 1, voiceURI: null }, () => {});
+    await flush();
+
+    const revoked = (URL.revokeObjectURL as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c: unknown[]) => c[0],
+    );
+    expect(revoked).not.toContain(urlForOne);
+  });
 });
 
 // --- transport controls ---------------------------------------------------------
@@ -244,11 +415,11 @@ describe("NeuralHttpBackend cache", () => {
 describe("NeuralHttpBackend transport", () => {
   async function playing(): Promise<{ backend: NeuralHttpBackend; audio: FakeAudio }> {
     const { fetchImpl } = makeFetch();
-    const audios: FakeAudio[] = [];
-    const backend = makeBackend(fetchImpl, audios);
+    const audioRef = { ref: null as FakeAudio | null };
+    const backend = makeBackend(fetchImpl, audioRef);
     backend.speak("Hello.", { rate: 1, voiceURI: null }, () => {});
     await flush();
-    return { backend, audio: audios[0] };
+    return { backend, audio: audioRef.ref! };
   }
 
   it("pause/resume drive the audio element", async () => {
@@ -272,6 +443,25 @@ describe("NeuralHttpBackend transport", () => {
     expect(endedAfterCancel).toBe(0);
   });
 
+  it("cancel keeps the element alive (does not discard it)", async () => {
+    const { fetchImpl } = makeFetch();
+    let factoryCalls = 0;
+    const backend = new NeuralHttpBackend("http://tts.local:8880", {
+      fetchImpl,
+      audioFactory: () => {
+        factoryCalls += 1;
+        return new FakeAudio() as unknown as HTMLAudioElement;
+      },
+    });
+    backend.speak("A.", { rate: 1, voiceURI: null }, () => {});
+    await flush();
+    backend.cancel();
+    backend.speak("B.", { rate: 1, voiceURI: null }, () => {});
+    await flush();
+    // Factory still called only once — element reused after cancel.
+    expect(factoryCalls).toBe(1);
+  });
+
   it("seekWithinCurrent bumps currentTime and returns true within bounds", async () => {
     const { backend, audio } = await playing();
     audio.duration = 100;
@@ -289,13 +479,13 @@ describe("NeuralHttpBackend transport", () => {
 
   it("seekWithinCurrent returns false with no current audio", () => {
     const { fetchImpl } = makeFetch();
-    const backend = makeBackend(fetchImpl, []);
+    const backend = makeBackend(fetchImpl, { ref: null });
     expect(backend.seekWithinCurrent(30)).toBe(false);
   });
 
   it("advertises real seek and small chunks for low-latency first audio", () => {
     const { fetchImpl } = makeFetch();
-    const backend = makeBackend(fetchImpl, []);
+    const backend = makeBackend(fetchImpl, { ref: null });
     expect(backend.supportsRealSeek).toBe(true);
     // Fix #1: small chunks so first audio arrives in ~2s, not 4000 chars (~36s).
     // Measured ~9ms/char on Chirp 3 HD; ~240 chars ≈ 2.3s first audio.
@@ -309,7 +499,7 @@ describe("NeuralHttpBackend transport", () => {
 describe("NeuralHttpBackend.listVoices", () => {
   it("GETs /v1/audio/voices and maps {id, name} to {id, label}", async () => {
     const { fetchImpl, calls } = makeFetch();
-    const backend = makeBackend(fetchImpl, []);
+    const backend = makeBackend(fetchImpl, { ref: null });
     const voices = await backend.listVoices();
     expect(calls[0].url).toBe("http://tts.local:8880/v1/audio/voices");
     expect(voices).toEqual([
@@ -333,7 +523,7 @@ describe("NeuralHttpBackend.listVoices", () => {
 
   it("rejects when the endpoint is unreachable (probe contract)", async () => {
     const { fetchImpl } = makeFetch({ failVoices: true });
-    const backend = makeBackend(fetchImpl, []);
+    const backend = makeBackend(fetchImpl, { ref: null });
     await expect(backend.listVoices()).rejects.toThrow();
   });
 });
@@ -404,12 +594,12 @@ describe("createDefaultBackend", () => {
 // --- auth headers ------------------------------------------------------------------
 
 describe("NeuralHttpBackend headers provider", () => {
-  function authedBackend(fetchImpl: typeof fetch, audios: FakeAudio[]) {
+  function authedBackend(fetchImpl: typeof fetch, audioRef: { ref: FakeAudio | null }) {
     return new NeuralHttpBackend("http://tts.local:8880", {
       fetchImpl,
-      audioFactory: (src: string) => {
-        const a = new FakeAudio(src);
-        audios.push(a);
+      audioFactory: () => {
+        const a = new FakeAudio();
+        audioRef.ref = a;
         return a as unknown as HTMLAudioElement;
       },
       headers: () => ({ Authorization: "Bearer test-token", apikey: "anon-key" }),
@@ -418,7 +608,7 @@ describe("NeuralHttpBackend headers provider", () => {
 
   it("attaches headers to the speech POST", async () => {
     const { fetchImpl, calls } = makeFetch();
-    const backend = authedBackend(fetchImpl, []);
+    const backend = authedBackend(fetchImpl, { ref: null });
     backend.speak("Hi.", { rate: 1, voiceURI: null }, () => {});
     await flush();
     const speech = calls.find((c) => c.url.endsWith("/v1/audio/speech"))!;
@@ -431,7 +621,7 @@ describe("NeuralHttpBackend headers provider", () => {
 
   it("attaches headers to listVoices", async () => {
     const { fetchImpl, calls } = makeFetch();
-    const backend = authedBackend(fetchImpl, []);
+    const backend = authedBackend(fetchImpl, { ref: null });
     await backend.listVoices();
     const voices = calls.find((c) => c.url.endsWith("/v1/audio/voices"))!;
     expect((voices.init?.headers as Record<string, string>).Authorization).toBe(
@@ -453,11 +643,11 @@ describe("NeuralHttpBackend headers provider", () => {
 
   it("speaks fine (no headers) when the provider is omitted", async () => {
     const { fetchImpl, calls } = makeFetch();
-    const audios: FakeAudio[] = [];
-    const backend = makeBackend(fetchImpl, audios);
+    const audioRef = { ref: null as FakeAudio | null };
+    const backend = makeBackend(fetchImpl, audioRef);
     backend.speak("Hi.", { rate: 1, voiceURI: null }, () => {});
     await flush();
-    expect(audios.length).toBe(1);
+    expect(audioRef.ref).not.toBeNull();
     const headers = calls[0].init?.headers as Record<string, string>;
     expect(headers.Authorization).toBeUndefined();
   });
@@ -484,8 +674,8 @@ describe("NeuralHttpBackend headers provider", () => {
 describe("NeuralHttpBackend.prefetch", () => {
   it("warms the cache so a subsequent speak causes no new fetch", async () => {
     const { fetchImpl, calls } = makeFetch();
-    const audios: FakeAudio[] = [];
-    const backend = makeBackend(fetchImpl, audios);
+    const audioRef = { ref: null as FakeAudio | null };
+    const backend = makeBackend(fetchImpl, audioRef);
 
     // prefetch the text without playing it
     await backend.prefetch("Prefetched text.", { rate: 1.2, voiceURI: "en-US-Chirp3-HD-Aoede" });
@@ -499,12 +689,14 @@ describe("NeuralHttpBackend.prefetch", () => {
 
     const callsAfterSpeak = calls.filter((c) => c.url.endsWith("/v1/audio/speech")).length;
     expect(callsAfterSpeak).toBe(1); // still 1 — cache was hit
-    expect(audios.length).toBe(1); // audio was created and played
+    // audio element was created and played
+    expect(audioRef.ref).not.toBeNull();
+    expect(audioRef.ref!.playCalls).toBe(1);
   });
 
   it("prefetch failure is swallowed (never rejects)", async () => {
     const { fetchImpl } = makeFetch({ failSpeech: true });
-    const backend = makeBackend(fetchImpl, []);
+    const backend = makeBackend(fetchImpl, { ref: null });
     // Must not throw or reject
     await expect(
       backend.prefetch("Some text.", { rate: 1, voiceURI: null }),
@@ -513,29 +705,29 @@ describe("NeuralHttpBackend.prefetch", () => {
 
   it("prefetch does not start audio playback", async () => {
     const { fetchImpl } = makeFetch();
-    const audios: FakeAudio[] = [];
-    const backend = makeBackend(fetchImpl, audios);
+    const audioRef = { ref: null as FakeAudio | null };
+    const backend = makeBackend(fetchImpl, audioRef);
     await backend.prefetch("No play.", { rate: 1, voiceURI: null });
-    expect(audios.length).toBe(0); // no audio element created
+    // No play() should have been called — audioFactory not invoked for prefetch,
+    // or if the element was pre-created by unlock(), no play() triggered.
+    expect(audioRef.ref?.playCalls ?? 0).toBe(0);
   });
 
   it("prefetch does not disturb current session (ongoing speak is unaffected)", async () => {
     const { fetchImpl } = makeFetch();
-    const audios: FakeAudio[] = [];
-    const backend = makeBackend(fetchImpl, audios);
+    const audioRef = { ref: null as FakeAudio | null };
+    const backend = makeBackend(fetchImpl, audioRef);
 
     let ended = 0;
     backend.speak("Current chunk.", { rate: 1, voiceURI: null }, () => { ended += 1; });
     await flush();
-    const currentAudio = audios[0];
 
     // prefetch a different chunk while audio is playing
     await backend.prefetch("Next chunk.", { rate: 1, voiceURI: null });
 
     // current audio still active; simulating end fires our onEnd
-    currentAudio.onended?.();
+    audioRef.ref!.onended?.();
     expect(ended).toBe(1);
-    expect(audios.length).toBe(1); // prefetch created no audio
   });
 });
 
@@ -544,14 +736,14 @@ describe("NeuralHttpBackend.prefetch", () => {
 describe("NeuralHttpBackend.getProgress", () => {
   it("returns null when no audio is playing", () => {
     const { fetchImpl } = makeFetch();
-    const backend = makeBackend(fetchImpl, []);
+    const backend = makeBackend(fetchImpl, { ref: null });
     expect(backend.getProgress()).toBeNull();
   });
 
   it("returns null when audio duration is not finite yet (still buffering)", async () => {
     const { fetchImpl } = makeFetch();
-    const audios: FakeAudio[] = [];
-    const backend = makeBackend(fetchImpl, audios);
+    const audioRef = { ref: null as FakeAudio | null };
+    const backend = makeBackend(fetchImpl, audioRef);
     backend.speak("Hi.", { rate: 1, voiceURI: null }, () => {});
     await flush();
     // duration is NaN by default in FakeAudio
@@ -560,23 +752,23 @@ describe("NeuralHttpBackend.getProgress", () => {
 
   it("returns { currentTime, duration } once duration is finite", async () => {
     const { fetchImpl } = makeFetch();
-    const audios: FakeAudio[] = [];
-    const backend = makeBackend(fetchImpl, audios);
+    const audioRef = { ref: null as FakeAudio | null };
+    const backend = makeBackend(fetchImpl, audioRef);
     backend.speak("Hi.", { rate: 1, voiceURI: null }, () => {});
     await flush();
-    audios[0].duration = 12.5;
-    audios[0].currentTime = 3.0;
+    audioRef.ref!.duration = 12.5;
+    audioRef.ref!.currentTime = 3.0;
     const prog = backend.getProgress();
     expect(prog).toEqual({ currentTime: 3.0, duration: 12.5 });
   });
 
   it("returns null after cancel", async () => {
     const { fetchImpl } = makeFetch();
-    const audios: FakeAudio[] = [];
-    const backend = makeBackend(fetchImpl, audios);
+    const audioRef = { ref: null as FakeAudio | null };
+    const backend = makeBackend(fetchImpl, audioRef);
     backend.speak("Hi.", { rate: 1, voiceURI: null }, () => {});
     await flush();
-    audios[0].duration = 5;
+    audioRef.ref!.duration = 5;
     backend.cancel();
     expect(backend.getProgress()).toBeNull();
   });

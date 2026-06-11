@@ -1,17 +1,18 @@
 // Web Speech API text-to-speech wrapper for digest playback (#11).
+// Extended in #63 to support a pluggable TtsBackend interface so neural HTTP
+// backends (Kokoro-FastAPI) can be swapped in while Web Speech remains the
+// zero-dependency fallback.
 //
 // Responsibilities:
 //   - Strip markdown/formatting artifacts so the synth never reads "asterisk" etc.
-//   - Chunk text on sentence boundaries (~200 chars) to dodge the iOS Safari
-//     long-utterance cutoff, where utterances over a few hundred chars get
-//     silently truncated.
+//   - Chunk text on sentence boundaries (max chars from backend) to dodge the iOS
+//     Safari long-utterance cutoff and to keep HTTP round-trips sane.
 //   - Maintain a playlist queue; `onend` advances to the next chunk, then the
 //     next item.
 //   - Persist voice + rate in localStorage (default rate 1.2).
-//   - skip-30s: jump forward within the current item by an estimated word count.
-//   - iOS: never auto-speak (first speak must come from a user gesture handled by
-//     the UI layer); resume on `visibilitychange` since iOS suspends synthesis
-//     when the tab/screen backgrounds.
+//   - skip-30s: prefers backend.seekWithinCurrent when available (neural), falls
+//     back to word-estimate rebuild for Web Speech.
+//   - iOS: never auto-speak; resume on `visibilitychange`.
 
 export interface TtsItem {
   id: string;
@@ -24,6 +25,128 @@ export interface TtsPrefs {
 }
 
 export type TtsState = "idle" | "playing" | "paused";
+
+// --- backend abstraction ---------------------------------------------------
+
+/** A voice entry returned by a backend's listVoices(). */
+export interface TtsVoice {
+  id: string;
+  label: string;
+}
+
+/**
+ * Pluggable TTS engine.  TtsPlayer drives one of these; callers who need
+ * neural or Web Speech behaviour only differ via the backend they pass.
+ */
+export interface TtsBackend {
+  /** True when the backend supports real-time seek via seekWithinCurrent(). */
+  supportsRealSeek: boolean;
+  /**
+   * Maximum characters per chunk this backend handles well.
+   * Web Speech: ~200 (iOS long-utterance cutoff).
+   * Neural HTTP: ~4000 (a single HTTP request, no utterance limit).
+   */
+  maxChunkChars: number;
+
+  /**
+   * Start speaking `text` at `rate` using `voiceURI`.
+   * Call `onEnd` when the chunk finishes (or on error).
+   */
+  speak(
+    text: string,
+    opts: { rate: number; voiceURI: string | null },
+    onEnd: () => void,
+  ): void;
+
+  pause(): void;
+  resume(): void;
+  cancel(): void;
+
+  /**
+   * Seek forward/back within the currently-playing chunk by `seconds`.
+   * Return false when the seek position is past the end (caller should advance).
+   * Optional — backends that don't support real seek omit this method.
+   */
+  seekWithinCurrent?(seconds: number): boolean;
+
+  /** Return the voices this backend can use, for populating the UI. */
+  listVoices(): TtsVoice[] | Promise<TtsVoice[]>;
+}
+
+// --- WebSpeechBackend ------------------------------------------------------
+
+/** Web Speech implementation of TtsBackend. Default + fallback. */
+export class WebSpeechBackend implements TtsBackend {
+  readonly supportsRealSeek = false;
+  readonly maxChunkChars = 200;
+
+  private readonly synth: SpeechSynthesis;
+  private readonly createUtterance: (text: string) => SpeechSynthesisUtterance;
+
+  constructor(
+    synth: SpeechSynthesis,
+    createUtterance: (text: string) => SpeechSynthesisUtterance,
+  ) {
+    this.synth = synth;
+    this.createUtterance = createUtterance;
+  }
+
+  speak(
+    text: string,
+    opts: { rate: number; voiceURI: string | null },
+    onEnd: () => void,
+  ): void {
+    const u = this.createUtterance(text);
+    u.rate = opts.rate;
+    if (opts.voiceURI) {
+      const voice = this.findVoice(opts.voiceURI);
+      if (voice) u.voice = voice;
+    }
+    u.onend = onEnd;
+    u.onerror = onEnd;
+    this.synth.speak(u);
+  }
+
+  pause(): void {
+    try {
+      this.synth.pause();
+    } catch {
+      // ignore
+    }
+  }
+
+  resume(): void {
+    try {
+      this.synth.resume();
+    } catch {
+      // ignore
+    }
+  }
+
+  cancel(): void {
+    try {
+      this.synth.cancel();
+    } catch {
+      // ignore
+    }
+  }
+
+  listVoices(): TtsVoice[] {
+    try {
+      return this.synth.getVoices().map((v) => ({ id: v.voiceURI, label: v.name }));
+    } catch {
+      return [];
+    }
+  }
+
+  private findVoice(uri: string): SpeechSynthesisVoice | null {
+    try {
+      return this.synth.getVoices().find((v) => v.voiceURI === uri || v.name === uri) ?? null;
+    } catch {
+      return null;
+    }
+  }
+}
 
 const RATE_KEY = "tts.rate";
 const VOICE_KEY = "tts.voiceURI";
@@ -198,8 +321,12 @@ export function wordsForSkip(rate: number, seconds: number): number {
 // --- player ---------------------------------------------------------------
 
 export interface TtsPlayerOptions {
+  /** Legacy: inject a Web Speech synth (used by tests). */
   synth?: SpeechSynthesis;
+  /** Legacy: inject utterance factory (used by tests). */
   createUtterance?: (text: string) => SpeechSynthesisUtterance;
+  /** New: provide a fully-constructed backend. Takes precedence over synth/createUtterance. */
+  backend?: TtsBackend;
   onStateChange?: (state: TtsState, currentId: string | null) => void;
 }
 
@@ -212,8 +339,7 @@ interface QueuedItem {
 }
 
 export class TtsPlayer {
-  private readonly synth: SpeechSynthesis;
-  private readonly createUtterance: (text: string) => SpeechSynthesisUtterance;
+  private readonly backend: TtsBackend;
   private readonly onStateChange?: (state: TtsState, currentId: string | null) => void;
 
   private queue: QueuedItem[] = [];
@@ -222,19 +348,30 @@ export class TtsPlayer {
   private rate: number;
   private voiceURI: string | null;
   // Monotonic token incremented on every cancel()/stop()/skip()/play(). An
-  // utterance's onend/onerror only acts if its captured token still matches —
-  // this discards the spurious onend that browsers fire for a cancelled
-  // utterance, preventing a double-advance of the queue.
+  // onEnd callback only acts if its captured token still matches — discards
+  // the spurious callback that browsers fire for a cancelled utterance,
+  // preventing a double-advance of the queue.
   private generation = 0;
 
   constructor(opts: TtsPlayerOptions = {}) {
-    this.synth = opts.synth ?? (globalThis as unknown as { speechSynthesis: SpeechSynthesis }).speechSynthesis;
-    this.createUtterance =
-      opts.createUtterance ??
-      ((text: string) =>
-        new (globalThis as unknown as {
-          SpeechSynthesisUtterance: new (t: string) => SpeechSynthesisUtterance;
-        }).SpeechSynthesisUtterance(text));
+    if (opts.backend) {
+      this.backend = opts.backend;
+    } else {
+      // Legacy path: wrap synth + createUtterance into a WebSpeechBackend so
+      // existing tests pass without modification.
+      const synth =
+        opts.synth ??
+        (globalThis as unknown as { speechSynthesis: SpeechSynthesis }).speechSynthesis;
+      const createUtterance =
+        opts.createUtterance ??
+        ((text: string) =>
+          new (
+            globalThis as unknown as {
+              SpeechSynthesisUtterance: new (t: string) => SpeechSynthesisUtterance;
+            }
+          ).SpeechSynthesisUtterance(text));
+      this.backend = new WebSpeechBackend(synth, createUtterance);
+    }
     this.onStateChange = opts.onStateChange;
 
     const prefs = loadPrefs();
@@ -251,11 +388,7 @@ export class TtsPlayer {
     if (typeof document === "undefined") return;
     if (document.visibilityState === "visible" && this.state === "playing") {
       // Nudge the engine: iOS leaves it paused after backgrounding.
-      try {
-        this.synth.resume();
-      } catch {
-        // ignore
-      }
+      this.backend.resume();
     }
   };
 
@@ -289,6 +422,11 @@ export class TtsPlayer {
     return this.queue[this.index]?.id ?? null;
   }
 
+  /** Return voices from the active backend (for populating the settings UI). */
+  listVoices(): TtsVoice[] | Promise<TtsVoice[]> {
+    return this.backend.listVoices();
+  }
+
   /** Build the queue and start speaking the first chunk. Must be called from a
    *  user gesture (we never auto-speak). */
   play(items: readonly TtsItem[]): void {
@@ -307,21 +445,13 @@ export class TtsPlayer {
 
   pause(): void {
     if (this.state !== "playing") return;
-    try {
-      this.synth.pause();
-    } catch {
-      // ignore
-    }
+    this.backend.pause();
     this.setState("paused");
   }
 
   resume(): void {
     if (this.state !== "paused") return;
-    try {
-      this.synth.resume();
-    } catch {
-      // ignore
-    }
+    this.backend.resume();
     this.setState("playing");
   }
 
@@ -336,6 +466,17 @@ export class TtsPlayer {
   skip(seconds = 30): void {
     const item = this.queue[this.index];
     if (!item) return;
+
+    // If the backend supports real seek, try it first.
+    if (this.backend.seekWithinCurrent) {
+      const stayed = this.backend.seekWithinCurrent(seconds);
+      if (stayed) return; // backend handled it in-place
+      // seekWithinCurrent returned false → past end of current chunk; advance.
+      this.advanceItem();
+      return;
+    }
+
+    // Web Speech fallback: rebuild from the estimated word offset.
     const advance = wordsForSkip(this.rate, seconds);
     const newOffset = item.offset + advance;
     if (newOffset >= item.words.length) {
@@ -368,19 +509,15 @@ export class TtsPlayer {
       id,
       words,
       offset,
-      chunks: chunkText(remaining, 200),
+      chunks: chunkText(remaining, this.backend.maxChunkChars),
       chunkIndex: 0,
     };
   }
 
   private cancel(): void {
-    // Invalidate any in-flight utterance callbacks before cancelling.
+    // Invalidate any in-flight callbacks before cancelling.
     this.generation += 1;
-    try {
-      this.synth.cancel();
-    } catch {
-      // ignore
-    }
+    this.backend.cancel();
   }
 
   private setState(state: TtsState): void {
@@ -399,28 +536,16 @@ export class TtsPlayer {
       this.advanceItem();
       return;
     }
-    const u = this.createUtterance(chunk);
-    u.rate = this.rate;
-    if (this.voiceURI) {
-      const voice = this.findVoice(this.voiceURI);
-      if (voice) u.voice = voice;
-    }
     const gen = this.generation;
-    u.onend = () => this.handleChunkEnd(gen);
-    u.onerror = () => this.handleChunkEnd(gen);
-    this.synth.speak(u);
-  }
-
-  private findVoice(uri: string): SpeechSynthesisVoice | null {
-    try {
-      return this.synth.getVoices().find((v) => v.voiceURI === uri || v.name === uri) ?? null;
-    } catch {
-      return null;
-    }
+    this.backend.speak(
+      chunk,
+      { rate: this.rate, voiceURI: this.voiceURI },
+      () => this.handleChunkEnd(gen),
+    );
   }
 
   private handleChunkEnd(gen: number): void {
-    if (gen !== this.generation) return; // stale callback from a cancelled utterance
+    if (gen !== this.generation) return; // stale callback from a cancelled chunk
     if (this.state === "idle") return; // stopped
     const item = this.queue[this.index];
     if (!item) {

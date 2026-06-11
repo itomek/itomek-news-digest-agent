@@ -2,11 +2,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   TtsPlayer,
+  WebSpeechBackend,
   chunkText,
   loadPrefs,
   savePrefs,
   stripFormatting,
   wordsForSkip,
+  type TtsBackend,
 } from "../../src/lib/tts";
 
 // --- speechSynthesis stub -------------------------------------------------
@@ -271,5 +273,206 @@ describe("TtsPlayer queue", () => {
     const latest = synth.spoken[synth.spoken.length - 1].text;
     expect(latest).not.toContain("w0 ");
     expect(latest).toMatch(/w(8[5-9]|9[0-5])/);
+  });
+});
+
+// --- WebSpeechBackend (isolation) ------------------------------------------
+
+describe("WebSpeechBackend", () => {
+  it("advertises no real seek and a 200-char chunk limit", () => {
+    const backend = new WebSpeechBackend(
+      new FakeSynth() as unknown as SpeechSynthesis,
+      fakeUtteranceFactory as unknown as (t: string) => SpeechSynthesisUtterance,
+    );
+    expect(backend.supportsRealSeek).toBe(false);
+    expect(backend.maxChunkChars).toBe(200);
+    expect((backend as TtsBackend).seekWithinCurrent).toBeUndefined();
+  });
+
+  it("speak builds an utterance with the given rate and fires onEnd via onend", () => {
+    const synth = new FakeSynth();
+    const backend = new WebSpeechBackend(
+      synth as unknown as SpeechSynthesis,
+      fakeUtteranceFactory as unknown as (t: string) => SpeechSynthesisUtterance,
+    );
+    let ended = 0;
+    backend.speak("Hello.", { rate: 1.5, voiceURI: null }, () => {
+      ended += 1;
+    });
+    expect(synth.spoken.length).toBe(1);
+    expect(synth.spoken[0].text).toBe("Hello.");
+    expect(synth.spoken[0].rate).toBe(1.5);
+    synth.finishCurrent();
+    expect(ended).toBe(1);
+  });
+
+  it("assigns the matching voice when voiceURI is set", () => {
+    const synth = new FakeSynth();
+    const fakeVoice = { voiceURI: "x.y.Daniel", name: "Daniel" } as SpeechSynthesisVoice;
+    vi.spyOn(synth, "getVoices").mockReturnValue([fakeVoice]);
+    const backend = new WebSpeechBackend(
+      synth as unknown as SpeechSynthesis,
+      fakeUtteranceFactory as unknown as (t: string) => SpeechSynthesisUtterance,
+    );
+    backend.speak("Hi.", { rate: 1, voiceURI: "x.y.Daniel" }, () => {});
+    expect(synth.spoken[0].voice).toBe(fakeVoice);
+  });
+
+  it("pause/resume/cancel delegate to the synth", () => {
+    const synth = new FakeSynth();
+    const backend = new WebSpeechBackend(
+      synth as unknown as SpeechSynthesis,
+      fakeUtteranceFactory as unknown as (t: string) => SpeechSynthesisUtterance,
+    );
+    backend.pause();
+    expect(synth.paused).toBe(true);
+    backend.resume();
+    expect(synth.paused).toBe(false);
+    backend.cancel();
+    expect(synth.cancelled).toBe(1);
+  });
+
+  it("listVoices maps synth voices to {id: voiceURI, label: name}", () => {
+    const synth = new FakeSynth();
+    vi.spyOn(synth, "getVoices").mockReturnValue([
+      { voiceURI: "a.b.Samantha", name: "Samantha" } as SpeechSynthesisVoice,
+    ]);
+    const backend = new WebSpeechBackend(
+      synth as unknown as SpeechSynthesis,
+      fakeUtteranceFactory as unknown as (t: string) => SpeechSynthesisUtterance,
+    );
+    expect(backend.listVoices()).toEqual([{ id: "a.b.Samantha", label: "Samantha" }]);
+  });
+});
+
+// --- TtsPlayer drives an injected backend -----------------------------------
+
+class FakeBackend implements TtsBackend {
+  supportsRealSeek = false;
+  maxChunkChars = 200;
+  speaks: { text: string; rate: number; voiceURI: string | null }[] = [];
+  pauses = 0;
+  resumes = 0;
+  cancels = 0;
+  seekCalls: number[] = [];
+  seekResult = true;
+  seekWithinCurrent?: (seconds: number) => boolean;
+  private onEnd: (() => void) | null = null;
+
+  speak(
+    text: string,
+    opts: { rate: number; voiceURI: string | null },
+    onEnd: () => void,
+  ): void {
+    this.speaks.push({ text, ...opts });
+    this.onEnd = onEnd;
+  }
+  pause(): void {
+    this.pauses += 1;
+  }
+  resume(): void {
+    this.resumes += 1;
+  }
+  cancel(): void {
+    this.cancels += 1;
+  }
+  listVoices() {
+    return [{ id: "fake_voice", label: "Fake Voice" }];
+  }
+  // test helper
+  finishCurrent(): void {
+    const cb = this.onEnd;
+    this.onEnd = null;
+    cb?.();
+  }
+}
+
+describe("TtsPlayer with an injected backend", () => {
+  it("routes speak/pause/resume/cancel through the backend", () => {
+    const backend = new FakeBackend();
+    const player = new TtsPlayer({ backend });
+    player.play([{ id: "a", text: "Hello there." }]);
+    expect(backend.speaks.length).toBe(1);
+    player.pause();
+    expect(backend.pauses).toBe(1);
+    player.resume();
+    expect(backend.resumes).toBe(1);
+    player.stop();
+    expect(backend.cancels).toBeGreaterThan(0);
+  });
+
+  it("passes the current rate and voiceURI to backend.speak", () => {
+    const backend = new FakeBackend();
+    const player = new TtsPlayer({ backend });
+    player.setRate(1.7);
+    player.setVoiceURI("fake_voice");
+    player.play([{ id: "a", text: "Hi." }]);
+    expect(backend.speaks[0].rate).toBeCloseTo(1.7);
+    expect(backend.speaks[0].voiceURI).toBe("fake_voice");
+  });
+
+  it("chunks with the backend's maxChunkChars", () => {
+    const backend = new FakeBackend();
+    backend.maxChunkChars = 1000;
+    const player = new TtsPlayer({ backend });
+    // ~440 chars: a 200-char backend would need 3+ chunks; 1000 takes one.
+    const text = "This sentence is about forty characters. ".repeat(11).trim();
+    player.play([{ id: "a", text }]);
+    expect(backend.speaks.length).toBe(1);
+    expect(backend.speaks[0].text.length).toBeGreaterThan(200);
+  });
+
+  it("advances chunks then items as the backend reports ends", () => {
+    const backend = new FakeBackend();
+    const player = new TtsPlayer({ backend });
+    player.play([
+      { id: "a", text: "First." },
+      { id: "b", text: "Second." },
+    ]);
+    expect(player.currentId()).toBe("a");
+    backend.finishCurrent();
+    expect(player.currentId()).toBe("b");
+    backend.finishCurrent();
+    expect(player.getState()).toBe("idle");
+  });
+
+  it("skip prefers backend.seekWithinCurrent when present", () => {
+    const backend = new FakeBackend();
+    backend.supportsRealSeek = true;
+    backend.seekWithinCurrent = (seconds: number) => {
+      backend.seekCalls.push(seconds);
+      return backend.seekResult;
+    };
+    const player = new TtsPlayer({ backend });
+    player.play([
+      { id: "a", text: "First item text." },
+      { id: "b", text: "Second item text." },
+    ]);
+    const speaksBefore = backend.speaks.length;
+    player.skip(30);
+    expect(backend.seekCalls).toEqual([30]);
+    // Seek handled in place: no re-speak, still on the same item.
+    expect(backend.speaks.length).toBe(speaksBefore);
+    expect(player.currentId()).toBe("a");
+  });
+
+  it("skip advances to the next item when seekWithinCurrent reports past-end", () => {
+    const backend = new FakeBackend();
+    backend.supportsRealSeek = true;
+    backend.seekResult = false;
+    backend.seekWithinCurrent = () => backend.seekResult;
+    const player = new TtsPlayer({ backend });
+    player.play([
+      { id: "a", text: "First item text." },
+      { id: "b", text: "Second item text." },
+    ]);
+    player.skip(30);
+    expect(player.currentId()).toBe("b");
+  });
+
+  it("listVoices delegates to the active backend", () => {
+    const backend = new FakeBackend();
+    const player = new TtsPlayer({ backend });
+    expect(player.listVoices()).toEqual([{ id: "fake_voice", label: "Fake Voice" }]);
   });
 });

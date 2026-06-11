@@ -135,13 +135,15 @@ test("clicking Play/Pause toggle invokes speechSynthesis and transitions UI stat
 
 test("skip-30s utters again from an advanced position", async ({ page }) => {
   await gotoApp(page);
-  // Pick the card with the most body text so a 30s (~90 word) skip lands mid-item
-  // rather than past the end of a short digest.
+  // Pick the card with the most text so a 30s (~90 word) skip lands mid-item
+  // rather than past the end of a short digest. Measure the card's overall text:
+  // structured digests (post-#58) don't emit a `.digest-body`, so scope to the
+  // whole card to work for both structured and legacy content-only cards.
   const cardCount = await page.locator(".digest-card").count();
   let target = 0;
   let best = -1;
   for (let i = 0; i < cardCount; i++) {
-    const len = (await page.locator(".digest-card").nth(i).locator(".digest-body").innerText()).length;
+    const len = (await page.locator(".digest-card").nth(i).innerText()).length;
     if (len > best) {
       best = len;
       target = i;

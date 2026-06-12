@@ -22,7 +22,7 @@ from news_digest.prompts import SYSTEM_PROMPT
 
 # Importing the tool modules registers their @tool functions into GAIA's global
 # tool registry at import time; the agent then advertises them to the model.
-from news_digest.tools import publishing, scraping  # noqa: F401
+from news_digest.tools import publishing, scraping, social  # noqa: F401
 from news_digest.tools.publishing import push_to_supabase
 
 # Lemonade serves models with a 4096-token context by default, which the agent's

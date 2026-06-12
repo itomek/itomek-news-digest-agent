@@ -4,10 +4,11 @@ import { defaultLogsFilter, LOG_PAGE_SIZE, type LogLevel } from "../lib/query";
 import {
   fetchErrorsPerDay,
   fetchLogsExtended,
+  fetchRunDurations,
   fetchSourceHealth,
   fetchTopics,
 } from "../lib/supabase";
-import type { ErrorsPerDay, SourceHealth, SystemLog, Topic } from "../lib/types";
+import type { ErrorsPerDay, RunDuration, SourceHealth, SystemLog, Topic } from "../lib/types";
 import { renderAuthGate } from "../views/auth-gate";
 
 // Issue #27 — Log view UI at `#/logs`.
@@ -133,6 +134,12 @@ export function isSourceStale(row: SourceHealth): boolean {
 export function formatSuccessPct(pct: number | null): string {
   if (pct === null) return "N/A";
   return `${pct.toFixed(1)}%`;
+}
+
+/** Format an average duration in seconds, or "—" when null/zero. */
+export function formatAvgDuration(s: number | null): string {
+  if (s === null || s === 0) return "—";
+  return `${s.toFixed(1)} s`;
 }
 
 // --- DOM rendering -----------------------------------------------------------
@@ -555,6 +562,74 @@ function renderSourceSuccessTable(rows: SourceHealth[]): HTMLElement {
   return section;
 }
 
+function renderRunDurationTable(rows: RunDuration[]): HTMLElement {
+  const section = document.createElement("section");
+  section.className = "agg-section";
+
+  const heading = document.createElement("h2");
+  heading.className = "agg-heading";
+  heading.textContent = "Average run duration (per topic and model)";
+  section.appendChild(heading);
+
+  if (rows.length === 0) {
+    const p = document.createElement("p");
+    p.className = "empty-state";
+    p.textContent = "No LLM run data yet.";
+    section.appendChild(p);
+    return section;
+  }
+
+  const wrap = document.createElement("div");
+  wrap.className = "logs-table-wrap";
+
+  const table = document.createElement("table");
+  table.className = "logs-table agg-table";
+  table.setAttribute("data-testid", "run-duration-table");
+
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  for (const label of ["Topic", "Model", "Runs", "Avg Duration", "Last Run"]) {
+    const th = document.createElement("th");
+    th.textContent = label;
+    headRow.appendChild(th);
+  }
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+
+    const tdTopic = document.createElement("td");
+    tdTopic.textContent = row.topic_slug ?? "—";
+    tr.appendChild(tdTopic);
+
+    const tdModel = document.createElement("td");
+    tdModel.className = "agg-source-url";
+    tdModel.textContent = row.model_id ?? "—";
+    tr.appendChild(tdModel);
+
+    const tdRuns = document.createElement("td");
+    tdRuns.textContent = String(row.run_count);
+    tr.appendChild(tdRuns);
+
+    const tdDur = document.createElement("td");
+    tdDur.textContent = formatAvgDuration(row.avg_duration_s);
+    tr.appendChild(tdDur);
+
+    const tdLast = document.createElement("td");
+    tdLast.className = "log-ts";
+    tdLast.textContent = row.last_run_at ? formatTimestamp(row.last_run_at) : "—";
+    tr.appendChild(tdLast);
+
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  section.appendChild(wrap);
+  return section;
+}
+
 /** Convert ISO string to `datetime-local` input format (`YYYY-MM-DDTHH:MM`).
  *  Returns "" for unparseable input (new Date never throws; it yields NaN). */
 export function toDatetimeLocal(iso: string): string {
@@ -778,14 +853,16 @@ export async function renderLogs(root: HTMLElement, client: SupabaseClient): Pro
     aggPanel.appendChild(loadingMsg);
 
     try {
-      const [errRows, healthRows] = await Promise.all([
+      const [errRows, healthRows, durationRows] = await Promise.all([
         fetchErrorsPerDay(client, 30),
         fetchSourceHealth(client),
+        fetchRunDurations(client),
       ]);
 
       aggPanel.replaceChildren();
       aggPanel.appendChild(renderErrorsPerDayBar(errRows));
       aggPanel.appendChild(renderSourceSuccessTable(healthRows));
+      aggPanel.appendChild(renderRunDurationTable(durationRows));
     } catch (err) {
       // Reset so the user can retry by clicking the tab again.
       aggLoaded = false;

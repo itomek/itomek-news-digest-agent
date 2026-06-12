@@ -91,6 +91,18 @@ export interface SourceHealth {
   last_error: string | null;
 }
 
+/** One row from v_run_duration. */
+export interface RunDuration {
+  topic_slug: string | null;
+  model_id: string | null;
+  run_count: number;
+  avg_duration_s: number | null;
+  avg_total_tokens: number | null;
+  avg_input_tokens: number | null;
+  avg_output_tokens: number | null;
+  last_run_at: string | null;   // ISO timestamptz
+}
+
 /** One row from v_token_usage_by_day. */
 export interface TokenUsageDay {
   day: string;            // ISO date

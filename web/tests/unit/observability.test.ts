@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatAvgDuration,
   formatSuccessPct,
   isSourceStale,
   parseLogsState,
@@ -8,6 +9,7 @@ import {
 } from "../../src/pages/logs";
 import {
   defaultLogsFilterExtended,
+  escapeIlike,
   logsQueryExtended,
   type LogsFilterExtended,
 } from "../../src/lib/query";
@@ -141,5 +143,47 @@ describe("formatSuccessPct", () => {
 
   it("returns 'N/A' for null", () => {
     expect(formatSuccessPct(null)).toBe("N/A");
+  });
+});
+
+// --- formatAvgDuration -------------------------------------------------------
+
+describe("formatAvgDuration", () => {
+  it("formats a duration with one decimal and ' s'", () => {
+    expect(formatAvgDuration(12.34)).toBe("12.3 s");
+    expect(formatAvgDuration(5)).toBe("5.0 s");
+  });
+
+  it("returns '—' for null and zero", () => {
+    expect(formatAvgDuration(null)).toBe("—");
+    expect(formatAvgDuration(0)).toBe("—");
+  });
+});
+
+// --- escapeIlike ---------------------------------------------------------------
+
+describe("escapeIlike", () => {
+  it("escapes percent signs", () => {
+    expect(escapeIlike("100%")).toBe("100\\%");
+  });
+
+  it("escapes underscores", () => {
+    expect(escapeIlike("topic_slug")).toBe("topic\\_slug");
+  });
+
+  it("escapes backslashes (the escape character itself)", () => {
+    expect(escapeIlike("a\\b")).toBe("a\\\\b");
+  });
+
+  it("leaves plain terms untouched", () => {
+    expect(escapeIlike("fetch rss timeout")).toBe("fetch rss timeout");
+  });
+
+  it("handles a mix of all metacharacters", () => {
+    expect(escapeIlike("a%b_c\\d")).toBe("a\\%b\\_c\\\\d");
+  });
+
+  it("returns empty string for empty input", () => {
+    expect(escapeIlike("")).toBe("");
   });
 });

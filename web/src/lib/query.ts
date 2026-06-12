@@ -115,3 +115,9 @@ export function logsQueryExtended(f: LogsFilterExtended): LogsQuerySpec & { sear
     search: f.search.trim() || null,
   };
 }
+
+/** Escape LIKE/ILIKE pattern metacharacters (%, _, and the escape char \)
+ *  so a user search term matches literally inside `%term%`. */
+export function escapeIlike(term: string): string {
+  return term.replace(/[\\%_]/g, (c) => `\\${c}`);
+}

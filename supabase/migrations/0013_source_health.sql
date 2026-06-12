@@ -1,17 +1,39 @@
 -- 0013_source_health.sql — Source health view, aggregate views, missed-digest
 -- detection, and token-usage view for the observability dashboard (issue #20).
 --
--- Metadata shapes scraped from agent source code:
---   scrape rows:     metadata->>'url', metadata->>'status_code', metadata->>'duration_ms'
---                    level='info' = success, level='warn'/'error' = failure
+-- Metadata shapes transcribed from agent source code:
+--   scrape rows:     metadata->>'url', metadata->>'duration_ms'
+--                    (src/news_digest/tools/scraping.py)
 --   summarize rows:  metadata->>'model_id', metadata->>'input_tokens',
 --                    metadata->>'output_tokens', metadata->>'total_tokens',
---                    metadata->>'duration_s'
---   publish rows:    metadata->>'topic_slug', metadata->>'digest_date'
+--                    metadata->>'duration_s'  (src/news_digest/agent.py)
+--
+-- Scrape OUTCOME classification (the level alone is NOT the outcome — a
+-- successful fetch of a bozo-but-usable feed logs BOTH a warn and an info row):
+--
+--   success  = level='info' AND metadata ? 'duration_ms'
+--              Every terminal success log carries duration_ms and nothing else
+--              does (scraping.py fetch_rss:412, fetch_html:552,
+--              parse_article:648, fetch_pdf_text:746).
+--   failure  = level='warn' AND NOT metadata ? 'bozo_exception'
+--                            AND NOT metadata ? 'truncated_chars'
+--              All terminal fetch failures are logged at warn level (unsafe
+--              url, non-retryable HTTP, retries exhausted, parse errors).
+--              Two warns are ADVISORY, not failures — the fetch still
+--              succeeded and logged its own info row:
+--                bozo feed        (scraping.py:361, has 'bozo_exception')
+--                pdf truncation   (scraping.py:726, has 'truncated_chars')
+--   excluded = everything else: advisory warns above, and info rows without
+--              duration_ms (parse_article no_content :610, fetch_pdf_text
+--              no_text :716 — the fetch succeeded but yielded no content;
+--              neither a success nor a reachability failure).
+--
+--   success_pct = success / (success + failure)  — advisory rows are excluded
+--   from the denominator, so one success + one bozo warn = 100%, not 50%.
 --
 -- All views are SELECT-only; authenticated role is granted SELECT.
 -- pg_cron schedules are prefixed 'news_digest_' for namespace isolation.
--- This migration is idempotent: all objects use CREATE OR REPLACE / IF NOT EXISTS.
+-- This migration is idempotent: re-applying it is safe.
 
 -- ── 1. Aggregate views ────────────────────────────────────────────────────────
 
@@ -27,32 +49,43 @@ order by 1 desc;
 
 grant select on v_errors_per_day to authenticated;
 
--- Per-source success rate (scrape rows only, last 7 days)
--- A scrape row is a success when level='info' and category='scrape' and
--- metadata->>'url' is present.  Warn/error scrape rows are failures.
+-- Per-source success rate (scrape rows only, last 7 days).
+-- Outcome classification per the header comment.
 create or replace view v_source_success_rate as
+with scrape as (
+  select
+    timestamp,
+    metadata ->> 'url' as source_url,
+    (level = 'info' and metadata ? 'duration_ms')          as is_success,
+    (
+      level = 'warn'
+      and not metadata ? 'bozo_exception'
+      and not metadata ? 'truncated_chars'
+    )                                                       as is_failure
+  from system_logs
+  where
+    category = 'scrape'
+    and metadata ->> 'url' is not null
+    and timestamp >= now() - interval '7 days'
+)
 select
-  metadata ->> 'url'                                            as source_url,
-  count(*) filter (where level = 'info')                       as success_count,
-  count(*) filter (where level in ('warn', 'error'))           as failure_count,
-  count(*)                                                      as total_count,
+  source_url,
+  count(*) filter (where is_success)                       as success_count,
+  count(*) filter (where is_failure)                       as failure_count,
+  count(*) filter (where is_success or is_failure)         as total_count,
   round(
-    count(*) filter (where level = 'info')::numeric
-    / nullif(count(*), 0) * 100,
+    count(*) filter (where is_success)::numeric
+    / nullif(count(*) filter (where is_success or is_failure), 0) * 100,
     1
-  )                                                             as success_pct,
-  max(timestamp) filter (where level = 'info')                 as last_success_at,
-  max(timestamp) filter (where level in ('warn', 'error'))     as last_error_at
-from system_logs
-where
-  category = 'scrape'
-  and metadata ->> 'url' is not null
-  and timestamp >= now() - interval '7 days'
-group by 1;
+  )                                                         as success_pct,
+  max(timestamp) filter (where is_success)                 as last_success_at,
+  max(timestamp) filter (where is_failure)                 as last_error_at
+from scrape
+group by source_url;
 
 grant select on v_source_success_rate to authenticated;
 
--- Average run duration per topic/model from summarize rows
+-- Average run duration per topic/model from summarize rows.
 -- duration_s may be 0 when not reported; token counts are often 0 from Lemonade.
 create or replace view v_run_duration as
 select
@@ -97,41 +130,55 @@ order by 1 desc, 2, 3;
 grant select on v_token_usage_by_day to authenticated;
 
 -- ── 3. Source health materialized view ───────────────────────────────────────
--- Materialised for fast load on the /source-health page (scrape table grows fast).
--- Manually refreshed here; pg_cron refreshes hourly (see below).
--- Stale threshold: <50% success over 7d OR >72h since last successful fetch.
+-- Materialised for fast load on the /source-health page (scrape table grows
+-- fast). pg_cron refreshes hourly (see below). Uses the same outcome
+-- classification as v_source_success_rate (header comment). The scrape CTE is
+-- referenced both by the aggregate and by the last_error correlated subquery —
+-- the correlation is on source_url, the GROUP BY column, which keeps the
+-- subquery valid inside the grouped query (correlating on the raw ungrouped
+-- system_logs.metadata is an error: "subquery uses ungrouped column").
 
 create materialized view if not exists mv_source_health as
+with scrape as (
+  select
+    timestamp,
+    message,
+    metadata ->> 'url' as source_url,
+    (level = 'info' and metadata ? 'duration_ms')          as is_success,
+    (
+      level = 'warn'
+      and not metadata ? 'bozo_exception'
+      and not metadata ? 'truncated_chars'
+    )                                                       as is_failure
+  from system_logs
+  where
+    category = 'scrape'
+    and metadata ->> 'url' is not null
+    and timestamp >= now() - interval '7 days'
+)
 select
-  metadata ->> 'url'                                                as source_url,
-  count(*) filter (where level = 'info')                           as success_7d,
-  count(*) filter (where level in ('warn', 'error'))               as failure_7d,
-  count(*)                                                          as total_7d,
+  s.source_url,
+  count(*) filter (where s.is_success)                     as success_7d,
+  count(*) filter (where s.is_failure)                     as failure_7d,
+  count(*) filter (where s.is_success or s.is_failure)     as total_7d,
   round(
-    count(*) filter (where level = 'info')::numeric
-    / nullif(count(*), 0) * 100,
+    count(*) filter (where s.is_success)::numeric
+    / nullif(count(*) filter (where s.is_success or s.is_failure), 0) * 100,
     1
-  )                                                                 as success_pct_7d,
-  max(timestamp) filter (where level = 'info')                     as last_success_at,
-  max(timestamp) filter (where level in ('warn', 'error'))         as last_error_at,
-  max(timestamp)                                                    as last_fetch_at,
-  -- last error message: message from the most recent warn/error scrape row
+  )                                                         as success_pct_7d,
+  max(s.timestamp) filter (where s.is_success)             as last_success_at,
+  max(s.timestamp) filter (where s.is_failure)             as last_error_at,
+  max(s.timestamp)                                          as last_fetch_at,
+  -- message of the most recent terminal-failure row for this source
   (
     select s2.message
-    from system_logs s2
-    where
-      s2.category = 'scrape'
-      and s2.level in ('warn', 'error')
-      and s2.metadata ->> 'url' = (system_logs.metadata ->> 'url')
+    from scrape s2
+    where s2.source_url = s.source_url and s2.is_failure
     order by s2.timestamp desc
     limit 1
-  )                                                                 as last_error
-from system_logs
-where
-  category = 'scrape'
-  and metadata ->> 'url' is not null
-  and timestamp >= now() - interval '7 days'
-group by 1
+  )                                                         as last_error
+from scrape s
+group by s.source_url
 with data;
 
 create unique index if not exists mv_source_health_url_idx
@@ -140,8 +187,11 @@ create unique index if not exists mv_source_health_url_idx
 grant select on mv_source_health to authenticated;
 
 -- ── 4. pg_cron: refresh source health hourly ─────────────────────────────────
+-- Documented Supabase form: extension in pg_catalog + usage grant on cron.
 
-create extension if not exists pg_cron;
+create extension if not exists pg_cron with schema pg_catalog;
+
+grant usage on schema cron to postgres;
 
 -- Unschedule first so re-running the migration is idempotent.
 do $$

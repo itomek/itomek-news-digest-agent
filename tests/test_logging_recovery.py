@@ -174,6 +174,7 @@ def _run_generate_and_publish(monkeypatch, process_query_result, capture_logs=No
                     "level": level,
                     "category": category,
                     "message": message,
+                    "topic_slug": topic_slug,
                     "metadata": metadata,
                 }
             )
@@ -276,6 +277,66 @@ def test_is_lemonade_down_handles_none_and_empty():
 
     assert _is_lemonade_down(None) is False
     assert _is_lemonade_down([]) is False
+
+
+# ---------------------------------------------------------------------------
+# Topic attribution on summarize logs (#20): the token-usage / run-duration
+# views GROUP BY topic_slug, so the summarize log rows must carry it.
+# ---------------------------------------------------------------------------
+
+_CONVERSATION_WITH_TOPIC = [
+    {"role": "user", "content": "Generate the AI digest"},
+    {
+        "role": "tool",
+        "name": "fetch_topic_config",
+        "tool_args": {"slug": "ai_models"},
+        "content": "{...}",
+    },
+    {"role": "assistant", "content": '{"summary": "...", "items": []}'},
+]
+
+
+def test_summarize_log_carries_topic_slug_from_conversation(valid_env, monkeypatch):
+    """The 'LLM run complete' summarize log must carry the topic slug resolved
+    from the conversation's fetch_topic_config call (issue #20)."""
+    logged: list[dict] = []
+    success_result = _process_query_result([])
+    success_result["conversation"] = _CONVERSATION_WITH_TOPIC
+
+    _run_generate_and_publish(monkeypatch, success_result, capture_logs=logged)
+
+    summarize_logs = [c for c in logged if c["category"] == "summarize"]
+    assert len(summarize_logs) == 1
+    assert summarize_logs[0]["topic_slug"] == "ai_models"
+
+
+def test_lemonade_down_log_carries_topic_slug_when_available(valid_env, monkeypatch):
+    """The Lemonade-down error log carries topic_slug when the conversation got
+    far enough to resolve the topic before the outage."""
+    logged: list[dict] = []
+    failed_result = _process_query_result([OBSERVED_CONNECTION_REFUSED_ENTRY])
+    failed_result["conversation"] = _CONVERSATION_WITH_TOPIC
+
+    _run_generate_and_publish(monkeypatch, failed_result, capture_logs=logged)
+
+    summarize_logs = [c for c in logged if c["category"] == "summarize"]
+    assert len(summarize_logs) == 1
+    assert summarize_logs[0]["level"] == "error"
+    assert summarize_logs[0]["topic_slug"] == "ai_models"
+
+
+def test_summarize_log_topic_slug_none_when_unresolvable(valid_env, monkeypatch):
+    """Without a fetch_topic_config call in the conversation, topic_slug stays
+    None (same behavior as before #20)."""
+    logged: list[dict] = []
+
+    _run_generate_and_publish(
+        monkeypatch, _process_query_result([]), capture_logs=logged
+    )
+
+    summarize_logs = [c for c in logged if c["category"] == "summarize"]
+    assert len(summarize_logs) == 1
+    assert summarize_logs[0]["topic_slug"] is None
 
 
 # ---------------------------------------------------------------------------

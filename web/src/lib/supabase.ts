@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   digestsQuery,
+  escapeIlike,
   logsQuery,
   logsQueryExtended,
   topicsQuery,
@@ -10,6 +11,7 @@ import {
 import type {
   Digest,
   ErrorsPerDay,
+  RunDuration,
   SourceHealth,
   SystemLog,
   TokenUsageDay,
@@ -133,7 +135,8 @@ export async function fetchLogsExtended(
   if (spec.filters.level) q = q.eq("level", spec.filters.level);
   if (spec.filters.category) q = q.eq("category", spec.filters.category);
   if (spec.filters.topic_slug) q = q.eq("topic_slug", spec.filters.topic_slug);
-  if (spec.search) q = q.ilike("message", `%${spec.search}%`);
+  // Escape %/_ so the user's term matches literally inside the pattern.
+  if (spec.search) q = q.ilike("message", `%${escapeIlike(spec.search)}%`);
 
   const { data, error } = await q;
   if (error) throw error;
@@ -173,6 +176,21 @@ export async function fetchSourceHealth(
     .order("source_url", { ascending: true });
   if (error) throw error;
   return (data ?? []) as unknown as SourceHealth[];
+}
+
+/** Fetch average run duration per topic + model (all-time summarize rows). */
+export async function fetchRunDurations(
+  client: SupabaseClient,
+): Promise<RunDuration[]> {
+  const { data, error } = await client
+    .from("v_run_duration")
+    .select(
+      "topic_slug, model_id, run_count, avg_duration_s, avg_total_tokens, avg_input_tokens, avg_output_tokens, last_run_at",
+    )
+    .order("last_run_at", { ascending: false })
+    .limit(50);
+  if (error) throw error;
+  return (data ?? []) as unknown as RunDuration[];
 }
 
 /** Fetch token usage rows grouped by day + topic + model. */

@@ -342,6 +342,14 @@ export async function renderHistory(root: HTMLElement, client: SupabaseClient): 
   logsLink.href = "#/logs";
   logsLink.textContent = "Logs";
   nav.appendChild(logsLink);
+  const sourceHealthLink = document.createElement("a");
+  sourceHealthLink.href = "#/source-health";
+  sourceHealthLink.textContent = "Source Health";
+  nav.appendChild(sourceHealthLink);
+  const tokenUsageLink = document.createElement("a");
+  tokenUsageLink.href = "#/token-usage";
+  tokenUsageLink.textContent = "Token Usage";
+  nav.appendChild(tokenUsageLink);
   const out = document.createElement("button");
   out.type = "button";
   out.className = "sign-out";

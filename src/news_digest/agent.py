@@ -232,6 +232,10 @@ class NewsDigestAgent(Agent, DatabaseMixin):
             base_url=settings.lemonade_base_url,
             **kwargs,
         )
+        # Deterministic output: temperature=0 reduces malformed-JSON rate on
+        # local 35B models. Set via AgentConfig (gaia/chat/sdk.py:27) which is
+        # read by send_messages / send_messages_stream before every completion.
+        self.chat.config.temperature = 0.0
         # GAIA drives tools via a JSON-in-content protocol. The loaded Lemonade
         # chat models otherwise emit "thinking" output with empty content, which
         # breaks tool parsing — force thinking off on every completion.

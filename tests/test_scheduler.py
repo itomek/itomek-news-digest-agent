@@ -1,8 +1,9 @@
-"""Tests for src/news_digest/scheduler.py — issue #13.
+"""Tests for src/news_digest/scheduler.py — issue #13, #44.
 
 Tests are hermetic: no real APScheduler sleeps, no network.  Due-check logic,
-kill-switch behaviour, per-topic failure isolation, and cycle logging are all
-tested by calling ``run_cycle`` and the helper functions directly.
+kill-switch behaviour, per-topic failure isolation, cycle logging, and
+retry-until-published (#44) are all tested by calling ``run_cycle`` and the
+helper functions directly.
 """
 
 import signal
@@ -14,8 +15,10 @@ import pytest
 from news_digest import scheduler as sched_module
 from news_digest.scheduler import (
     _install_signal_handlers,
+    _is_published_today,
     _is_topic_due,
     _parse_cadence,
+    _run_topic,
     run_cycle,
 )
 from news_digest.scheduler import (
@@ -45,6 +48,15 @@ def log_calls(_silence_log):
 def _no_sleep(monkeypatch):
     """Skip actual jitter sleeps so tests run at full speed."""
     monkeypatch.setattr(sched_module.time, "sleep", lambda _: None)
+
+
+@pytest.fixture(autouse=True)
+def _assume_published(monkeypatch):
+    """Default: treat every run as published so existing tests are unaffected.
+
+    Retry-specific tests override this by patching _is_published_today directly.
+    """
+    monkeypatch.setattr(sched_module, "_is_published_today", lambda slug: True)
 
 
 # ---------------------------------------------------------------------------
@@ -453,3 +465,160 @@ def test_main_registers_interval_job_with_max_instances_one(monkeypatch):
     _, kwargs = fake_scheduler.add_job.call_args
     assert kwargs["minutes"] == 15
     assert kwargs["max_instances"] == 1
+
+
+# ---------------------------------------------------------------------------
+# _is_published_today — verification helper (issue #44)
+# ---------------------------------------------------------------------------
+
+
+def test_is_published_today_returns_true_when_date_matches_today(monkeypatch):
+    """Returns True when last_date equals today's UTC date."""
+    today_iso = datetime.now(UTC).date().isoformat()
+    monkeypatch.setattr(
+        sched_module,
+        "get_last_digest_date",
+        lambda slug: {"last_date": today_iso},
+    )
+    assert _is_published_today("ai_models") is True
+
+
+def test_is_published_today_returns_false_when_date_is_yesterday(monkeypatch):
+    """Returns False when last_date is before today."""
+    from datetime import timedelta
+
+    yesterday_iso = (datetime.now(UTC).date() - timedelta(days=1)).isoformat()
+    monkeypatch.setattr(
+        sched_module,
+        "get_last_digest_date",
+        lambda slug: {"last_date": yesterday_iso},
+    )
+    assert _is_published_today("ai_models") is False
+
+
+def test_is_published_today_returns_false_when_no_prior_digest(monkeypatch):
+    """Returns False when no digest has ever been published."""
+    monkeypatch.setattr(
+        sched_module,
+        "get_last_digest_date",
+        lambda slug: {"last_date": None},
+    )
+    assert _is_published_today("ai_models") is False
+
+
+def test_is_published_today_returns_false_on_bad_date_format(monkeypatch):
+    """Returns False (not an exception) when the stored date is malformed."""
+    monkeypatch.setattr(
+        sched_module,
+        "get_last_digest_date",
+        lambda slug: {"last_date": "not-a-date"},
+    )
+    assert _is_published_today("ai_models") is False
+
+
+# ---------------------------------------------------------------------------
+# _run_topic retry loop — issue #44
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def _patch_not_published(monkeypatch):
+    """Make _is_published_today always return False (digest never landed)."""
+    monkeypatch.setattr(sched_module, "_is_published_today", lambda slug: False)
+
+
+@pytest.fixture()
+def _patch_published(monkeypatch):
+    """Make _is_published_today always return True (digest confirmed)."""
+    monkeypatch.setattr(sched_module, "_is_published_today", lambda slug: True)
+
+
+def _topic_row(slug: str = "ai_models") -> dict:
+    return {"slug": slug, "name": "AI Models", "cadence": "24h", "enabled": True}
+
+
+def test_run_topic_succeeds_first_attempt_no_retry(
+    monkeypatch, log_calls, _patch_published
+):
+    """When the digest is confirmed on the first attempt, no retry happens."""
+    agent = MagicMock()
+    agent.generate_and_publish.return_value = {
+        "success": True,
+        "id": "x",
+        "digest_date": "2026-06-11",
+    }
+    _run_topic(_topic_row(), agent)
+    assert agent.generate_and_publish.call_count == 1
+
+
+def test_run_topic_retries_when_not_published_on_first_attempt(monkeypatch, log_calls):
+    """When the first attempt produces no publish, it retries and succeeds on the second."""
+    # First call: not published; second call: published.
+    published_state = {"published": False}
+
+    def _is_pub(slug):
+        result = published_state["published"]
+        published_state["published"] = True  # flip after first check
+        return result
+
+    monkeypatch.setattr(sched_module, "_is_published_today", _is_pub)
+
+    agent = MagicMock()
+    agent.generate_and_publish.return_value = {"success": True}
+
+    _run_topic(_topic_row(), agent)
+
+    assert agent.generate_and_publish.call_count == 2
+    # A warn log must have been emitted for the retry.
+    warns = [a for (a, _) in log_calls if a[0] == "warn"]
+    assert any("retrying" in a[2] for a in warns)
+
+
+def test_run_topic_gives_up_after_max_attempts_and_logs_error(
+    monkeypatch, log_calls, _patch_not_published
+):
+    """After _MAX_RUN_ATTEMPTS failures, an error is logged (not success)."""
+    from news_digest.scheduler import _MAX_RUN_ATTEMPTS
+
+    agent = MagicMock()
+    agent.generate_and_publish.return_value = {"success": False, "error": "parse_error"}
+
+    _run_topic(_topic_row(), agent)
+
+    assert agent.generate_and_publish.call_count == _MAX_RUN_ATTEMPTS
+    errors = [a for (a, _) in log_calls if a[0] == "error"]
+    assert any("failed to publish" in a[2] for a in errors)
+
+
+def test_run_topic_skips_retry_on_lemonade_down(
+    monkeypatch, log_calls, _patch_not_published
+):
+    """When generate_and_publish returns lemonade_down, no retry is attempted."""
+    agent = MagicMock()
+    agent.generate_and_publish.return_value = {
+        "success": False,
+        "error": "lemonade_down",
+    }
+
+    _run_topic(_topic_row(), agent)
+
+    assert agent.generate_and_publish.call_count == 1
+    warns = [a for (a, _) in log_calls if a[0] == "warn"]
+    assert any("lemonade_down" in a[2] for a in warns)
+
+
+def test_run_topic_exception_is_treated_as_unpublished_and_retried(
+    monkeypatch, log_calls, _patch_not_published
+):
+    """An unexpected exception from generate_and_publish is caught; the retry loop continues."""
+    from news_digest.scheduler import _MAX_RUN_ATTEMPTS
+
+    agent = MagicMock()
+    agent.generate_and_publish.side_effect = RuntimeError("unexpected crash")
+
+    _run_topic(_topic_row(), agent)
+
+    assert agent.generate_and_publish.call_count == _MAX_RUN_ATTEMPTS
+    errors = [a for (a, _) in log_calls if a[0] == "error"]
+    # At least one error per exception + one final "failed to publish" error.
+    assert len(errors) >= _MAX_RUN_ATTEMPTS

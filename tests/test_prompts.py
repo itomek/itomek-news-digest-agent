@@ -223,15 +223,21 @@ def test_system_prompt_step3_wires_fetch_reddit_as_secondary_signal():
     assert "never quote reddit" in sp_lower
 
 
-def test_system_prompt_instructs_final_answer_json_not_publish_tool():
+def test_system_prompt_instructs_publish_via_push_to_supabase_tool():
     sp = SYSTEM_PROMPT
     sp_lower = sp.lower()
-    # The model returns the digest as its FINAL ANSWER (JSON), not via a tool call.
-    assert "final answer" in sp_lower
+    # Step 5 must instruct the model to call push_to_supabase directly (#44).
+    assert "push_to_supabase" in sp
     assert "topic_slug" in sp
     assert "sources_used" in sp
-    # It must NOT instruct the model to publish via push_to_supabase anymore.
-    assert "push_to_supabase" not in sp
+    # The model must NOT bury the digest in an answer field.
+    assert (
+        "do not put the digest" in sp_lower
+        or "not put the digest" in sp_lower
+        or "must not" in sp_lower
+    )
+    # The run is not complete until push_to_supabase succeeds.
+    assert "push_to_supabase" in sp
 
 
 # ---------------------------------------------------------------------------

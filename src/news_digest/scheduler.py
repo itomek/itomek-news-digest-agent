@@ -43,6 +43,10 @@ _CADENCE_MAP: dict[str, timedelta] = {
     "7d": timedelta(days=7),
 }
 
+# Maximum number of attempts (initial + retries) when a run finishes without
+# publishing.  Lemonade-down failures skip the retry loop entirely.
+_MAX_RUN_ATTEMPTS = 3
+
 
 def _client() -> Client:
     """Build a Supabase client authenticated as service_role.
@@ -121,12 +125,44 @@ def _is_topic_due(topic: dict[str, Any], now: datetime) -> bool:
     return (now - last_datetime) >= cadence
 
 
-def _run_topic(topic: dict[str, Any], agent: Any) -> None:
-    """Execute a single topic run via the agent wrapper.
+def _is_published_today(slug: str) -> bool:
+    """Return True when a digest for *slug* has already been written today (UTC).
 
-    Applies a 0–300 s random jitter before invoking
-    ``agent.generate_and_publish``.  All exceptions are caught so one failing
-    topic cannot stop the scheduler cycle.
+    Compares the most recent digest date against today's UTC date, matching the
+    timezone used by ``push_to_supabase`` (``datetime.now(UTC).date()``).
+
+    Args:
+        slug: The topic slug to check.
+
+    Returns:
+        True when a digest row exists for today's UTC date, False otherwise
+        (including on Supabase errors, where we conservatively assume not
+        published so the retry loop proceeds rather than silently skipping).
+    """
+    result = get_last_digest_date(slug)
+    last_date_str = result.get("last_date")
+    if last_date_str is None:
+        return False
+    try:
+        last_date = date.fromisoformat(last_date_str)
+    except ValueError:
+        return False
+    return last_date == datetime.now(UTC).date()
+
+
+def _run_topic(topic: dict[str, Any], agent: Any) -> None:
+    """Execute a single topic run via the agent wrapper, with retry-until-published.
+
+    Applies a 0–300 s random jitter before the first attempt.  After each
+    attempt, verifies whether a digest row actually landed in Supabase for
+    today's UTC date. If not:
+    - ``lemonade_down`` failures skip retries immediately (LLM is unreachable).
+    - Otherwise retries up to ``_MAX_RUN_ATTEMPTS`` total attempts.
+    - If still unpublished after all attempts, logs an error so monitoring
+      catches it (the run is NOT falsely reported as success).
+
+    All exceptions are caught so one failing topic cannot stop the scheduler
+    cycle.
 
     Args:
         topic: A ``digest_topics`` row with at least ``slug`` and ``name``.
@@ -145,34 +181,75 @@ def _run_topic(topic: dict[str, Any], agent: Any) -> None:
     )
     time.sleep(jitter)
 
-    try:
-        log(
-            "info",
-            "schedule",
-            f"_run_topic: starting run for {name!r} ({slug!r})",
-            topic_slug=slug,
-            metadata={"slug": slug, "name": name},
-        )
-        result = agent.generate_and_publish(f"Generate the {name} digest for today")
-        log(
-            "info",
-            "schedule",
-            f"_run_topic: finished {slug!r} — success={result.get('success')}",
-            topic_slug=slug,
-            metadata={"slug": slug, "result": result},
-        )
-    except Exception as exc:  # noqa: BLE001 — failure isolation
-        log(
-            "error",
-            "schedule",
-            f"_run_topic: unhandled exception for {slug!r}: {exc.__class__.__name__}: {exc}",
-            topic_slug=slug,
-            metadata={
-                "slug": slug,
-                "error": str(exc),
-                "exc_type": exc.__class__.__name__,
-            },
-        )
+    for attempt in range(1, _MAX_RUN_ATTEMPTS + 1):
+        try:
+            log(
+                "info",
+                "schedule",
+                f"_run_topic: starting run for {name!r} ({slug!r}) attempt {attempt}/{_MAX_RUN_ATTEMPTS}",
+                topic_slug=slug,
+                metadata={"slug": slug, "name": name, "attempt": attempt},
+            )
+            result = agent.generate_and_publish(f"Generate the {name} digest for today")
+            log(
+                "info",
+                "schedule",
+                f"_run_topic: finished {slug!r} attempt {attempt} — success={result.get('success')}",
+                topic_slug=slug,
+                metadata={"slug": slug, "result": result, "attempt": attempt},
+            )
+        except Exception as exc:  # noqa: BLE001 — failure isolation
+            log(
+                "error",
+                "schedule",
+                f"_run_topic: unhandled exception for {slug!r} attempt {attempt}: {exc.__class__.__name__}: {exc}",
+                topic_slug=slug,
+                metadata={
+                    "slug": slug,
+                    "error": str(exc),
+                    "exc_type": exc.__class__.__name__,
+                    "attempt": attempt,
+                },
+            )
+            result = {"success": False, "error": exc.__class__.__name__}
+
+        # Lemonade unreachable — retrying while the LLM is down is pointless.
+        if result.get("error") == "lemonade_down":
+            log(
+                "warn",
+                "schedule",
+                f"_run_topic: {slug!r} skipping retries — lemonade_down",
+                topic_slug=slug,
+                metadata={"slug": slug, "attempt": attempt},
+            )
+            return
+
+        # Verify that a digest row actually landed (GAIA returns status=success
+        # even when the final turn was malformed and nothing was published).
+        if _is_published_today(slug):
+            return
+
+        # Not published yet.
+        if attempt < _MAX_RUN_ATTEMPTS:
+            log(
+                "warn",
+                "schedule",
+                f"_run_topic: {slug!r} run finished without publishing, retrying {attempt + 1}/{_MAX_RUN_ATTEMPTS}",
+                topic_slug=slug,
+                metadata={
+                    "slug": slug,
+                    "attempt": attempt,
+                    "next_attempt": attempt + 1,
+                },
+            )
+        else:
+            log(
+                "error",
+                "schedule",
+                f"_run_topic: {slug!r} failed to publish after {_MAX_RUN_ATTEMPTS} attempts",
+                topic_slug=slug,
+                metadata={"slug": slug, "attempts": _MAX_RUN_ATTEMPTS},
+            )
 
 
 def run_cycle(agent: Any | None = None) -> None:

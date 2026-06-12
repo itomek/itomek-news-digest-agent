@@ -341,7 +341,7 @@ def test_world_news_migration_contains_since_hours_72():
     import pathlib
 
     migrations = pathlib.Path(__file__).parent.parent / "supabase" / "migrations"
-    world_news_file = next(migrations.glob("*world_news*"))
+    world_news_file = next(migrations.glob("0010_*world_news*"))
     content = world_news_file.read_text()
     assert "since_hours=72" in content or "since_hours = 72" in content
 
@@ -352,7 +352,7 @@ def test_world_news_migration_instructs_self_dedup_limit_2():
     import pathlib
 
     migrations = pathlib.Path(__file__).parent.parent / "supabase" / "migrations"
-    world_news_file = next(migrations.glob("*world_news*"))
+    world_news_file = next(migrations.glob("0010_*world_news*"))
     content = world_news_file.read_text()
     assert "world_news" in content
     assert "limit=2" in content
@@ -364,7 +364,7 @@ def test_world_news_migration_instructs_english_output():
     import pathlib
 
     migrations = pathlib.Path(__file__).parent.parent / "supabase" / "migrations"
-    world_news_file = next(migrations.glob("*world_news*"))
+    world_news_file = next(migrations.glob("0010_*world_news*"))
     content = world_news_file.read_text()
     assert "english" in content.lower() or "English" in content
 
@@ -375,7 +375,7 @@ def test_world_news_migration_instructs_metadata_sentiment_key():
     import pathlib
 
     migrations = pathlib.Path(__file__).parent.parent / "supabase" / "migrations"
-    world_news_file = next(migrations.glob("*world_news*"))
+    world_news_file = next(migrations.glob("0010_*world_news*"))
     content = world_news_file.read_text()
     assert '"sentiment"' in content
     for tag in SENTIMENT_TAGS:
@@ -391,7 +391,7 @@ def test_world_news_migration_lists_six_rss_sources():
     import re
 
     migrations = pathlib.Path(__file__).parent.parent / "supabase" / "migrations"
-    world_news_file = next(migrations.glob("*world_news*"))
+    world_news_file = next(migrations.glob("0010_*world_news*"))
     content = world_news_file.read_text()
     # Extract the JSON array from between the single-quoted literals.
     match = re.search(r"'\s*(\[.*?\])\s*'::", content, re.DOTALL)
@@ -399,3 +399,16 @@ def test_world_news_migration_lists_six_rss_sources():
     sources = json.loads(match.group(1))
     rss_sources = [s for s in sources if s.get("type") == "rss"]
     assert len(rss_sources) == 6, f"Expected 6 RSS sources, found {len(rss_sources)}"
+
+
+def test_world_news_concise_hint_migration_is_guarded():
+    """0014 bounds the world_news digest size (truncation defense) and must be
+    idempotent: the not-like guard keys on the same phrase it appends."""
+    import pathlib
+
+    migrations = pathlib.Path(__file__).parent.parent / "supabase" / "migrations"
+    f = migrations / "0014_world_news_concise_hint.sql"
+    content = f.read_text()
+    assert "5 most significant stories" in content
+    assert "not like '%5 most significant stories%'" in content
+    assert "slug = 'world_news'" in content

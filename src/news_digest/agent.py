@@ -236,6 +236,12 @@ class NewsDigestAgent(Agent, DatabaseMixin):
         # local 35B models. Set via AgentConfig (gaia/chat/sdk.py:27) which is
         # read by send_messages / send_messages_stream before every completion.
         self.chat.config.temperature = 0.0
+        # GAIA's AgentConfig defaults max_tokens to 512 (gaia/chat/sdk.py:26),
+        # which truncates the final-answer JSON of multi-item digests (a 5-7
+        # item world_news answer needs 1,500-2,500 tokens) and cascades into a
+        # completion-loop deadlock and parse_error. 4096 gives ~2x headroom
+        # over the largest topic's final answer.
+        self.chat.config.max_tokens = 4096
         # GAIA drives tools via a JSON-in-content protocol. The loaded Lemonade
         # chat models otherwise emit "thinking" output with empty content, which
         # breaks tool parsing — force thinking off on every completion.

@@ -46,6 +46,17 @@ export interface Topic {
   enabled: boolean;
 }
 
+/**
+ * One overdue topic from the v_missed_digests view (computed live from current
+ * digest state, so it never goes stale once a digest publishes).
+ */
+export interface MissedDigest {
+  topic_slug: string;
+  cadence: string;
+  last_digest_date: string | null; // ISO date, or null if never published
+  window_hours: number;
+}
+
 /** One topic group, holding its digests bucketed by date (newest first). */
 export interface TopicGroup {
   slug: string;

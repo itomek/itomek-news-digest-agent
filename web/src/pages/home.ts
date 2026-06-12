@@ -5,8 +5,8 @@ import {
   signOut,
   validatePassword,
 } from "../lib/auth";
-import { fetchDigests, fetchMissedDigestWarnings, fetchTopics } from "../lib/supabase";
-import type { SystemLog } from "../lib/types";
+import { fetchDigests, fetchMissedDigests, fetchTopics } from "../lib/supabase";
+import type { MissedDigest } from "../lib/types";
 import { renderAuthGate } from "../views/auth-gate";
 import { renderDigestList } from "../views/digest-list";
 
@@ -130,18 +130,18 @@ export async function renderHome(root: HTMLElement, client: SupabaseClient): Pro
   root.appendChild(renderAccount(client));
 
   try {
-    // Fetch digests, topics, and missed-digest warnings in parallel.
+    // Fetch digests, topics, and missed-digest alerts in parallel.
     // Missed-digest fetch failure is non-fatal — banner simply won't appear.
-    const [digests, topics, missedWarnings] = await Promise.all([
+    const [digests, topics, missed] = await Promise.all([
       fetchDigests(client),
       fetchTopics(client),
-      fetchMissedDigestWarnings(client, 48).catch((): SystemLog[] => []),
+      fetchMissedDigests(client).catch((): MissedDigest[] => []),
     ]);
 
     main.replaceChildren();
 
-    if (missedWarnings.length > 0) {
-      main.appendChild(renderMissedDigestBanner(missedWarnings));
+    if (missed.length > 0) {
+      main.appendChild(renderMissedDigestBanner(missed));
     }
 
     main.appendChild(renderDigestList(digests, topics));
@@ -155,7 +155,7 @@ export async function renderHome(root: HTMLElement, client: SupabaseClient): Pro
 }
 
 /** Render a warning banner listing topics with missed digests. */
-function renderMissedDigestBanner(warnings: SystemLog[]): HTMLElement {
+function renderMissedDigestBanner(missed: MissedDigest[]): HTMLElement {
   const banner = document.createElement("aside");
   banner.className = "missed-digest-banner";
   banner.setAttribute("role", "alert");
@@ -167,12 +167,10 @@ function renderMissedDigestBanner(warnings: SystemLog[]): HTMLElement {
 
   const list = document.createElement("ul");
   list.className = "missed-digest-list";
-  for (const w of warnings) {
+  for (const m of missed) {
     const li = document.createElement("li");
-    const meta = w.metadata as Record<string, unknown> | null;
-    const slug = (meta?.["topic_slug"] as string | undefined) ?? w.topic_slug ?? "unknown";
-    const cadence = (meta?.["cadence"] as string | undefined) ?? "";
-    li.textContent = cadence ? `${slug} (${cadence})` : slug;
+    const slug = m.topic_slug || "unknown";
+    li.textContent = m.cadence ? `${slug} (${m.cadence})` : slug;
     list.appendChild(li);
   }
   banner.appendChild(list);

@@ -238,6 +238,14 @@ class NewsDigestAgent(Agent, DatabaseMixin):
         "assemble structured digest" step, kept in Python because local models do
         not reliably emit a final publish tool call.
 
+        Logs a ``summarize`` entry after process_query returns, covering: model,
+        token counts (from GAIA's aggregated stats), duration, and status. When
+        Lemonade is unreachable (``llm_connection_error`` in error_history) the
+        topic is logged and skipped without crashing the process.
+
+        Token counts come from GAIA's per-step conversation stats aggregation.
+        Zero means the streaming backend did not report them for this run.
+
         Args:
             query: The natural-language request, e.g.
                 "Generate the AI model releases digest for today".
@@ -247,6 +255,45 @@ class NewsDigestAgent(Agent, DatabaseMixin):
             ``{"success": False, "error": <reason>}`` on any failure. Never raises.
         """
         result = self.process_query(query)
+
+        # Detect Lemonade-down: GAIA records llm_connection_error in error_history.
+        # Log and skip so the scheduler can continue to the next topic.
+        lemonade_down = any(
+            e.get("type") == "llm_connection_error"
+            for e in (result.get("error_history") or [])
+        )
+        if lemonade_down:
+            log(
+                "error",
+                "summarize",
+                "generate_and_publish: Lemonade Server unreachable — topic skipped",
+                metadata={
+                    "query": query,
+                    "status": result.get("status"),
+                    "steps_taken": result.get("steps_taken"),
+                    "error_history": result.get("error_history"),
+                },
+            )
+            return {"success": False, "error": "lemonade_down"}
+
+        # Log summarize trace. Token counts are aggregated by GAIA from per-step
+        # conversation stats; zero means the streaming backend did not report them.
+        log(
+            "info",
+            "summarize",
+            "generate_and_publish: LLM run complete",
+            metadata={
+                "model_id": getattr(self, "model_id", None),
+                "status": result.get("status"),
+                "input_tokens": result.get("input_tokens", 0),
+                "output_tokens": result.get("output_tokens", 0),
+                "total_tokens": result.get("total_tokens", 0),
+                "duration_s": round(result.get("duration", 0.0), 2),
+                "steps_taken": result.get("steps_taken"),
+                "error_count": result.get("error_count", 0),
+            },
+        )
+
         return _publish_from_result(result)
 
     def _get_system_prompt(self) -> str:

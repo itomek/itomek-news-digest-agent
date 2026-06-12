@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  FALLBACK_TOPIC_SLUGS,
   formatTimestamp,
+  fromDatetimeLocal,
   levelClass,
+  LOG_CATEGORIES,
+  pagerLabel,
   parseLogsState,
   prettyMetadata,
   serializeLogsState,
+  toDatetimeLocal,
   type LogsState,
 } from "../../src/pages/logs";
 import {
@@ -282,5 +287,90 @@ describe("defaultLogsFilter", () => {
     expect(f.level).toBeNull();
     expect(f.category).toBe("");
     expect(f.topic_slug).toBe("");
+  });
+});
+
+// --- LOG_CATEGORIES / FALLBACK_TOPIC_SLUGS (select option sources) ------------
+
+describe("LOG_CATEGORIES", () => {
+  it("matches the agent's canonical Category literals (src/news_digest/logging.py)", () => {
+    expect([...LOG_CATEGORIES]).toEqual([
+      "schedule",
+      "scrape",
+      "summarize",
+      "publish",
+      "feedback",
+      "hello_world",
+      "system",
+    ]);
+  });
+
+  it("contains no duplicates or blanks", () => {
+    expect(new Set(LOG_CATEGORIES).size).toBe(LOG_CATEGORIES.length);
+    expect(LOG_CATEGORIES.every((c) => c.trim().length > 0)).toBe(true);
+  });
+});
+
+describe("FALLBACK_TOPIC_SLUGS", () => {
+  it("covers the five known digest topics", () => {
+    expect([...FALLBACK_TOPIC_SLUGS].sort()).toEqual([
+      "ai_models",
+      "ai_updates",
+      "local_news",
+      "penguins",
+      "world_news",
+    ]);
+  });
+});
+
+// --- toDatetimeLocal / fromDatetimeLocal --------------------------------------
+
+describe("toDatetimeLocal", () => {
+  it("formats a valid ISO string as YYYY-MM-DDTHH:MM", () => {
+    expect(toDatetimeLocal("2026-06-01T12:30:00.000Z")).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/,
+    );
+  });
+
+  it("returns empty string for unparseable input (no NaN-NaN-NaN output)", () => {
+    expect(toDatetimeLocal("not-a-date")).toBe("");
+    expect(toDatetimeLocal("")).toBe("");
+  });
+});
+
+describe("fromDatetimeLocal", () => {
+  it("converts a datetime-local value to an ISO string", () => {
+    const iso = fromDatetimeLocal("2026-06-01T12:30");
+    expect(iso).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+    expect(Number.isNaN(new Date(iso).getTime())).toBe(false);
+  });
+
+  it("returns empty string for empty or unparseable input", () => {
+    expect(fromDatetimeLocal("")).toBe("");
+    expect(fromDatetimeLocal("garbage")).toBe("");
+  });
+
+  it("round-trips with toDatetimeLocal to the same minute", () => {
+    const local = "2026-06-01T12:30";
+    expect(toDatetimeLocal(fromDatetimeLocal(local))).toBe(local);
+  });
+});
+
+// --- pagerLabel ----------------------------------------------------------------
+
+describe("pagerLabel", () => {
+  it("shows 'No rows' for an empty page", () => {
+    expect(pagerLabel(0, 0)).toBe("No rows");
+    expect(pagerLabel(3, 0)).toBe("No rows");
+  });
+
+  it("shows the actual row range on page 0", () => {
+    expect(pagerLabel(0, 100)).toBe("Rows 1–100");
+    expect(pagerLabel(0, 7)).toBe("Rows 1–7");
+  });
+
+  it("offsets the range by the page number", () => {
+    expect(pagerLabel(1, 100)).toBe("Rows 101–200");
+    expect(pagerLabel(2, 42)).toBe("Rows 201–242");
   });
 });

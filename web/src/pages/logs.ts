@@ -1,8 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isAuthenticatedAtRequiredLevel, signOut } from "../lib/auth";
 import { defaultLogsFilter, LOG_PAGE_SIZE, type LogLevel } from "../lib/query";
-import { fetchLogs } from "../lib/supabase";
-import type { SystemLog } from "../lib/types";
+import { fetchLogs, fetchTopics } from "../lib/supabase";
+import type { SystemLog, Topic } from "../lib/types";
 import { renderAuthGate } from "../views/auth-gate";
 
 // Issue #27 — Log view UI at `#/logs`.
@@ -14,6 +14,29 @@ import { renderAuthGate } from "../views/auth-gate";
 // filter server-side).
 
 // --- Pure, DOM-free helpers (unit-tested) ------------------------------------
+
+/** Canonical log categories emitted by the agent.
+ *  Transcribed from the `Category` Literal in src/news_digest/logging.py:10-18. */
+export const LOG_CATEGORIES = [
+  "schedule",
+  "scrape",
+  "summarize",
+  "publish",
+  "feedback",
+  "hello_world",
+  "system",
+] as const;
+
+/** Known topic slugs, used only if the digest_topics fetch fails. The
+ *  authenticated role CAN read digest_topics (migration 0006), so the dropdown
+ *  is normally populated from the table; this is a network-failure fallback. */
+export const FALLBACK_TOPIC_SLUGS = [
+  "ai_models",
+  "ai_updates",
+  "local_news",
+  "penguins",
+  "world_news",
+] as const;
 
 export interface LogsState {
   dateFrom: string;
@@ -201,7 +224,38 @@ interface FilterBar {
   sync: (state: LogsState) => void;
 }
 
-function buildFilterBar(initial: LogsState, onChange: (next: LogsState) => void): FilterBar {
+function buildSelect(opts: {
+  testid: string;
+  ariaLabel: string;
+  allLabel: string;
+  values: readonly string[];
+  initial: string;
+}): HTMLSelectElement {
+  const select = document.createElement("select");
+  select.className = "logs-filter-select";
+  select.setAttribute("data-testid", opts.testid);
+  select.setAttribute("aria-label", opts.ariaLabel);
+  const allOpt = document.createElement("option");
+  allOpt.value = "";
+  allOpt.textContent = opts.allLabel;
+  select.appendChild(allOpt);
+  for (const value of opts.values) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = value;
+    select.appendChild(opt);
+  }
+  select.value = opts.initial;
+  // An unknown initial (hand-edited URL) leaves value "" — treat as All.
+  if (select.value !== opts.initial) select.value = "";
+  return select;
+}
+
+function buildFilterBar(
+  initial: LogsState,
+  topicSlugs: readonly string[],
+  onChange: (next: LogsState) => void,
+): FilterBar {
   const bar = document.createElement("div");
   bar.className = "logs-filters";
   bar.setAttribute("data-testid", "logs-filters");
@@ -245,23 +299,24 @@ function buildFilterBar(initial: LogsState, onChange: (next: LogsState) => void)
   }
   levelSelect.value = initial.level ?? "";
 
-  // Category
-  const categoryInput = document.createElement("input");
-  categoryInput.type = "text";
-  categoryInput.className = "logs-filter-input";
-  categoryInput.setAttribute("data-testid", "filter-category");
-  categoryInput.setAttribute("aria-label", "Filter by category");
-  categoryInput.placeholder = "Category…";
-  categoryInput.value = initial.category;
+  // Category — select over the agent's canonical categories (exact-match filter,
+  // so free text would silently return zero rows on partial/case-different input).
+  const categorySelect = buildSelect({
+    testid: "filter-category",
+    ariaLabel: "Filter by category",
+    allLabel: "All categories",
+    values: LOG_CATEGORIES,
+    initial: initial.category,
+  });
 
-  // Topic slug
-  const topicInput = document.createElement("input");
-  topicInput.type = "text";
-  topicInput.className = "logs-filter-input";
-  topicInput.setAttribute("data-testid", "filter-topic-slug");
-  topicInput.setAttribute("aria-label", "Filter by topic slug");
-  topicInput.placeholder = "Topic slug…";
-  topicInput.value = initial.topic_slug;
+  // Topic slug — select populated from digest_topics (or the static fallback).
+  const topicSelect = buildSelect({
+    testid: "filter-topic-slug",
+    ariaLabel: "Filter by topic slug",
+    allLabel: "All topics",
+    values: topicSlugs,
+    initial: initial.topic_slug,
+  });
 
   const applyButton = document.createElement("button");
   applyButton.type = "button";
@@ -273,8 +328,8 @@ function buildFilterBar(initial: LogsState, onChange: (next: LogsState) => void)
     dateFromLabel, dateFrom,
     dateToLabel, dateTo,
     levelSelect,
-    categoryInput,
-    topicInput,
+    categorySelect,
+    topicSelect,
     applyButton,
   );
 
@@ -282,27 +337,23 @@ function buildFilterBar(initial: LogsState, onChange: (next: LogsState) => void)
     dateFrom: fromDatetimeLocal(dateFrom.value) || readState().dateFrom,
     dateTo: fromDatetimeLocal(dateTo.value) || readState().dateTo,
     level: (levelSelect.value as LogLevel) || null,
-    category: categoryInput.value,
-    topic_slug: topicInput.value,
+    category: categorySelect.value,
+    topic_slug: topicSelect.value,
     page: 0, // reset to first page on any filter change
   });
 
+  // Apply commits the date range; selects fire immediately.
   applyButton.addEventListener("click", () => onChange(collect()));
-  // Also fire on Enter in text inputs.
-  for (const input of [categoryInput, topicInput]) {
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") onChange(collect());
-    });
+  for (const select of [levelSelect, categorySelect, topicSelect]) {
+    select.addEventListener("change", () => onChange(collect()));
   }
-  // Level select fires immediately.
-  levelSelect.addEventListener("change", () => onChange(collect()));
 
   const sync = (state: LogsState) => {
     dateFrom.value = toDatetimeLocal(state.dateFrom);
     dateTo.value = toDatetimeLocal(state.dateTo);
     levelSelect.value = state.level ?? "";
-    categoryInput.value = state.category;
-    topicInput.value = state.topic_slug;
+    categorySelect.value = state.category;
+    topicSelect.value = state.topic_slug;
   };
 
   return { el: bar, sync };
@@ -310,6 +361,7 @@ function buildFilterBar(initial: LogsState, onChange: (next: LogsState) => void)
 
 function renderPager(
   state: LogsState,
+  rowCount: number,
   hasMore: boolean,
   onChange: (next: LogsState) => void,
 ): HTMLElement {
@@ -326,11 +378,7 @@ function renderPager(
 
   const info = document.createElement("span");
   info.className = "logs-pager-info";
-  const first = state.page * LOG_PAGE_SIZE + 1;
-  const lastApprox = state.page * LOG_PAGE_SIZE + LOG_PAGE_SIZE;
-  info.textContent = hasMore
-    ? `Rows ${first}–${lastApprox}`
-    : `Rows ${first}+`;
+  info.textContent = pagerLabel(state.page, rowCount);
 
   const next = document.createElement("button");
   next.type = "button";
@@ -343,25 +391,29 @@ function renderPager(
   return pager;
 }
 
-/** Convert ISO string to `datetime-local` input format (`YYYY-MM-DDTHH:MM`). */
-function toDatetimeLocal(iso: string): string {
-  try {
-    const d = new Date(iso);
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  } catch {
-    return "";
-  }
+/** Convert ISO string to `datetime-local` input format (`YYYY-MM-DDTHH:MM`).
+ *  Returns "" for unparseable input (new Date never throws; it yields NaN). */
+export function toDatetimeLocal(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/** Convert `datetime-local` value back to an ISO string (local timezone). */
-function fromDatetimeLocal(value: string): string {
+/** Convert `datetime-local` value back to an ISO string (local timezone).
+ *  Returns "" for empty or unparseable input. */
+export function fromDatetimeLocal(value: string): string {
   if (!value) return "";
-  try {
-    return new Date(value).toISOString();
-  } catch {
-    return "";
-  }
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toISOString();
+}
+
+/** Human label for the pager: row range on this page, or "No rows". */
+export function pagerLabel(page: number, rowCount: number): string {
+  if (rowCount === 0) return "No rows";
+  const first = page * LOG_PAGE_SIZE + 1;
+  return `Rows ${first}–${first + rowCount - 1}`;
 }
 
 export async function renderLogs(root: HTMLElement, client: SupabaseClient): Promise<void> {
@@ -407,16 +459,33 @@ export async function renderLogs(root: HTMLElement, client: SupabaseClient): Pro
   const main = document.createElement("main");
   main.className = "app-main";
   main.setAttribute("data-testid", "logs-content");
+  const loading = document.createElement("p");
+  loading.textContent = "Loading logs…";
+  main.appendChild(loading);
   root.appendChild(main);
+
+  // Topic dropdown options come from digest_topics (the authenticated role can
+  // read it — migration 0006). On failure fall back to the static slug list so
+  // a transient error doesn't take the whole filter bar down.
+  let topicSlugs: readonly string[];
+  try {
+    const topics: Topic[] = await fetchTopics(client);
+    topicSlugs = topics.map((t) => t.slug);
+  } catch {
+    topicSlugs = FALLBACK_TOPIC_SLUGS;
+  }
+
+  main.replaceChildren();
 
   // Build filter bar once; onChange triggers a re-fetch.
   let currentState = readState();
-  const bar = buildFilterBar(currentState, (next) => {
+  const onStateChange = (next: LogsState) => {
     currentState = next;
     writeState(next);
     bar.sync(next);
     void load(next);
-  });
+  };
+  const bar = buildFilterBar(currentState, topicSlugs, onStateChange);
   main.appendChild(bar.el);
 
   const contentArea = document.createElement("div");
@@ -425,9 +494,9 @@ export async function renderLogs(root: HTMLElement, client: SupabaseClient): Pro
 
   async function load(state: LogsState): Promise<void> {
     contentArea.replaceChildren();
-    const loading = document.createElement("p");
-    loading.textContent = "Loading logs…";
-    contentArea.appendChild(loading);
+    const loadingMsg = document.createElement("p");
+    loadingMsg.textContent = "Loading logs…";
+    contentArea.appendChild(loadingMsg);
 
     try {
       const { rows, hasMore } = await fetchLogs(client, {
@@ -441,22 +510,16 @@ export async function renderLogs(root: HTMLElement, client: SupabaseClient): Pro
 
       contentArea.replaceChildren();
 
-      const pagerTop = renderPager(state, hasMore, (next) => {
-        currentState = next;
-        writeState(next);
-        bar.sync(next);
-        void load(next);
-      });
-      contentArea.appendChild(pagerTop);
+      // Pager is suppressed on an empty first page; on a later page it stays so
+      // "Prev" can recover from paging past the end (e.g. a stale ?page= URL).
+      const showPager = rows.length > 0 || state.page > 0;
+      if (showPager) {
+        contentArea.appendChild(renderPager(state, rows.length, hasMore, onStateChange));
+      }
       contentArea.appendChild(renderTable(rows));
-
-      // Bottom pager only if there's content.
       if (rows.length > 0) {
-        const pagerBot = renderPager(state, hasMore, (next) => {
-          currentState = next;
-          writeState(next);
-          bar.sync(next);
-          void load(next);
+        const pagerBot = renderPager(state, rows.length, hasMore, (next) => {
+          onStateChange(next);
           window.scrollTo({ top: 0 });
         });
         contentArea.appendChild(pagerBot);

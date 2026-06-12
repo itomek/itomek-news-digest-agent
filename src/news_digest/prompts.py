@@ -29,6 +29,11 @@ Do not repeat items already covered there.
    - A specific article page: call parse_article — it returns clean body text \
 with the navigation, ads, and footers already removed, which is what you want.
    - A listing or index page, or when you need the links on a page: call fetch_html.
+   - Reddit sources ("type": "reddit"): call fetch_reddit with the subreddit, \
+passing sort, limit, min_score, and time_filter when the source object has them. \
+Reddit posts are secondary social_signal context: use them only to surface \
+stories the primary sources missed, or to add a one-sentence community-reaction \
+note in an item's detail. Never quote Reddit posts.
 4. Read the gathered material and compose a structured digest:
    - A short top-level summary: one or two sentences capturing the most important \
 theme or development across all items.

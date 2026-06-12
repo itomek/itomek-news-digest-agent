@@ -4,7 +4,6 @@ All tests mock PRAW objects; no network calls are made. Live validation against
 real Reddit credentials is pending — see PR description.
 """
 
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -47,8 +46,9 @@ def _make_reddit(posts: list) -> MagicMock:
 
     reddit = MagicMock()
     reddit.subreddit.return_value = sub
-    # No rate limiter present by default — skips the throttle-warn branch.
-    del reddit._core
+    # Mirror praw 7.8.2: auth.limits is a dict whose values are None until the
+    # first request populates them — skips the throttle-warn branch by default.
+    reddit.auth.limits = {"remaining": None, "reset_timestamp": None, "used": None}
     return reddit
 
 
@@ -349,14 +349,10 @@ class TestRateLimitWarn:
     def test_logs_warn_when_rate_limit_remaining_zero(
         self, reddit_env, monkeypatch, mock_log
     ):
-        """When PRAW's rate limiter.remaining == 0, a warn is logged once."""
+        """When reddit.auth.limits reports remaining == 0, a warn is logged."""
         posts = [_make_post(score=100)]
         fake_reddit = _make_reddit(posts)
-
-        # Simulate a rate limiter with remaining=0
-        rate_limiter = SimpleNamespace(remaining=0)
-        fake_core = SimpleNamespace(_rate_limiter=rate_limiter)
-        fake_reddit._core = fake_core
+        fake_reddit.auth.limits = {"remaining": 0, "reset_timestamp": None, "used": 996}
 
         monkeypatch.setattr(social, "_get_reddit_client", lambda: fake_reddit)
 
@@ -373,10 +369,7 @@ class TestRateLimitWarn:
         """The throttle warn fires at most once per fetch_reddit call."""
         posts = [_make_post(score=100 + i) for i in range(5)]
         fake_reddit = _make_reddit(posts)
-
-        rate_limiter = SimpleNamespace(remaining=0)
-        fake_core = SimpleNamespace(_rate_limiter=rate_limiter)
-        fake_reddit._core = fake_core
+        fake_reddit.auth.limits = {"remaining": 0, "reset_timestamp": None, "used": 996}
 
         monkeypatch.setattr(social, "_get_reddit_client", lambda: fake_reddit)
 
@@ -399,15 +392,49 @@ class TestToolRegistration:
     def test_fetch_reddit_is_callable(self):
         assert callable(fetch_reddit)
 
-    def test_fetch_reddit_has_tool_marker(self):
-        """GAIA's @tool decorator marks functions with a __tool_name__ attribute."""
-        assert (
-            hasattr(fetch_reddit, "__tool_name__")
-            or hasattr(fetch_reddit, "_is_tool")
-            or callable(fetch_reddit)
-        ), "fetch_reddit should be a GAIA @tool-decorated callable"
+    def test_fetch_reddit_registered_in_gaia_tool_registry(self):
+        """GAIA's @tool decorator registers the function at import time; the
+        agent advertises tools straight from this registry."""
+        from gaia.agents.base.tools import get_tool_metadata
+
+        assert get_tool_metadata("fetch_reddit") is not None, (
+            "fetch_reddit must be registered in GAIA's tool registry"
+        )
 
     def test_social_module_importable(self):
         from news_digest.tools import social as _social
 
         assert hasattr(_social, "fetch_reddit")
+
+
+# ---------------------------------------------------------------------------
+# Migration 0011 — Reddit sources seed (content pinned, not applied)
+# ---------------------------------------------------------------------------
+
+
+def _migration_text() -> str:
+    import pathlib
+
+    migrations = pathlib.Path(__file__).parent.parent / "supabase" / "migrations"
+    return (migrations / "0011_reddit_sources.sql").read_text()
+
+
+class TestRedditMigration:
+    def test_migration_file_exists_and_targets_ai_models(self):
+        content = _migration_text()
+        assert "ai_models" in content
+        assert "LocalLLaMA" in content
+        assert "MachineLearning" in content
+
+    def test_migration_is_idempotent_via_containment_guard(self):
+        """Re-running must be a no-op: the UPDATE is guarded by a jsonb
+        containment check so sources/prompt_hint never double-append."""
+        content = _migration_text()
+        assert "@>" in content
+        assert 'not (sources @> \'[{"type": "reddit"}]\'::jsonb)' in content
+
+    def test_migration_prompt_hint_names_fetch_reddit_and_contract(self):
+        content = _migration_text()
+        assert "fetch_reddit" in content
+        assert "social_signal" in content
+        assert "do not quote Reddit" in content

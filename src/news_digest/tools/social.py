@@ -52,6 +52,21 @@ def _get_reddit_client():
         return None
 
 
+def _rate_limit_remaining(reddit) -> float | None:
+    """Read PRAW's remaining-request budget via the supported public API.
+
+    Uses ``reddit.auth.limits`` — a dict whose values are None until the first
+    request populates them. Defensive: returns None unless the value is a real
+    number, and never raises.
+    """
+    try:
+        limits = reddit.auth.limits
+        remaining = limits.get("remaining") if hasattr(limits, "get") else None
+        return remaining if isinstance(remaining, int | float) else None
+    except Exception:
+        return None
+
+
 def _missing_creds_error(subreddit: str) -> list[dict]:
     """Return a structured error payload for missing Reddit credentials."""
     log(
@@ -140,19 +155,14 @@ def fetch_reddit(
 
         for post in posts_iter:
             # PRAW transparently fetches additional pages; warn once if throttled.
-            if (
-                not seen_throttle_warn
-                and hasattr(reddit, "_core")
-                and hasattr(reddit._core, "_rate_limiter")
-            ):
-                rl = reddit._core._rate_limiter
-                remaining = getattr(rl, "remaining", None)
-                if remaining is not None and remaining == 0:
+            if not seen_throttle_warn:
+                remaining = _rate_limit_remaining(reddit)
+                if remaining is not None and remaining <= 0:
                     log(
                         "warn",
                         "scrape",
                         f"fetch_reddit: PRAW rate limit reached for r/{subreddit}",
-                        metadata={"subreddit": subreddit},
+                        metadata={"subreddit": subreddit, "remaining": remaining},
                     )
                     seen_throttle_warn = True
 

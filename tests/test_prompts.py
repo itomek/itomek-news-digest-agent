@@ -211,6 +211,18 @@ def test_system_prompt_describes_structured_output_contract():
     assert "sources" in sp
 
 
+def test_system_prompt_step3_wires_fetch_reddit_as_secondary_signal():
+    """Step 3 must map "type": "reddit" sources to the fetch_reddit tool and
+    mark Reddit results as secondary social_signal context (issue #21)."""
+    sp = SYSTEM_PROMPT
+    sp_lower = sp.lower()
+    assert "fetch_reddit" in sp
+    assert '"type": "reddit"' in sp or "type: reddit" in sp_lower
+    assert "social_signal" in sp
+    # Reddit posts must never be quoted directly.
+    assert "never quote reddit" in sp_lower
+
+
 def test_system_prompt_instructs_final_answer_json_not_publish_tool():
     sp = SYSTEM_PROMPT
     sp_lower = sp.lower()

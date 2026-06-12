@@ -16,6 +16,10 @@
 --
 -- The existing prompt_hint is preserved verbatim; the Reddit guidance is appended
 -- as an additional paragraph so it does not break any prompt already in use.
+--
+-- Idempotent: the `not (sources @> ...)` guard makes re-running a no-op. Both
+-- appends always apply together, so the single combined guard protects sources
+-- AND prompt_hint (re-run safety contract, supabase/README.md).
 
 update digest_topics
 set sources = sources || '[
@@ -25,12 +29,14 @@ set sources = sources || '[
 prompt_hint = prompt_hint || '
 
 Reddit social signal (secondary context only): two subreddits are provided as
-supplementary sources — r/LocalLLaMA and r/MachineLearning. Their posts carry
-source_type="social_signal". Use them ONLY to surface model-release stories or
-capability reports that the primary RSS sources missed, or to add a brief note
-on community reception inside an item''s detail field. Do not create a separate
-Reddit section, do not quote Reddit posts, and do not elevate community opinion
-to a primary claim. A community-signal note should be one sentence at most,
-e.g.: "Community discussion on r/LocalLLaMA highlights strong interest in its
-coding benchmark results."'
-where slug = 'ai_models';
+supplementary sources — r/LocalLLaMA and r/MachineLearning. Fetch them with the
+fetch_reddit tool. Their posts carry source_type="social_signal". Use them ONLY
+to surface model-release stories or capability reports that the primary RSS
+sources missed, or to add a brief note on community reception inside an item''s
+detail field. Do not create a separate Reddit section, do not quote Reddit
+posts, and do not elevate community opinion to a primary claim. A
+community-signal note should be one sentence at most, e.g.: "Community
+discussion on r/LocalLLaMA highlights strong interest in its coding benchmark
+results."'
+where slug = 'ai_models'
+  and not (sources @> '[{"type": "reddit"}]'::jsonb);

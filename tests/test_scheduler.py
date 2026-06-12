@@ -7,6 +7,7 @@ helper functions directly.
 """
 
 import signal
+import threading
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -46,8 +47,15 @@ def log_calls(_silence_log):
 
 @pytest.fixture(autouse=True)
 def _no_sleep(monkeypatch):
-    """Skip actual jitter sleeps so tests run at full speed."""
-    monkeypatch.setattr(sched_module.time, "sleep", lambda _: None)
+    """Skip actual jitter sleeps so tests run at full speed.
+
+    Patches _shutdown_event.wait so the interruptible jitter returns immediately
+    with False (not set / no shutdown requested) in all tests that don't
+    explicitly test shutdown behaviour.  Also clears _shutdown_event before each
+    test so that tests which set it don't bleed into subsequent tests.
+    """
+    sched_module._shutdown_event.clear()
+    monkeypatch.setattr(sched_module._shutdown_event, "wait", lambda _: False)
 
 
 @pytest.fixture(autouse=True)
@@ -682,3 +690,106 @@ def test_run_topic_read_error_with_failed_run_result_still_retries(
     assert agent.generate_and_publish.call_count == _MAX_RUN_ATTEMPTS
     errors = [a for (a, _) in log_calls if a[0] == "error"]
     assert any("failed to publish" in a[2] for a in errors)
+
+
+# ---------------------------------------------------------------------------
+# Shutdown-event interruptibility — follow-up to #88
+# ---------------------------------------------------------------------------
+
+
+def test_run_topic_skips_when_shutdown_set_during_jitter(monkeypatch, log_calls):
+    """When _shutdown_event is set during the jitter wait, the topic is not run.
+
+    _shutdown_event.wait() returns True (event is set), simulating SIGTERM
+    arriving while sleeping.
+    """
+    monkeypatch.setattr(sched_module._shutdown_event, "wait", lambda _: True)
+
+    agent = MagicMock()
+    _run_topic(_topic_row(), agent)
+
+    agent.generate_and_publish.assert_not_called()
+    infos = [a for (a, _) in log_calls if a[0] == "info"]
+    assert any("shutdown requested during jitter" in a[2] for a in infos)
+    assert any("skipping" in a[2] for a in infos)
+
+
+def test_run_cycle_aborts_remaining_topics_when_shutdown_set_mid_cycle(
+    monkeypatch, log_calls, _patch_last_date_fn
+):
+    """run_cycle stops launching new topic runs once _shutdown_event is set.
+
+    The first topic runs; then the event is set; the second topic must be
+    skipped with an "aborting cycle early" log message.
+    """
+    _patch_last_date_fn(None)  # both topics due
+
+    topics = [
+        {"slug": "ai_models", "name": "AI Models", "cadence": "24h", "enabled": True},
+        {"slug": "ai_updates", "name": "AI Updates", "cadence": "24h", "enabled": True},
+    ]
+    client = _make_client(topics)
+
+    call_count = {"n": 0}
+
+    def _fake_run_topic(topic, agent_):
+        call_count["n"] += 1
+        # After first topic, simulate shutdown arriving.
+        sched_module._shutdown_event.set()
+
+    monkeypatch.setattr(sched_module, "_run_topic", _fake_run_topic)
+
+    agent = _make_agent()
+    with patch("news_digest.scheduler._client", return_value=client):
+        run_cycle(agent=agent)
+
+    assert call_count["n"] == 1
+    infos = [a for (a, _) in log_calls if a[0] == "info"]
+    assert any("aborting cycle early" in a[2] for a in infos)
+
+
+def test_run_topic_stops_retrying_when_shutdown_set_between_attempts(
+    monkeypatch, log_calls, _patch_not_published
+):
+    """Retry loop exits early when _shutdown_event is set between attempts.
+
+    First attempt fails to publish; shutdown arrives before the second retry;
+    generate_and_publish must only be called once.
+    """
+    call_count = {"n": 0}
+
+    def _fake_generate(query):
+        call_count["n"] += 1
+        # After first attempt, set the shutdown event.
+        sched_module._shutdown_event.set()
+        return {"success": False, "error": "parse_error"}
+
+    agent = MagicMock()
+    agent.generate_and_publish.side_effect = _fake_generate
+
+    _run_topic(_topic_row(), agent)
+
+    assert agent.generate_and_publish.call_count == 1
+    infos = [a for (a, _) in log_calls if a[0] == "info"]
+    assert any("shutdown requested" in a[2] and "retries" in a[2] for a in infos)
+
+
+def test_signal_handler_sets_shutdown_event(monkeypatch, log_calls):
+    """The installed signal handler sets _shutdown_event before scheduler.shutdown."""
+    registered: dict[int, object] = {}
+    monkeypatch.setattr(
+        sched_module.signal,
+        "signal",
+        lambda signum, handler: registered.setdefault(signum, handler),
+    )
+    # Restore a fresh event so we can observe it being set.
+    fresh_event = threading.Event()
+    monkeypatch.setattr(sched_module, "_shutdown_event", fresh_event)
+
+    scheduler = MagicMock()
+    _install_signal_handlers(scheduler)
+
+    assert not fresh_event.is_set()
+    registered[signal.SIGTERM](signal.SIGTERM, None)
+    assert fresh_event.is_set()
+    scheduler.shutdown.assert_called_once_with(wait=True)

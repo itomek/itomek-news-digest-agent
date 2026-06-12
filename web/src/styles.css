@@ -558,6 +558,34 @@ button:disabled {
   color: var(--muted);
 }
 
+/* ── Sentiment badge (issue #19, world_news) ──────────────────────────────── */
+/* Small pill rendered in the item header when metadata.sentiment is one of the
+   four whitelisted values. Base style uses the token palette; each variant only
+   recolors text + border so light/dark themes need a single override block. */
+.item-sentiment {
+  align-self: flex-start;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.22rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+}
+
+.item-sentiment--positive   { color: #186a3b; border-color: #186a3b; }
+.item-sentiment--negative   { color: #b03a2e; border-color: #b03a2e; }
+.item-sentiment--concerning { color: #9c6500; border-color: #9c6500; }
+/* neutral keeps the base muted style */
+
+@media (prefers-color-scheme: dark) {
+  .item-sentiment--positive   { color: #5dd39e; border-color: #2e6b4f; }
+  .item-sentiment--negative   { color: #f1948a; border-color: #7b3a32; }
+  .item-sentiment--concerning { color: #f5b041; border-color: #8a6418; }
+}
+
 /* Expanded body */
 .item-detail {
   margin: 0;

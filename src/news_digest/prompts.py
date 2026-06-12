@@ -152,3 +152,36 @@ def enforce_length(
         )
     result = regenerate(feedback)
     return result.get("summary", ""), result.get("items", [])
+
+
+# ---------------------------------------------------------------------------
+# Per-item sentiment — world_news topic (issue #19)
+# ---------------------------------------------------------------------------
+
+#: Canonical sentiment values for the world_news topic, stored per item in
+#: ``items[].metadata.sentiment`` (docs/architecture.md §7.2). Defined once
+#: here so tests and any consumer share a single source of truth with the
+#: prompt_hint in migration 0010 and the web renderer's badge whitelist.
+SENTIMENT_TAGS: frozenset[str] = frozenset(
+    {"positive", "negative", "neutral", "concerning"}
+)
+
+
+def extract_sentiment_tag(item: dict) -> str | None:
+    """Extract the validated sentiment value from a digest item's metadata.
+
+    Reads ``item["metadata"]["sentiment"]`` per the world_news contract
+    (docs/architecture.md §7.2). Returns ``None`` when the item has no
+    ``metadata``, no ``sentiment`` key, or a value outside ``SENTIMENT_TAGS``
+    — never raises, so a malformed LLM answer degrades to "no sentiment".
+
+    Args:
+        item: A digest item dict (``headline``, ``blurb``, ``detail``,
+            ``metadata`` keys).
+
+    Returns:
+        One of the four canonical sentiment strings, or ``None``.
+    """
+    metadata = item.get("metadata") or {}
+    sentiment = metadata.get("sentiment")
+    return sentiment if sentiment in SENTIMENT_TAGS else None

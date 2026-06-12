@@ -51,6 +51,21 @@ function renderStructured(card: HTMLElement, digest: Digest): void {
 }
 
 /**
+ * Allowed per-item sentiment values (world_news topic, issue #19).
+ * Mirrors SENTIMENT_TAGS in src/news_digest/prompts.py and the contract in
+ * docs/architecture.md §7.2. Anything else in metadata.sentiment is ignored —
+ * the value is LLM-generated and must be whitelisted before rendering.
+ */
+const SENTIMENT_VALUES = ["positive", "negative", "neutral", "concerning"] as const;
+
+type Sentiment = (typeof SENTIMENT_VALUES)[number];
+
+/** Validate an LLM-supplied sentiment value against the whitelist. */
+function validSentiment(value: unknown): Sentiment | null {
+  return SENTIMENT_VALUES.includes(value as Sentiment) ? (value as Sentiment) : null;
+}
+
+/**
  * Extract the first sentence of a string (terminated by `.`, `!`, or `?`).
  * Returns the full string trimmed if no sentence-ending punctuation is found.
  */
@@ -84,6 +99,16 @@ function renderItem(item: DigestItem): HTMLElement {
   if (headlineText !== null) {
     headlineSpan.textContent = headlineText;
     summaryEl.appendChild(headlineSpan);
+  }
+
+  // Sentiment badge (issue #19) — only whitelisted values are rendered;
+  // textContent assignment keeps any unexpected payload inert.
+  const sentiment = validSentiment(item.metadata?.sentiment);
+  if (sentiment !== null) {
+    const badge = document.createElement("span");
+    badge.className = `item-sentiment item-sentiment--${sentiment}`;
+    badge.textContent = sentiment;
+    summaryEl.appendChild(badge);
   }
 
   if (item.blurb) {

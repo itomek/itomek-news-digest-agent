@@ -332,12 +332,19 @@ class NewsDigestAgent(Agent, DatabaseMixin):
 
         result = self.process_query(query)
 
+        # Resolve the topic slug from the conversation (the slug the model
+        # actually passed to fetch_topic_config). May be None on early failures;
+        # those rows then carry topic_slug=NULL, as before. Attributing the slug
+        # lets the token-usage / run-duration views group by topic (#20).
+        topic_slug = _topic_slug_from_conversation(result.get("conversation"))
+
         # Detect Lemonade-down and skip the topic so the scheduler can continue.
         if _is_lemonade_down(result.get("error_history")):
             log(
                 "error",
                 "summarize",
                 "generate_and_publish: Lemonade Server unreachable — topic skipped",
+                topic_slug=topic_slug,
                 metadata={
                     "query": query,
                     "status": result.get("status"),
@@ -353,6 +360,7 @@ class NewsDigestAgent(Agent, DatabaseMixin):
             "info",
             "summarize",
             "generate_and_publish: LLM run complete",
+            topic_slug=topic_slug,
             metadata={
                 "model_id": getattr(self, "model_id", None),
                 "status": result.get("status"),

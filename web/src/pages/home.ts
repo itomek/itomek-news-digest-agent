@@ -5,7 +5,8 @@ import {
   signOut,
   validatePassword,
 } from "../lib/auth";
-import { fetchDigests, fetchTopics } from "../lib/supabase";
+import { fetchDigests, fetchMissedDigestWarnings, fetchTopics } from "../lib/supabase";
+import type { SystemLog } from "../lib/types";
 import { renderAuthGate } from "../views/auth-gate";
 import { renderDigestList } from "../views/digest-list";
 
@@ -94,6 +95,14 @@ export async function renderHome(root: HTMLElement, client: SupabaseClient): Pro
   logsLink.href = "#/logs";
   logsLink.textContent = "Logs";
   nav.appendChild(logsLink);
+  const sourceHealthLink = document.createElement("a");
+  sourceHealthLink.href = "#/source-health";
+  sourceHealthLink.textContent = "Source Health";
+  nav.appendChild(sourceHealthLink);
+  const tokenUsageLink = document.createElement("a");
+  tokenUsageLink.href = "#/token-usage";
+  tokenUsageLink.textContent = "Token Usage";
+  nav.appendChild(tokenUsageLink);
 
   const out = document.createElement("button");
   out.type = "button";
@@ -121,8 +130,21 @@ export async function renderHome(root: HTMLElement, client: SupabaseClient): Pro
   root.appendChild(renderAccount(client));
 
   try {
-    const [digests, topics] = await Promise.all([fetchDigests(client), fetchTopics(client)]);
-    main.replaceChildren(renderDigestList(digests, topics));
+    // Fetch digests, topics, and missed-digest warnings in parallel.
+    // Missed-digest fetch failure is non-fatal — banner simply won't appear.
+    const [digests, topics, missedWarnings] = await Promise.all([
+      fetchDigests(client),
+      fetchTopics(client),
+      fetchMissedDigestWarnings(client, 48).catch((): SystemLog[] => []),
+    ]);
+
+    main.replaceChildren();
+
+    if (missedWarnings.length > 0) {
+      main.appendChild(renderMissedDigestBanner(missedWarnings));
+    }
+
+    main.appendChild(renderDigestList(digests, topics));
   } catch (err) {
     main.replaceChildren();
     const msg = document.createElement("p");
@@ -130,4 +152,40 @@ export async function renderHome(root: HTMLElement, client: SupabaseClient): Pro
     msg.textContent = `Could not load digests: ${(err as Error).message}`;
     main.appendChild(msg);
   }
+}
+
+/** Render a warning banner listing topics with missed digests. */
+function renderMissedDigestBanner(warnings: SystemLog[]): HTMLElement {
+  const banner = document.createElement("aside");
+  banner.className = "missed-digest-banner";
+  banner.setAttribute("role", "alert");
+  banner.setAttribute("data-testid", "missed-digest-banner");
+
+  const heading = document.createElement("strong");
+  heading.textContent = "Missed digest alerts";
+  banner.appendChild(heading);
+
+  const list = document.createElement("ul");
+  list.className = "missed-digest-list";
+  for (const w of warnings) {
+    const li = document.createElement("li");
+    const meta = w.metadata as Record<string, unknown> | null;
+    const slug = (meta?.["topic_slug"] as string | undefined) ?? w.topic_slug ?? "unknown";
+    const cadence = (meta?.["cadence"] as string | undefined) ?? "";
+    li.textContent = cadence ? `${slug} (${cadence})` : slug;
+    list.appendChild(li);
+  }
+  banner.appendChild(list);
+
+  const note = document.createElement("p");
+  note.className = "missed-digest-note";
+  note.textContent = "No digest was published within the expected window. Check the agent or ";
+  const logsLink = document.createElement("a");
+  logsLink.href = "#/logs";
+  logsLink.textContent = "view logs";
+  note.appendChild(logsLink);
+  note.appendChild(document.createTextNode("."));
+  banner.appendChild(note);
+
+  return banner;
 }

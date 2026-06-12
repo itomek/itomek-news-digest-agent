@@ -1,11 +1,18 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isAuthenticatedAtRequiredLevel, signOut } from "../lib/auth";
 import { defaultLogsFilter, LOG_PAGE_SIZE, type LogLevel } from "../lib/query";
-import { fetchLogs, fetchTopics } from "../lib/supabase";
-import type { SystemLog, Topic } from "../lib/types";
+import {
+  fetchErrorsPerDay,
+  fetchLogsExtended,
+  fetchRunDurations,
+  fetchSourceHealth,
+  fetchTopics,
+} from "../lib/supabase";
+import type { ErrorsPerDay, RunDuration, SourceHealth, SystemLog, Topic } from "../lib/types";
 import { renderAuthGate } from "../views/auth-gate";
 
 // Issue #27 — Log view UI at `#/logs`.
+// Issue #20 — Extended with search, aggregation tab, and source-health summary.
 //
 // URL state lives in `window.location.search`. The router keys on the hash,
 // so search params survive routing and are shareable/bookmarkable.
@@ -44,10 +51,11 @@ export interface LogsState {
   level: LogLevel | null;
   category: string;
   topic_slug: string;
+  search: string;
   page: number;
 }
 
-/** Parse `?dateFrom=&dateTo=&level=&category=&topic_slug=&page=` into LogsState. */
+/** Parse `?dateFrom=&dateTo=&level=&category=&topic_slug=&search=&page=` into LogsState. */
 export function parseLogsState(search: string): LogsState {
   const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
   const defaults = defaultLogsFilter();
@@ -58,6 +66,7 @@ export function parseLogsState(search: string): LogsState {
     level: (level === "info" || level === "warn" || level === "error") ? level : null,
     category: params.get("category") ?? "",
     topic_slug: params.get("topic_slug") ?? "",
+    search: params.get("search") ?? "",
     page: Math.max(0, Number.parseInt(params.get("page") ?? "0", 10) || 0),
   };
 }
@@ -71,6 +80,7 @@ export function serializeLogsState(state: LogsState): string {
   if (state.level) params.set("level", state.level);
   if (state.category.trim()) params.set("category", state.category.trim());
   if (state.topic_slug.trim()) params.set("topic_slug", state.topic_slug.trim());
+  if (state.search.trim()) params.set("search", state.search.trim());
   if (state.page > 0) params.set("page", String(state.page));
   return `?${params.toString()}`;
 }
@@ -108,6 +118,28 @@ export function prettyMetadata(metadata: unknown): string {
   } catch {
     return String(metadata);
   }
+}
+
+/** Source health staleness: true when <50% success rate OR >72h since last success. */
+export function isSourceStale(row: SourceHealth): boolean {
+  const lowSuccessRate =
+    row.success_pct_7d !== null && row.success_pct_7d < 50;
+  const staleLastSuccess =
+    row.last_success_at === null ||
+    Date.now() - new Date(row.last_success_at).getTime() > 72 * 3_600_000;
+  return lowSuccessRate || staleLastSuccess;
+}
+
+/** Format a success rate percentage, or "N/A" when null. */
+export function formatSuccessPct(pct: number | null): string {
+  if (pct === null) return "N/A";
+  return `${pct.toFixed(1)}%`;
+}
+
+/** Format an average duration in seconds, or "—" when null/zero. */
+export function formatAvgDuration(s: number | null): string {
+  if (s === null || s === 0) return "—";
+  return `${s.toFixed(1)} s`;
 }
 
 // --- DOM rendering -----------------------------------------------------------
@@ -318,6 +350,15 @@ function buildFilterBar(
     initial: initial.topic_slug,
   });
 
+  // Message search
+  const searchInput = document.createElement("input");
+  searchInput.type = "search";
+  searchInput.className = "logs-filter-input logs-search-input";
+  searchInput.setAttribute("data-testid", "filter-search");
+  searchInput.setAttribute("aria-label", "Search log messages");
+  searchInput.placeholder = "Search messages…";
+  searchInput.value = initial.search;
+
   const applyButton = document.createElement("button");
   applyButton.type = "button";
   applyButton.className = "logs-filter-apply";
@@ -330,6 +371,7 @@ function buildFilterBar(
     levelSelect,
     categorySelect,
     topicSelect,
+    searchInput,
     applyButton,
   );
 
@@ -339,11 +381,15 @@ function buildFilterBar(
     level: (levelSelect.value as LogLevel) || null,
     category: categorySelect.value,
     topic_slug: topicSelect.value,
+    search: searchInput.value,
     page: 0, // reset to first page on any filter change
   });
 
-  // Apply commits the date range; selects fire immediately.
+  // Apply commits date range + search; selects fire immediately.
   applyButton.addEventListener("click", () => onChange(collect()));
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") onChange(collect());
+  });
   for (const select of [levelSelect, categorySelect, topicSelect]) {
     select.addEventListener("change", () => onChange(collect()));
   }
@@ -354,6 +400,7 @@ function buildFilterBar(
     levelSelect.value = state.level ?? "";
     categorySelect.value = state.category;
     topicSelect.value = state.topic_slug;
+    searchInput.value = state.search;
   };
 
   return { el: bar, sync };
@@ -389,6 +436,198 @@ function renderPager(
 
   pager.append(prev, info, next);
   return pager;
+}
+
+// --- Aggregation tab ---------------------------------------------------------
+
+function renderErrorsPerDayBar(rows: ErrorsPerDay[]): HTMLElement {
+  const section = document.createElement("section");
+  section.className = "agg-section";
+
+  const heading = document.createElement("h2");
+  heading.className = "agg-heading";
+  heading.textContent = "Errors per day (last 30 days)";
+  section.appendChild(heading);
+
+  if (rows.length === 0) {
+    const p = document.createElement("p");
+    p.className = "empty-state";
+    p.textContent = "No errors in this period.";
+    section.appendChild(p);
+    return section;
+  }
+
+  const maxCount = Math.max(...rows.map((r) => r.error_count), 1);
+  const chart = document.createElement("div");
+  chart.className = "bar-chart";
+  chart.setAttribute("aria-label", "Errors per day bar chart");
+  chart.setAttribute("role", "img");
+
+  for (const row of rows) {
+    const barWrap = document.createElement("div");
+    barWrap.className = "bar-row";
+
+    const label = document.createElement("span");
+    label.className = "bar-label";
+    label.textContent = row.day;
+
+    const barOuter = document.createElement("div");
+    barOuter.className = "bar-outer";
+
+    const barInner = document.createElement("div");
+    barInner.className = "bar-inner bar-inner--error";
+    const pct = Math.round((row.error_count / maxCount) * 100);
+    barInner.style.width = `${pct}%`;
+    barInner.setAttribute("aria-hidden", "true");
+
+    const value = document.createElement("span");
+    value.className = "bar-value";
+    value.textContent = String(row.error_count);
+
+    barOuter.appendChild(barInner);
+    barWrap.append(label, barOuter, value);
+    chart.appendChild(barWrap);
+  }
+
+  section.appendChild(chart);
+  return section;
+}
+
+function renderSourceSuccessTable(rows: SourceHealth[]): HTMLElement {
+  const section = document.createElement("section");
+  section.className = "agg-section";
+
+  const heading = document.createElement("h2");
+  heading.className = "agg-heading";
+  heading.textContent = "Success rate per source (last 7 days)";
+  section.appendChild(heading);
+
+  if (rows.length === 0) {
+    const p = document.createElement("p");
+    p.className = "empty-state";
+    p.textContent = "No scrape data in this period.";
+    section.appendChild(p);
+    return section;
+  }
+
+  const wrap = document.createElement("div");
+  wrap.className = "logs-table-wrap";
+
+  const table = document.createElement("table");
+  table.className = "logs-table agg-table";
+
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  for (const label of ["Source URL", "Success", "Failure", "Rate", "Last Success"]) {
+    const th = document.createElement("th");
+    th.textContent = label;
+    headRow.appendChild(th);
+  }
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    const stale = isSourceStale(row);
+    if (stale) tr.className = "source-stale";
+
+    const tdUrl = document.createElement("td");
+    tdUrl.className = "agg-source-url";
+    tdUrl.textContent = row.source_url;
+    tr.appendChild(tdUrl);
+
+    const tdSuccess = document.createElement("td");
+    tdSuccess.textContent = String(row.success_7d);
+    tr.appendChild(tdSuccess);
+
+    const tdFail = document.createElement("td");
+    tdFail.textContent = String(row.failure_7d);
+    tr.appendChild(tdFail);
+
+    const tdRate = document.createElement("td");
+    tdRate.textContent = formatSuccessPct(row.success_pct_7d);
+    if (stale) tdRate.className = "source-stale-cell";
+    tr.appendChild(tdRate);
+
+    const tdLast = document.createElement("td");
+    tdLast.textContent = row.last_success_at ? formatTimestamp(row.last_success_at) : "Never";
+    tr.appendChild(tdLast);
+
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  section.appendChild(wrap);
+  return section;
+}
+
+function renderRunDurationTable(rows: RunDuration[]): HTMLElement {
+  const section = document.createElement("section");
+  section.className = "agg-section";
+
+  const heading = document.createElement("h2");
+  heading.className = "agg-heading";
+  heading.textContent = "Average run duration (per topic and model)";
+  section.appendChild(heading);
+
+  if (rows.length === 0) {
+    const p = document.createElement("p");
+    p.className = "empty-state";
+    p.textContent = "No LLM run data yet.";
+    section.appendChild(p);
+    return section;
+  }
+
+  const wrap = document.createElement("div");
+  wrap.className = "logs-table-wrap";
+
+  const table = document.createElement("table");
+  table.className = "logs-table agg-table";
+  table.setAttribute("data-testid", "run-duration-table");
+
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  for (const label of ["Topic", "Model", "Runs", "Avg Duration", "Last Run"]) {
+    const th = document.createElement("th");
+    th.textContent = label;
+    headRow.appendChild(th);
+  }
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+
+    const tdTopic = document.createElement("td");
+    tdTopic.textContent = row.topic_slug ?? "—";
+    tr.appendChild(tdTopic);
+
+    const tdModel = document.createElement("td");
+    tdModel.className = "agg-source-url";
+    tdModel.textContent = row.model_id ?? "—";
+    tr.appendChild(tdModel);
+
+    const tdRuns = document.createElement("td");
+    tdRuns.textContent = String(row.run_count);
+    tr.appendChild(tdRuns);
+
+    const tdDur = document.createElement("td");
+    tdDur.textContent = formatAvgDuration(row.avg_duration_s);
+    tr.appendChild(tdDur);
+
+    const tdLast = document.createElement("td");
+    tdLast.className = "log-ts";
+    tdLast.textContent = row.last_run_at ? formatTimestamp(row.last_run_at) : "—";
+    tr.appendChild(tdLast);
+
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  section.appendChild(wrap);
+  return section;
 }
 
 /** Convert ISO string to `datetime-local` input format (`YYYY-MM-DDTHH:MM`).
@@ -441,6 +680,14 @@ export async function renderLogs(root: HTMLElement, client: SupabaseClient): Pro
   historyLink.href = "#/history";
   historyLink.textContent = "History";
   nav.appendChild(historyLink);
+  const sourceHealthLink = document.createElement("a");
+  sourceHealthLink.href = "#/source-health";
+  sourceHealthLink.textContent = "Source Health";
+  nav.appendChild(sourceHealthLink);
+  const tokenUsageLink = document.createElement("a");
+  tokenUsageLink.href = "#/token-usage";
+  tokenUsageLink.textContent = "Token Usage";
+  nav.appendChild(tokenUsageLink);
   const out = document.createElement("button");
   out.type = "button";
   out.className = "sign-out";
@@ -477,6 +724,62 @@ export async function renderLogs(root: HTMLElement, client: SupabaseClient): Pro
 
   main.replaceChildren();
 
+  // Tab switcher: Log Explorer | Aggregations
+  const tabBar = document.createElement("div");
+  tabBar.className = "logs-tab-bar";
+  tabBar.setAttribute("role", "tablist");
+
+  const tabExplorer = document.createElement("button");
+  tabExplorer.type = "button";
+  tabExplorer.className = "logs-tab logs-tab--active";
+  tabExplorer.setAttribute("role", "tab");
+  tabExplorer.setAttribute("aria-selected", "true");
+  tabExplorer.setAttribute("data-testid", "tab-explorer");
+  tabExplorer.textContent = "Log Explorer";
+
+  const tabAgg = document.createElement("button");
+  tabAgg.type = "button";
+  tabAgg.className = "logs-tab";
+  tabAgg.setAttribute("role", "tab");
+  tabAgg.setAttribute("aria-selected", "false");
+  tabAgg.setAttribute("data-testid", "tab-aggregations");
+  tabAgg.textContent = "Aggregations";
+
+  tabBar.append(tabExplorer, tabAgg);
+  main.appendChild(tabBar);
+
+  // Panels
+  const explorerPanel = document.createElement("div");
+  explorerPanel.setAttribute("data-testid", "panel-explorer");
+
+  const aggPanel = document.createElement("div");
+  aggPanel.setAttribute("data-testid", "panel-aggregations");
+  aggPanel.style.display = "none";
+
+  main.append(explorerPanel, aggPanel);
+
+  // Wire tab switching
+  tabExplorer.addEventListener("click", () => {
+    tabExplorer.classList.add("logs-tab--active");
+    tabExplorer.setAttribute("aria-selected", "true");
+    tabAgg.classList.remove("logs-tab--active");
+    tabAgg.setAttribute("aria-selected", "false");
+    explorerPanel.style.display = "";
+    aggPanel.style.display = "none";
+  });
+
+  tabAgg.addEventListener("click", () => {
+    tabAgg.classList.add("logs-tab--active");
+    tabAgg.setAttribute("aria-selected", "true");
+    tabExplorer.classList.remove("logs-tab--active");
+    tabExplorer.setAttribute("aria-selected", "false");
+    aggPanel.style.display = "";
+    explorerPanel.style.display = "none";
+    void loadAgg();
+  });
+
+  // ── Explorer tab ──────────────────────────────────────────────────────────
+
   // Build filter bar once; onChange triggers a re-fetch.
   let currentState = readState();
   const onStateChange = (next: LogsState) => {
@@ -486,11 +789,11 @@ export async function renderLogs(root: HTMLElement, client: SupabaseClient): Pro
     void load(next);
   };
   const bar = buildFilterBar(currentState, topicSlugs, onStateChange);
-  main.appendChild(bar.el);
+  explorerPanel.appendChild(bar.el);
 
   const contentArea = document.createElement("div");
   contentArea.setAttribute("data-testid", "logs-results");
-  main.appendChild(contentArea);
+  explorerPanel.appendChild(contentArea);
 
   async function load(state: LogsState): Promise<void> {
     contentArea.replaceChildren();
@@ -499,12 +802,13 @@ export async function renderLogs(root: HTMLElement, client: SupabaseClient): Pro
     contentArea.appendChild(loadingMsg);
 
     try {
-      const { rows, hasMore } = await fetchLogs(client, {
+      const { rows, hasMore } = await fetchLogsExtended(client, {
         dateFrom: state.dateFrom,
         dateTo: state.dateTo,
         level: state.level,
         category: state.category,
         topic_slug: state.topic_slug,
+        search: state.search,
         page: state.page,
       });
 
@@ -534,4 +838,39 @@ export async function renderLogs(root: HTMLElement, client: SupabaseClient): Pro
   }
 
   void load(currentState);
+
+  // ── Aggregations tab ─────────────────────────────────────────────────────
+
+  let aggLoaded = false;
+
+  async function loadAgg(): Promise<void> {
+    if (aggLoaded) return;
+    aggLoaded = true;
+
+    aggPanel.replaceChildren();
+    const loadingMsg = document.createElement("p");
+    loadingMsg.textContent = "Loading aggregates…";
+    aggPanel.appendChild(loadingMsg);
+
+    try {
+      const [errRows, healthRows, durationRows] = await Promise.all([
+        fetchErrorsPerDay(client, 30),
+        fetchSourceHealth(client),
+        fetchRunDurations(client),
+      ]);
+
+      aggPanel.replaceChildren();
+      aggPanel.appendChild(renderErrorsPerDayBar(errRows));
+      aggPanel.appendChild(renderSourceSuccessTable(healthRows));
+      aggPanel.appendChild(renderRunDurationTable(durationRows));
+    } catch (err) {
+      // Reset so the user can retry by clicking the tab again.
+      aggLoaded = false;
+      aggPanel.replaceChildren();
+      const msg = document.createElement("p");
+      msg.className = "error-state";
+      msg.textContent = `Could not load aggregates: ${(err as Error).message}`;
+      aggPanel.appendChild(msg);
+    }
+  }
 }

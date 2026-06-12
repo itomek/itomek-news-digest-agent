@@ -1,6 +1,22 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { digestsQuery, logsQuery, topicsQuery, type LogsFilter } from "./query";
-import type { Digest, SystemLog, Topic } from "./types";
+import {
+  digestsQuery,
+  escapeIlike,
+  logsQuery,
+  logsQueryExtended,
+  topicsQuery,
+  type LogsFilter,
+  type LogsFilterExtended,
+} from "./query";
+import type {
+  Digest,
+  ErrorsPerDay,
+  RunDuration,
+  SourceHealth,
+  SystemLog,
+  TokenUsageDay,
+  Topic,
+} from "./types";
 
 // Browser client: anon/publishable key ONLY. All reads are RLS-gated.
 // NEVER import or ship the service_role key here.
@@ -100,4 +116,119 @@ export async function fetchLogs(
   // If we got a full page, there might be more.
   const hasMore = rows.length === spec.range.to - spec.range.from + 1;
   return { rows, hasMore };
+}
+
+/** Fetch one page of logs with optional message search (server-side ilike). */
+export async function fetchLogsExtended(
+  client: SupabaseClient,
+  filter: LogsFilterExtended,
+): Promise<LogsPage> {
+  const spec = logsQueryExtended(filter);
+  let q = client
+    .from(spec.table)
+    .select(spec.columns)
+    .gte("timestamp", spec.filters.dateFrom)
+    .lte("timestamp", spec.filters.dateTo)
+    .order(spec.order.column, { ascending: spec.order.ascending })
+    .range(spec.range.from, spec.range.to);
+
+  if (spec.filters.level) q = q.eq("level", spec.filters.level);
+  if (spec.filters.category) q = q.eq("category", spec.filters.category);
+  if (spec.filters.topic_slug) q = q.eq("topic_slug", spec.filters.topic_slug);
+  // Escape %/_ so the user's term matches literally inside the pattern.
+  if (spec.search) q = q.ilike("message", `%${escapeIlike(spec.search)}%`);
+
+  const { data, error } = await q;
+  if (error) throw error;
+
+  const rows = (data ?? []) as unknown as SystemLog[];
+  const hasMore = rows.length === spec.range.to - spec.range.from + 1;
+  return { rows, hasMore };
+}
+
+// ── Observability views (#20) ─────────────────────────────────────────────────
+
+/** Fetch errors-per-day aggregate (last N days). */
+export async function fetchErrorsPerDay(
+  client: SupabaseClient,
+  days = 30,
+): Promise<ErrorsPerDay[]> {
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const { data, error } = await client
+    .from("v_errors_per_day")
+    .select("day, error_count")
+    .gte("day", since.slice(0, 10))
+    .order("day", { ascending: false })
+    .limit(days);
+  if (error) throw error;
+  return (data ?? []) as unknown as ErrorsPerDay[];
+}
+
+/** Fetch source health rows from the materialized view. */
+export async function fetchSourceHealth(
+  client: SupabaseClient,
+): Promise<SourceHealth[]> {
+  const { data, error } = await client
+    .from("mv_source_health")
+    .select(
+      "source_url, success_7d, failure_7d, total_7d, success_pct_7d, last_success_at, last_error_at, last_fetch_at, last_error",
+    )
+    .order("source_url", { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as unknown as SourceHealth[];
+}
+
+/** Fetch average run duration per topic + model (all-time summarize rows). */
+export async function fetchRunDurations(
+  client: SupabaseClient,
+): Promise<RunDuration[]> {
+  const { data, error } = await client
+    .from("v_run_duration")
+    .select(
+      "topic_slug, model_id, run_count, avg_duration_s, avg_total_tokens, avg_input_tokens, avg_output_tokens, last_run_at",
+    )
+    .order("last_run_at", { ascending: false })
+    .limit(50);
+  if (error) throw error;
+  return (data ?? []) as unknown as RunDuration[];
+}
+
+/** Fetch token usage rows grouped by day + topic + model. */
+export async function fetchTokenUsage(
+  client: SupabaseClient,
+  days = 30,
+): Promise<TokenUsageDay[]> {
+  const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+  const { data, error } = await client
+    .from("v_token_usage_by_day")
+    .select("day, topic_slug, model_id, run_count, total_tokens, input_tokens, output_tokens, total_duration_s")
+    .gte("day", since)
+    .order("day", { ascending: false })
+    .limit(days * 10); // up to 10 topic+model combos per day
+  if (error) throw error;
+  return (data ?? []) as unknown as TokenUsageDay[];
+}
+
+/** Fetch recent missed-digest warnings (last N hours). */
+export async function fetchMissedDigestWarnings(
+  client: SupabaseClient,
+  hours = 48,
+): Promise<SystemLog[]> {
+  const since = new Date(Date.now() - hours * 3_600_000).toISOString();
+  const { data, error } = await client
+    .from("system_logs")
+    .select("id, timestamp, level, category, topic_slug, message, metadata, created_at")
+    .eq("category", "schedule")
+    .eq("level", "warn")
+    .gte("timestamp", since)
+    .order("timestamp", { ascending: false })
+    .limit(20);
+  if (error) throw error;
+  // Filter client-side for the missed_digest tag so non-missed-digest schedule
+  // warnings are excluded.
+  const rows = (data ?? []) as unknown as SystemLog[];
+  return rows.filter((r) => {
+    const m = r.metadata as Record<string, unknown> | null;
+    return m != null && m["missed_digest"] === true;
+  });
 }

@@ -30,6 +30,7 @@ from news_digest.curator import (
     classify_failure,
     confidence_tier,
     is_stale,
+    judge_relevance,
     quarantine_source,
 )
 
@@ -357,6 +358,45 @@ class TestConfidenceTier:
 
 
 # ---------------------------------------------------------------------------
+# judge_relevance — robust multi-score parsing
+# ---------------------------------------------------------------------------
+
+
+class TestJudgeRelevance:
+    _topic = {"slug": "ai_models", "name": "AI Models"}
+    _items = [{"title": "Some article"}]
+
+    def test_single_score(self, monkeypatch):
+        monkeypatch.setattr(curator, "_llm_complete", lambda messages: "1.0")
+        assert judge_relevance(self._topic, self._items) == 1.0
+
+    def test_multiple_scores_returns_mean(self, monkeypatch):
+        # One score per title — the model sometimes does this.
+        monkeypatch.setattr(curator, "_llm_complete", lambda messages: "1.0\n0.9\n1.0")
+        result = judge_relevance(self._topic, self._items)
+        assert result == pytest.approx(0.9667, abs=0.001)
+
+    def test_zero_score(self, monkeypatch):
+        monkeypatch.setattr(curator, "_llm_complete", lambda messages: "0.0")
+        assert judge_relevance(self._topic, self._items) == 0.0
+
+    def test_empty_returns_zero(self, monkeypatch):
+        monkeypatch.setattr(curator, "_llm_complete", lambda messages: "")
+        assert judge_relevance(self._topic, self._items) == 0.0
+
+    def test_garbage_returns_zero(self, monkeypatch):
+        monkeypatch.setattr(
+            curator, "_llm_complete", lambda messages: "I cannot rate this"
+        )
+        assert judge_relevance(self._topic, self._items) == 0.0
+
+    def test_out_of_range_scores_ignored(self, monkeypatch):
+        # "5.0" is out of [0,1] and dropped; only 0.8 counts.
+        monkeypatch.setattr(curator, "_llm_complete", lambda messages: "5.0\n0.8")
+        assert judge_relevance(self._topic, self._items) == pytest.approx(0.8)
+
+
+# ---------------------------------------------------------------------------
 # quarantine_source
 # ---------------------------------------------------------------------------
 
@@ -393,8 +433,12 @@ class TestQuarantineSource:
         chain = make_chain([dict(topic)])
         client.table.return_value = chain
 
-        quarantine_source(topic, "https://bad.example/feed", "blocked", NOW, client)
+        result = quarantine_source(
+            topic, "https://bad.example/feed", "blocked", NOW, client
+        )
 
+        # Returns True when it actually disabled the source
+        assert result is True
         # Should have captured one update call
         assert len(update_calls) == 1
         updated_sources = update_calls[0]["sources"]
@@ -413,7 +457,7 @@ class TestQuarantineSource:
 
         client = MagicMock()
 
-        quarantine_source(
+        result = quarantine_source(
             topic,
             "https://only.example/feed",
             "blocked",
@@ -422,6 +466,8 @@ class TestQuarantineSource:
             adding_replacement=False,
         )
 
+        # Strand guard tripped → returns False, does not disable
+        assert result is False
         # Should NOT call update
         client.table.assert_not_called()
         # Should have logged a warning
@@ -744,6 +790,105 @@ class TestAutoUseStrandGuard:
         _, q_kwargs = quarantine_calls[0]
         assert q_kwargs.get("adding_replacement") is True
         assert summary["auto_added"] == 1
+
+
+# ---------------------------------------------------------------------------
+# no-replacement path — quarantine failing source + alert
+# ---------------------------------------------------------------------------
+
+
+class TestNoReplacementQuarantine:
+    def _setup_no_replacement(self, monkeypatch, *, sources, quarantine_returns):
+        """Wire up _process_failing_source so NO candidate is adopted.
+
+        web_search returns nothing → best_candidate stays None → no-replacement
+        branch. quarantine_source is stubbed to record its call and return the
+        given value.
+        """
+        stale_url = sources[0]["url"]
+        topic = {
+            "slug": "ai_models",
+            "name": "AI Models",
+            "cadence": "24h",
+            "sources": sources,
+        }
+        fs = FailingSource(
+            topic=topic,
+            source_obj=sources[0],
+            url=stale_url,
+            type="rss",
+            health_row=_make_health_row(source_url=stale_url),
+            error="Connection reset",
+        )
+
+        client = MagicMock()
+        monkeypatch.setattr(curator, "_llm_complete", lambda messages: "query")
+        # No candidates discovered at all.
+        monkeypatch.setattr(curator, "_web_search", lambda *a, **kw: [])
+
+        quarantine_calls = []
+
+        def fake_quarantine(*a, **kw):
+            quarantine_calls.append((a, kw))
+            return quarantine_returns
+
+        monkeypatch.setattr(curator, "quarantine_source", fake_quarantine)
+
+        summary = {
+            "detected": 1,
+            "processed": 0,
+            "auto_added": 0,
+            "candidates_created": 0,
+            "rejected": 0,
+            "alerts": [],
+        }
+        return fs, client, summary, quarantine_calls
+
+    def test_non_last_source_quarantined_and_alerted(self, monkeypatch, mock_log):
+        """A non-last failing source with no replacement → quarantined + alert."""
+        sources = [
+            {"type": "rss", "url": "https://stale.amd.com/feed"},
+            {"type": "rss", "url": "https://other.example/feed"},
+        ]
+        fs, client, summary, quarantine_calls = self._setup_no_replacement(
+            monkeypatch, sources=sources, quarantine_returns=True
+        )
+
+        curator._process_failing_source(fs, client, NOW, summary, 0, [fs.topic])
+
+        # quarantine was attempted with adding_replacement=False
+        assert len(quarantine_calls) == 1
+        _, q_kwargs = quarantine_calls[0]
+        assert q_kwargs.get("adding_replacement") is False
+        # alert recorded with quarantined=True
+        assert len(summary["alerts"]) == 1
+        alert = summary["alerts"][0]
+        assert alert["topic"] == "ai_models"
+        assert alert["url"] == "https://stale.amd.com/feed"
+        assert alert["reason"] == "no_replacement"
+        assert alert["quarantined"] is True
+        # warn logged
+        warns = [a for (a, _) in mock_log.call_args_list if a and a[0] == "warn"]
+        assert any("no suitable replacement" in a[2] for a in warns if len(a) >= 3)
+
+    def test_single_source_not_disabled_but_alerted(self, monkeypatch, mock_log):
+        """A single-source topic with no replacement → NOT disabled (strand guard)
+        but still alerted (quarantined=False)."""
+        sources = [{"type": "rss", "url": "https://only.example/feed"}]
+        fs, client, summary, quarantine_calls = self._setup_no_replacement(
+            monkeypatch, sources=sources, quarantine_returns=False
+        )
+
+        curator._process_failing_source(fs, client, NOW, summary, 0, [fs.topic])
+
+        # quarantine was attempted (strand guard lives inside it) and returned False
+        assert len(quarantine_calls) == 1
+        # alert still recorded with quarantined=False
+        assert len(summary["alerts"]) == 1
+        alert = summary["alerts"][0]
+        assert alert["url"] == "https://only.example/feed"
+        assert alert["reason"] == "no_replacement"
+        assert alert["quarantined"] is False
 
 
 # ---------------------------------------------------------------------------

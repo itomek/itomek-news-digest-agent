@@ -36,6 +36,11 @@ MAX_SOURCES_PER_RUN = 10  # failing sources processed per run
 STALE_SUCCESS_PCT = 50
 STALE_HOURS = 72
 MIN_ATTEMPTS = 3
+# Token budget for the curator's LLM calls. Gemma-4-E4B emits reasoning/preamble
+# before the answer for craft_query/judge_relevance prompts; 256 truncated to
+# empty content on the live Lemonade server (512 was the confirmed floor — 768
+# gives headroom).
+_LLM_MAX_TOKENS = 768
 
 
 @dataclass
@@ -75,7 +80,7 @@ def _llm_complete(messages: list[dict]) -> str:
         model=model,
         messages=messages,
         temperature=0.0,
-        max_completion_tokens=256,
+        max_completion_tokens=_LLM_MAX_TOKENS,
         stream=False,
     )
     return result["choices"][0]["message"]["content"]
@@ -416,8 +421,15 @@ def judge_relevance(topic: dict, sample_items: list[dict]) -> float:
     ]
     try:
         raw = _llm_complete(messages).strip()
-        score = float(re.search(r"[0-9]*\.?[0-9]+", raw).group())  # type: ignore[union-attr]
-        return max(0.0, min(1.0, score))
+        # The model sometimes returns one score per title (e.g. "1.0\n0.9\n1.0").
+        # Parse every decimal, keep only those in [0, 1], and return their mean.
+        matches = re.findall(r"[0-9]*\.?[0-9]+", raw)
+        scores = [f for m in matches if 0.0 <= (f := float(m)) <= 1.0]
+        if not scores:
+            log("warn", "curator", f"judge_relevance: no parseable score in {raw!r}")
+            return 0.0
+        mean = sum(scores) / len(scores)
+        return max(0.0, min(1.0, mean))
     except Exception as exc:
         log("warn", "curator", f"judge_relevance parse failed: {exc}")
         return 0.0
@@ -473,8 +485,12 @@ def quarantine_source(
     now: datetime,
     client,
     adding_replacement: bool = False,
-) -> None:
-    """Disable a source in digest_topics.sources (never strands the last source)."""
+) -> bool:
+    """Disable a source in digest_topics.sources (never strands the last source).
+
+    Returns True if the source was actually disabled, False otherwise (strand
+    guard tripped, or the write failed).
+    """
     if would_strand(topic, url, adding_replacement):
         log(
             "warn",
@@ -487,7 +503,7 @@ def quarantine_source(
                 "action": "strand_guard",
             },
         )
-        return
+        return False
 
     # Re-read topic for freshness before mutating
     slug = topic["slug"]
@@ -528,8 +544,10 @@ def quarantine_source(
                 "reason": reason,
             },
         )
+        return True
     except Exception as exc:
         log("warn", "curator", f"quarantine_source update failed for {url!r}: {exc}")
+        return False
 
 
 def add_source(topic: dict, new_obj: dict, client) -> bool:
@@ -618,6 +636,47 @@ def insert_candidate(
         )
     except Exception as exc:
         log("warn", "curator", f"insert_candidate failed for {url!r}: {exc}")
+
+
+def _quarantine_and_alert(
+    fs: FailingSource,
+    failure_class: str,
+    now: datetime,
+    client,
+    summary: dict,
+) -> None:
+    """No adopted replacement: quarantine the failing source so it stops wasting
+    fetches and surface it for manual attention.
+
+    The strand guard inside ``quarantine_source`` protects a topic's LAST
+    enabled source (it will NOT disable in that case) — we record the alert
+    either way.
+    """
+    slug = fs.topic.get("slug", "")
+    quarantined = quarantine_source(
+        fs.topic, fs.url, failure_class, now, client, adding_replacement=False
+    )
+    summary["alerts"].append(
+        {
+            "topic": slug,
+            "url": fs.url,
+            "reason": "no_replacement",
+            "quarantined": quarantined,
+        }
+    )
+    log(
+        "warn",
+        "curator",
+        f"no suitable replacement found for {fs.url!r} in topic {slug!r} "
+        f"(quarantined={quarantined}); needs manual attention",
+        topic_slug=slug,
+        metadata={
+            "source_url": fs.url,
+            "topic_slug": slug,
+            "action": "no_replacement",
+            "quarantined": quarantined,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -753,6 +812,9 @@ def _process_failing_source(
             topic_slug=slug,
             metadata={"source_url": fs.url, "topic_slug": slug, "action": "no_results"},
         )
+        # Search returned nothing — same outcome as no adopted candidate:
+        # quarantine the failing source (strand-guarded) and alert.
+        _quarantine_and_alert(fs, failure_class, now, client, summary)
         return
 
     # Get existing domains for this topic
@@ -838,17 +900,8 @@ def _process_failing_source(
             best_tier = tier
 
     if best_candidate is None:
-        log(
-            "info",
-            "curator",
-            f"no suitable replacement found for {fs.url!r}",
-            topic_slug=slug,
-            metadata={
-                "source_url": fs.url,
-                "topic_slug": slug,
-                "action": "no_replacement",
-            },
-        )
+        # No good candidate survived validation/judging — quarantine + alert.
+        _quarantine_and_alert(fs, failure_class, now, client, summary)
         return
 
     cand_url = best_candidate["url"]

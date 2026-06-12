@@ -11,6 +11,7 @@ import {
 import type {
   Digest,
   ErrorsPerDay,
+  MissedDigest,
   RunDuration,
   SourceHealth,
   SystemLog,
@@ -209,26 +210,19 @@ export async function fetchTokenUsage(
   return (data ?? []) as unknown as TokenUsageDay[];
 }
 
-/** Fetch recent missed-digest warnings (last N hours). */
-export async function fetchMissedDigestWarnings(
+/**
+ * Fetch topics whose digest is currently overdue, computed live from the
+ * v_missed_digests view. Unlike the old log-based read, this reflects current
+ * state — a topic drops off the moment it publishes, so the banner never goes
+ * stale.
+ */
+export async function fetchMissedDigests(
   client: SupabaseClient,
-  hours = 48,
-): Promise<SystemLog[]> {
-  const since = new Date(Date.now() - hours * 3_600_000).toISOString();
+): Promise<MissedDigest[]> {
   const { data, error } = await client
-    .from("system_logs")
-    .select("id, timestamp, level, category, topic_slug, message, metadata, created_at")
-    .eq("category", "schedule")
-    .eq("level", "warn")
-    .gte("timestamp", since)
-    .order("timestamp", { ascending: false })
-    .limit(20);
+    .from("v_missed_digests")
+    .select("topic_slug, cadence, last_digest_date, window_hours")
+    .order("topic_slug", { ascending: true });
   if (error) throw error;
-  // Filter client-side for the missed_digest tag so non-missed-digest schedule
-  // warnings are excluded.
-  const rows = (data ?? []) as unknown as SystemLog[];
-  return rows.filter((r) => {
-    const m = r.metadata as Record<string, unknown> | null;
-    return m != null && m["missed_digest"] === true;
-  });
+  return (data ?? []) as unknown as MissedDigest[];
 }

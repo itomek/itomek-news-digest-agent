@@ -125,8 +125,8 @@ def _is_topic_due(topic: dict[str, Any], now: datetime) -> bool:
     return (now - last_datetime) >= cadence
 
 
-def _is_published_today(slug: str) -> bool:
-    """Return True when a digest for *slug* has already been written today (UTC).
+def _is_published_today(slug: str) -> bool | None:
+    """Check whether a digest for *slug* has already been written today (UTC).
 
     Compares the most recent digest date against today's UTC date, matching the
     timezone used by ``push_to_supabase`` (``datetime.now(UTC).date()``).
@@ -135,11 +135,16 @@ def _is_published_today(slug: str) -> bool:
         slug: The topic slug to check.
 
     Returns:
-        True when a digest row exists for today's UTC date, False otherwise
-        (including on Supabase errors, where we conservatively assume not
-        published so the retry loop proceeds rather than silently skipping).
+        True when a digest row exists for today's UTC date, False when it does
+        not, and None when verification is unavailable because the Supabase
+        read failed (``get_last_digest_date`` swallowed an exception and
+        returned an ``error`` key). None lets the caller fall back to the
+        run's own publish result instead of burning retries — three full 35B
+        regenerations — on a transient read blip while publishes are landing.
     """
     result = get_last_digest_date(slug)
+    if "error" in result:
+        return None
     last_date_str = result.get("last_date")
     if last_date_str is None:
         return False
@@ -160,6 +165,11 @@ def _run_topic(topic: dict[str, Any], agent: Any) -> None:
     - Otherwise retries up to ``_MAX_RUN_ATTEMPTS`` total attempts.
     - If still unpublished after all attempts, logs an error so monitoring
       catches it (the run is NOT falsely reported as success).
+
+    When the verification read itself fails (Supabase unreachable for reads),
+    the run's own ``result["success"]`` is trusted instead — it reflects
+    ``_publish_from_result``'s verified write — and a warn is logged that
+    verification was skipped.
 
     All exceptions are caught so one failing topic cannot stop the scheduler
     cycle.
@@ -226,7 +236,24 @@ def _run_topic(topic: dict[str, Any], agent: Any) -> None:
 
         # Verify that a digest row actually landed (GAIA returns status=success
         # even when the final turn was malformed and nothing was published).
-        if _is_published_today(slug):
+        published = _is_published_today(slug)
+        if published is None:
+            # Verification read failed — trust the run's own publish result
+            # (it reflects _publish_from_result's verified write) rather than
+            # burning retries on a transient Supabase read blip.
+            log(
+                "warn",
+                "schedule",
+                f"_run_topic: {slug!r} publish verification skipped — Supabase read error; trusting run result",
+                topic_slug=slug,
+                metadata={
+                    "slug": slug,
+                    "attempt": attempt,
+                    "run_success": result.get("success"),
+                },
+            )
+            published = bool(result.get("success"))
+        if published:
             return
 
         # Not published yet.

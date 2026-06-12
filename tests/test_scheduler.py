@@ -516,6 +516,21 @@ def test_is_published_today_returns_false_on_bad_date_format(monkeypatch):
     assert _is_published_today("ai_models") is False
 
 
+def test_is_published_today_returns_none_on_supabase_read_error(monkeypatch):
+    """Returns None (verification unavailable) when the Supabase read failed.
+
+    get_last_digest_date swallows exceptions and returns an ``error`` key —
+    that must NOT read as "not published" or a transient read blip burns all
+    retries even when publishes are landing.
+    """
+    monkeypatch.setattr(
+        sched_module,
+        "get_last_digest_date",
+        lambda slug: {"last_date": None, "error": "ConnectionError"},
+    )
+    assert _is_published_today("ai_models") is None
+
+
 # ---------------------------------------------------------------------------
 # _run_topic retry loop — issue #44
 # ---------------------------------------------------------------------------
@@ -622,3 +637,48 @@ def test_run_topic_exception_is_treated_as_unpublished_and_retried(
     errors = [a for (a, _) in log_calls if a[0] == "error"]
     # At least one error per exception + one final "failed to publish" error.
     assert len(errors) >= _MAX_RUN_ATTEMPTS
+
+
+# ---------------------------------------------------------------------------
+# _run_topic verification fallback when the Supabase read fails — issue #44
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def _patch_verification_unavailable(monkeypatch):
+    """Make _is_published_today return None (Supabase read error)."""
+    monkeypatch.setattr(sched_module, "_is_published_today", lambda slug: None)
+
+
+def test_run_topic_read_error_trusts_successful_run_result(
+    monkeypatch, log_calls, _patch_verification_unavailable
+):
+    """Verification read error + successful run result: no retry, warn logged."""
+    agent = MagicMock()
+    agent.generate_and_publish.return_value = {
+        "success": True,
+        "id": "x",
+        "digest_date": "2026-06-11",
+    }
+
+    _run_topic(_topic_row(), agent)
+
+    assert agent.generate_and_publish.call_count == 1
+    warns = [a for (a, _) in log_calls if a[0] == "warn"]
+    assert any("verification skipped" in a[2] for a in warns)
+
+
+def test_run_topic_read_error_with_failed_run_result_still_retries(
+    monkeypatch, log_calls, _patch_verification_unavailable
+):
+    """Verification read error + failed run result: the retry loop still runs."""
+    from news_digest.scheduler import _MAX_RUN_ATTEMPTS
+
+    agent = MagicMock()
+    agent.generate_and_publish.return_value = {"success": False, "error": "parse_error"}
+
+    _run_topic(_topic_row(), agent)
+
+    assert agent.generate_and_publish.call_count == _MAX_RUN_ATTEMPTS
+    errors = [a for (a, _) in log_calls if a[0] == "error"]
+    assert any("failed to publish" in a[2] for a in errors)

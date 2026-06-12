@@ -90,6 +90,10 @@ export async function renderHome(root: HTMLElement, client: SupabaseClient): Pro
   historyLink.href = "#/history";
   historyLink.textContent = "History";
   nav.appendChild(historyLink);
+  const logsLink = document.createElement("a");
+  logsLink.href = "#/logs";
+  logsLink.textContent = "Logs";
+  nav.appendChild(logsLink);
 
   const out = document.createElement("button");
   out.type = "button";

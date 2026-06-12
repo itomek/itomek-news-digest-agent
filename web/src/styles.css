@@ -855,3 +855,278 @@ button:disabled {
   flex: 1;
   text-align: center;
 }
+
+/* ── Logs tab bar (#20) ───────────────────────────────────────────────────── */
+
+.logs-tab-bar {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0 0 1rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.4rem;
+}
+
+.logs-tab {
+  background: transparent;
+  border: 1.5px solid var(--border);
+  color: var(--muted);
+  font-size: 0.9rem;
+  padding: 0.4rem 1rem;
+  min-height: 40px;
+  border-radius: 999px;
+  box-shadow: none;
+}
+
+.logs-tab:hover:not(:disabled) {
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.logs-tab--active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+.logs-tab--active:hover:not(:disabled) {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+  color: var(--accent-fg);
+}
+
+/* Message search input */
+.logs-search-input {
+  flex: 1 1 12rem;
+  border-radius: 999px;
+}
+
+/* ── Aggregation sections (#20) ───────────────────────────────────────────── */
+
+.agg-section {
+  margin: 1.5rem 0;
+}
+
+.agg-heading {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem;
+  color: var(--fg);
+}
+
+.agg-heading--stale {
+  color: #c53030;
+}
+
+@media (prefers-color-scheme: dark) {
+  .agg-heading--stale {
+    color: #fc8181;
+  }
+}
+
+.agg-note {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: 0.3rem 0 0.75rem;
+}
+
+.agg-table {
+  min-width: 480px;
+}
+
+.agg-source-url {
+  font-size: 0.8rem;
+  word-break: break-all;
+  max-width: 22rem;
+}
+
+/* Stale source highlighting */
+.source-stale td {
+  background: rgba(197, 48, 48, 0.06);
+}
+
+.source-stale-cell {
+  color: #c53030;
+  font-weight: 700;
+}
+
+@media (prefers-color-scheme: dark) {
+  .source-stale td {
+    background: rgba(252, 129, 129, 0.10);
+  }
+
+  .source-stale-cell {
+    color: #fc8181;
+  }
+}
+
+/* ── CSS bar chart (#20) ──────────────────────────────────────────────────── */
+
+.bar-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: 8rem 1fr 3rem;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.bar-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar-outer {
+  height: 14px;
+  background: var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.bar-inner {
+  height: 100%;
+  border-radius: 999px;
+  min-width: 2px;
+  transition: width 0.3s ease;
+}
+
+.bar-inner--error {
+  background: #c53030;
+}
+
+.bar-inner--token {
+  background: var(--accent);
+}
+
+@media (prefers-color-scheme: dark) {
+  .bar-inner--error { background: #fc8181; }
+}
+
+.bar-value {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ── Token usage page (#20) ───────────────────────────────────────────────── */
+
+.token-day-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.1rem;
+  margin-bottom: 1rem;
+  box-shadow: var(--elevation);
+}
+
+.token-day-heading {
+  font-size: 0.97rem;
+  font-weight: 700;
+  margin: 0 0 0.2rem;
+  color: var(--fg);
+  letter-spacing: -0.01em;
+}
+
+.token-day-totals {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: 0 0 0.75rem;
+}
+
+.token-row {
+  display: grid;
+  grid-template-columns: 10rem 1fr 6rem;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.token-row-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.token-row-topic {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.token-row-model {
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.token-row-value {
+  font-size: 0.82rem;
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── Missed digest banner (#20) ───────────────────────────────────────────── */
+
+.missed-digest-banner {
+  background: rgba(197, 48, 48, 0.08);
+  border: 1.5px solid rgba(197, 48, 48, 0.4);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.25rem;
+  color: var(--fg);
+}
+
+.missed-digest-banner strong {
+  display: block;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #c53030;
+  margin-bottom: 0.35rem;
+}
+
+.missed-digest-list {
+  margin: 0 0 0.4rem;
+  padding-left: 1.2rem;
+  font-size: 0.9rem;
+}
+
+.missed-digest-note {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: 0;
+}
+
+.missed-digest-note a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.missed-digest-note a:hover {
+  text-decoration: underline;
+}
+
+@media (prefers-color-scheme: dark) {
+  .missed-digest-banner {
+    background: rgba(252, 129, 129, 0.12);
+    border-color: rgba(252, 129, 129, 0.35);
+  }
+
+  .missed-digest-banner strong {
+    color: #fc8181;
+  }
+}

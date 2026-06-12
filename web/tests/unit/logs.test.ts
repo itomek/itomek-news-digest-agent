@@ -66,6 +66,7 @@ describe("serializeLogsState", () => {
     level: null,
     category: "",
     topic_slug: "",
+    search: "",
     page: 0,
   };
 
@@ -114,6 +115,7 @@ describe("serializeLogsState", () => {
       level: "error",
       category: "scraper",
       topic_slug: "ai_models",
+      search: "",
       page: 4,
     };
     const parsed = parseLogsState(serializeLogsState(state));

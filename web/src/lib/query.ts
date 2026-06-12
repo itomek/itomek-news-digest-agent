@@ -94,3 +94,24 @@ export function defaultLogsFilter(): LogsFilter {
     page: 0,
   };
 }
+
+// ── Observability (#20) ───────────────────────────────────────────────────────
+
+/** Extended LogsFilter that adds an optional message search term (ilike). */
+export interface LogsFilterExtended extends LogsFilter {
+  /** Substring to match against message (server-side ilike). Empty = no filter. */
+  search: string;
+}
+
+export function defaultLogsFilterExtended(): LogsFilterExtended {
+  return { ...defaultLogsFilter(), search: "" };
+}
+
+/** Build an extended logs query spec with optional message search. */
+export function logsQueryExtended(f: LogsFilterExtended): LogsQuerySpec & { search: string | null } {
+  const base = logsQuery(f);
+  return {
+    ...base,
+    search: f.search.trim() || null,
+  };
+}

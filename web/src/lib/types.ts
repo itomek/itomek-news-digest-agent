@@ -69,3 +69,36 @@ export interface SystemLog {
   metadata: unknown;       // jsonb — may be null or any JSON value
   created_at: string;
 }
+
+// ── Observability views (issue #20) ──────────────────────────────────────────
+
+/** One row from v_errors_per_day. */
+export interface ErrorsPerDay {
+  day: string;           // ISO date
+  error_count: number;
+}
+
+/** One row from v_source_success_rate or mv_source_health. */
+export interface SourceHealth {
+  source_url: string;
+  success_7d: number;
+  failure_7d: number;
+  total_7d: number;
+  success_pct_7d: number | null;
+  last_success_at: string | null;   // ISO timestamptz
+  last_error_at: string | null;
+  last_fetch_at: string | null;
+  last_error: string | null;
+}
+
+/** One row from v_token_usage_by_day. */
+export interface TokenUsageDay {
+  day: string;            // ISO date
+  topic_slug: string | null;
+  model_id: string | null;
+  run_count: number;
+  total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_duration_s: number;
+}

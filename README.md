@@ -114,16 +114,50 @@ python -m news_digest "Generate the AI model releases digest for today"
 npm install && npm run dev   # http://localhost:5173
 ```
 
-Coming with Epic 4 (scheduler implementation is in progress — see [#13](https://github.com/itomek/itomek-news-digest-agent/issues/13)/[#14](https://github.com/itomek/itomek-news-digest-agent/issues/14)):
+```bash
+# Start the scheduler daemon (foreground, for testing)
+python -m news_digest.scheduler
+```
+
+## Service management
+
+The scheduler runs unattended under systemd on the Strix Halo box. The unit file is at `systemd/news-digest.service`.
+
+### Install and enable
 
 ```bash
-# Start the scheduler daemon
-python -m news_digest.scheduler
-
-# Production: unattended via systemd
 sudo cp systemd/news-digest.service /etc/systemd/system/
+sudo systemctl daemon-reload
 sudo systemctl enable --now news-digest
 ```
+
+### Day-to-day commands
+
+```bash
+# Status
+systemctl status news-digest
+
+# Start / stop / restart
+sudo systemctl start news-digest
+sudo systemctl stop news-digest     # waits up to 10 min for any in-flight LLM run
+sudo systemctl restart news-digest
+
+# Verify boot persistence
+systemctl is-enabled news-digest    # should print "enabled"
+
+# Tail live logs
+journalctl -u news-digest -f
+
+# Last 100 lines
+journalctl -u news-digest -n 100
+
+# Logs since a specific time
+journalctl -u news-digest --since "2026-06-11 21:00:00"
+```
+
+### Kill switch (disable a topic without stopping the service)
+
+Set `enabled = false` on the topic row in the `digest_topics` table in Supabase. The scheduler checks this flag on every 15-minute tick and skips disabled topics immediately — no service restart needed.
 
 ## Digest Topics
 

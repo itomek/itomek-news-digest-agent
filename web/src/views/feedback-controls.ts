@@ -22,22 +22,6 @@ import {
   submitFeedback,
 } from "../lib/feedback";
 
-// ─── mount point registration (same pattern as playback controls) ──────────
-
-export type MountFeedbackControls = (slotEl: HTMLElement, digest: Digest) => void;
-
-let feedbackMounter: MountFeedbackControls | null = null;
-
-/** Call once at boot to register the feedback UI. main.ts imports this module
- *  which auto-invokes registerFeedbackControls(mountFeedbackControls). */
-export function registerFeedbackControls(fn: MountFeedbackControls): void {
-  feedbackMounter = fn;
-}
-
-export function getFeedbackMounter(): MountFeedbackControls | null {
-  return feedbackMounter;
-}
-
 // ─── status helper ──────────────────────────────────────────────────────────
 
 function showStatus(el: HTMLElement, text: string, isError = false): void {

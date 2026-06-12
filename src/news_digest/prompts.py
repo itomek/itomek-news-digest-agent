@@ -152,3 +152,49 @@ def enforce_length(
         )
     result = regenerate(feedback)
     return result.get("summary", ""), result.get("items", [])
+
+
+# ---------------------------------------------------------------------------
+# Sentiment tagging helpers — world_news topic (issue #19)
+# ---------------------------------------------------------------------------
+
+#: Canonical sentiment tags for the world_news topic (stored in
+#: ``items[].metadata.tags`` as the first element of the array).
+#: Allowed values defined once here so tests and validation share a single
+#: source of truth with the prompt_hint in the migration.
+SENTIMENT_TAGS: frozenset[str] = frozenset(
+    {"positive", "negative", "neutral", "concerning"}
+)
+
+
+def validate_sentiment_tag(tag: str) -> bool:
+    """Return True if *tag* is a valid world_news sentiment tag.
+
+    Args:
+        tag: A string to check.
+
+    Returns:
+        ``True`` when *tag* is one of the four allowed values, ``False``
+        otherwise.
+    """
+    return tag in SENTIMENT_TAGS
+
+
+def extract_sentiment_tag(item: dict) -> str | None:
+    """Extract the first sentiment tag from a digest item's metadata.
+
+    The convention for the world_news topic is that the sentiment tag is stored
+    as the first element of ``item["metadata"]["tags"]``.  Returns ``None``
+    when the item has no ``metadata``, no ``tags``, or an empty tags list —
+    never raises.
+
+    Args:
+        item: A digest item dict (``headline``, ``blurb``, ``detail``,
+            ``metadata`` keys).
+
+    Returns:
+        The first tag string if present, otherwise ``None``.
+    """
+    metadata = item.get("metadata") or {}
+    tags = metadata.get("tags") or []
+    return tags[0] if tags else None

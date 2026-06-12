@@ -19,10 +19,10 @@ from datetime import UTC, datetime
 
 from gaia.agents.base.tools import tool
 
-from news_digest.config import get_settings
 from news_digest.logging import log
 from news_digest.prompts import PROMPT_VERSION, flatten_digest
-from supabase import Client, create_client
+from news_digest.supabase_client import get_client
+from supabase import Client
 
 _CONFIG_CACHE_TTL: float = 300.0  # 5 minutes (issue #8)
 # slug -> (monotonic_timestamp, config_row)
@@ -35,15 +35,13 @@ def _now() -> float:
 
 
 def _client() -> Client:
-    """Build a Supabase client authenticated as service_role.
+    """Return the shared Supabase client (service_role).
 
-    The agent is a trusted backend process; it uses the service-role key for all
-    Supabase access. Reads previously used the anon key, but anon reads return
-    zero rows since read policies moved to the ``authenticated`` role (migration
-    0006 / #57); service_role bypasses RLS. The service key never leaves the host.
+    Thin wrapper over ``news_digest.supabase_client.get_client`` kept as the
+    monkeypatch seam for tests; see that module for the auth rationale and the
+    connection-pool caching.
     """
-    settings = get_settings()
-    return create_client(settings.supabase_url, settings.supabase_service_key)
+    return get_client()
 
 
 @tool

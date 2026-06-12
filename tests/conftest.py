@@ -2,6 +2,7 @@
 
 import pytest
 
+from news_digest import supabase_client
 from news_digest.config import Settings, get_settings
 
 # Belt: stop pydantic-settings from reading a real .env file directly.
@@ -23,8 +24,10 @@ def isolate_settings_env(monkeypatch):
     for field in Settings.model_fields:
         monkeypatch.delenv(field.upper(), raising=False)
     get_settings.cache_clear()
+    supabase_client.cache_clear()
     yield
     get_settings.cache_clear()
+    supabase_client.cache_clear()
 
 
 @pytest.fixture

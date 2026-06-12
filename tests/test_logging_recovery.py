@@ -67,7 +67,7 @@ def _mock_supabase_client():
 def test_supabase_down_logs_fall_back_to_sqlite(valid_env):
     """When Supabase is unreachable, log() must persist to SQLite without raising."""
     with patch(
-        "news_digest.logging.create_client", side_effect=Exception("connection refused")
+        "news_digest.logging.get_client", side_effect=Exception("connection refused")
     ):
         nd_logging.log(
             "error", "publish", "push_to_supabase failed", metadata={"retry": 1}
@@ -84,7 +84,7 @@ def test_supabase_down_logs_fall_back_to_sqlite(valid_env):
 def test_supabase_down_drain_on_recovery(valid_env):
     """drain_fallback() ships accumulated rows to Supabase when it comes back up."""
     # Phase 1: Supabase down — two log() calls go to SQLite.
-    with patch("news_digest.logging.create_client", side_effect=Exception("down")):
+    with patch("news_digest.logging.get_client", side_effect=Exception("down")):
         nd_logging.log("info", "schedule", "cycle start")
         nd_logging.log("error", "publish", "upsert failed")
 
@@ -96,7 +96,7 @@ def test_supabase_down_drain_on_recovery(valid_env):
 
     # Phase 2: Supabase recovers — drain_fallback ships both rows.
     mock_client = _mock_supabase_client()
-    with patch("news_digest.logging.create_client", return_value=mock_client):
+    with patch("news_digest.logging.get_client", return_value=mock_client):
         drained = nd_logging.drain_fallback()
 
     assert drained == 2
@@ -109,7 +109,7 @@ def test_supabase_down_drain_on_recovery(valid_env):
 def test_supabase_down_drain_idempotent(valid_env):
     """A second drain_fallback() call after all rows are synced returns 0."""
     mock_client = _mock_supabase_client()
-    with patch("news_digest.logging.create_client", return_value=mock_client):
+    with patch("news_digest.logging.get_client", return_value=mock_client):
         nd_logging.log("info", "scrape", "fetched 5 entries")
         nd_logging.drain_fallback()
         count = nd_logging.drain_fallback()
@@ -290,7 +290,7 @@ def test_generate_and_publish_drains_fallback_on_next_run(valid_env, monkeypatch
 
     # Phase 1: Supabase down — a publish-failure log lands in the fallback DB.
     with patch(
-        "news_digest.logging.create_client", side_effect=Exception("supabase down")
+        "news_digest.logging.get_client", side_effect=Exception("supabase down")
     ):
         nd_logging.log("error", "publish", "upsert failed during outage")
 
@@ -312,7 +312,7 @@ def test_generate_and_publish_drains_fallback_on_next_run(valid_env, monkeypatch
     )
 
     mock_client = _mock_supabase_client()
-    with patch("news_digest.logging.create_client", return_value=mock_client):
+    with patch("news_digest.logging.get_client", return_value=mock_client):
         nd_agent.NewsDigestAgent.generate_and_publish(fake_agent, "Generate digest")
 
     # The stranded row was upserted to Supabase and marked synced locally.

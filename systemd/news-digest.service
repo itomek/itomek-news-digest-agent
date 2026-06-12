@@ -2,15 +2,30 @@
 Description=News Digest GAIA Agent
 After=network-online.target
 Wants=network-online.target
+StartLimitBurst=5
+StartLimitIntervalSec=600
 
 [Service]
 Type=simple
-User=tomasz
-WorkingDirectory=/home/tomasz/news-digest-agent
-ExecStart=/home/tomasz/news-digest-agent/.venv/bin/python -m news_digest.scheduler
+User=tomas
+WorkingDirectory=/home/tomas/src/itomek/itomek-news-digest-agent
+ExecStart=/home/tomas/src/itomek/itomek-news-digest-agent/.venv/bin/python -m news_digest.scheduler
+EnvironmentFile=/home/tomas/src/itomek/itomek-news-digest-agent/.env
 Restart=on-failure
 RestartSec=60
-EnvironmentFile=/home/tomasz/news-digest-agent/.env
+# Allow up to 300s jitter + LLM run time before escalating SIGTERM to SIGKILL.
+# The scheduler waits for any in-flight digest to finish on SIGTERM, which can
+# take up to 300s (max jitter) + ~120s (LLM inference) before it exits cleanly.
+TimeoutStopSec=600
+
+# Memory guardrail (LLM inference can be hungry)
+MemoryMax=16G
+
+# Filesystem sandboxing.
+# ProtectSystem=strict makes / and /usr read-only; /home is already writable
+# but we scope writes to the project's data/ dir (SQLite fallback lives there).
+ProtectSystem=strict
+ReadWritePaths=/home/tomas/src/itomek/itomek-news-digest-agent/data
 
 [Install]
 WantedBy=multi-user.target

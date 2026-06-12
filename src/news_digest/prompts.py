@@ -60,7 +60,10 @@ object with exactly these keys:
 (headline, blurb, detail, metadata.sources).
    - "sources_used": the list of source URLs you actually used.
    Do NOT call any tool to publish — put the whole digest in that code block as \
-your answer.
+your answer. Your final answer MUST contain the complete digest inside that \
+fenced block: never an empty or partial answer, never the digest as a bare JSON \
+object outside the fence, and never just a statement that the digest is ready. \
+The run fails if the digest is missing from your final answer.
 
 Writing guidelines:
 - Lead with the most significant item.

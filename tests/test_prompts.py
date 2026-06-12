@@ -234,6 +234,19 @@ def test_system_prompt_instructs_final_answer_json_not_publish_tool():
     assert "push_to_supabase" not in sp
 
 
+def test_system_prompt_requires_complete_digest_in_final_answer():
+    """Reliability nudge for #44, within the #59 answer-JSON contract: the
+    model MUST end with the complete digest in the fenced JSON answer — never
+    empty/partial, never a bare unfenced object."""
+    sp = SYSTEM_PROMPT
+    sp_lower = sp.lower()
+    assert "must contain the complete digest" in sp_lower
+    assert "never an empty or partial answer" in sp_lower
+    assert "outside the fence" in sp_lower
+    # Still strictly answer-driven: no publish tool call.
+    assert "do not call any tool to publish" in sp_lower
+
+
 # ---------------------------------------------------------------------------
 # Per-item sentiment — issue #19 (world_news topic, metadata.sentiment contract)
 # ---------------------------------------------------------------------------

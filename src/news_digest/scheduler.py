@@ -19,7 +19,7 @@ See §2.6, §4, and §5.5 of docs/architecture.md for the design spec.
 
 import random
 import signal
-import time
+import threading
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -28,6 +28,12 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from news_digest.logging import log
 from news_digest.tools.publishing import get_last_digest_date
 from supabase import Client
+
+# Set once when a SIGTERM/SIGINT arrives; never reset — this is a one-shot
+# daemon process.  Used by _run_topic and run_cycle to abort sleeps and
+# skip not-yet-started topics instead of letting the process drift minutes
+# past its shutdown deadline.
+_shutdown_event = threading.Event()
 
 # Tick every 15 minutes.
 _TICK_MINUTES = 15
@@ -189,7 +195,15 @@ def _run_topic(topic: dict[str, Any], agent: Any) -> None:
         topic_slug=slug,
         metadata={"slug": slug, "jitter_s": round(jitter, 1)},
     )
-    time.sleep(jitter)
+    if _shutdown_event.wait(jitter):
+        log(
+            "info",
+            "schedule",
+            f"_run_topic: shutdown requested during jitter — skipping {slug!r}",
+            topic_slug=slug,
+            metadata={"slug": slug},
+        )
+        return
 
     for attempt in range(1, _MAX_RUN_ATTEMPTS + 1):
         try:
@@ -258,6 +272,15 @@ def _run_topic(topic: dict[str, Any], agent: Any) -> None:
 
         # Not published yet.
         if attempt < _MAX_RUN_ATTEMPTS:
+            if _shutdown_event.is_set():
+                log(
+                    "info",
+                    "schedule",
+                    f"_run_topic: shutdown requested — stopping retries for {slug!r}",
+                    topic_slug=slug,
+                    metadata={"slug": slug, "attempt": attempt},
+                )
+                return
             log(
                 "warn",
                 "schedule",
@@ -362,8 +385,21 @@ def run_cycle(agent: Any | None = None) -> None:
 
     # Run due topics one at a time (max_instances=1 enforced by sequential loop).
     for topic in topics:
-        if topic.get("slug") in due_slugs:
-            _run_topic(topic, agent)
+        if topic.get("slug") not in due_slugs:
+            continue
+        if _shutdown_event.is_set():
+            log(
+                "info",
+                "schedule",
+                "run_cycle: shutdown requested — aborting cycle early",
+                metadata={
+                    "remaining": [
+                        t.get("slug") for t in topics if t.get("slug") in due_slugs
+                    ]
+                },
+            )
+            break
+        _run_topic(topic, agent)
 
     _log_cycle_end(cycle_start, due_slugs=due_slugs)
 
@@ -404,6 +440,7 @@ def _install_signal_handlers(scheduler: BlockingScheduler) -> None:
             f"received {signal.Signals(signum).name} — shutting down cleanly",
             metadata={"signal": signal.Signals(signum).name},
         )
+        _shutdown_event.set()
         scheduler.shutdown(wait=True)
 
     signal.signal(signal.SIGTERM, _handle)

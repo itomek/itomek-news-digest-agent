@@ -2,6 +2,7 @@ import "./components/playback"; // #11: auto-registers TTS playback controls
 import { getSupabase } from "./lib/supabase";
 import { renderHome } from "./pages/home";
 import { renderHistory } from "./pages/history";
+import { renderLogs } from "./pages/logs";
 import { registerRoute, startRouter } from "./router";
 
 // App bootstrap. Routes are declared here once; pages live in their own files.
@@ -21,5 +22,6 @@ const client = getSupabase();
 
 registerRoute("/", renderHome);
 registerRoute("/history", renderHistory);
+registerRoute("/logs", renderLogs);
 
 startRouter(root, client);

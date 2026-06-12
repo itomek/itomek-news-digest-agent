@@ -338,6 +338,10 @@ export async function renderHistory(root: HTMLElement, client: SupabaseClient): 
   homeLink.href = "#/";
   homeLink.textContent = "Today";
   nav.appendChild(homeLink);
+  const logsLink = document.createElement("a");
+  logsLink.href = "#/logs";
+  logsLink.textContent = "Logs";
+  nav.appendChild(logsLink);
   const out = document.createElement("button");
   out.type = "button";
   out.className = "sign-out";

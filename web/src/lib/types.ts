@@ -52,3 +52,15 @@ export interface DateGroup {
   date: string;
   digests: Digest[];
 }
+
+/** One row from the system_logs table (read-only, authenticated role). */
+export interface SystemLog {
+  id: string;
+  timestamp: string;       // ISO timestamptz
+  level: "info" | "warn" | "error";
+  category: string;
+  topic_slug: string | null;
+  message: string;
+  metadata: unknown;       // jsonb — may be null or any JSON value
+  created_at: string;
+}

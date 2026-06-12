@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { digestsQuery, topicsQuery } from "./query";
-import type { Digest, Topic } from "./types";
+import { digestsQuery, logsQuery, topicsQuery, type LogsFilter } from "./query";
+import type { Digest, SystemLog, Topic } from "./types";
 
 // Browser client: anon/publishable key ONLY. All reads are RLS-gated.
 // NEVER import or ship the service_role key here.
@@ -61,4 +61,43 @@ export async function fetchAllDigests(
   limit = 1000,
 ): Promise<Digest[]> {
   return fetchDigests(client, limit);
+}
+
+// --- Logs (#27) -------------------------------------------------------------
+
+export interface LogsPage {
+  rows: SystemLog[];
+  /** True if there is at least one more page after this one. */
+  hasMore: boolean;
+}
+
+/**
+ * Fetch one page of system_logs rows matching the given filter.
+ * All filtering is server-side: the table can grow to 30+ days of entries,
+ * so client-side filtering is not appropriate here (unlike digests).
+ */
+export async function fetchLogs(
+  client: SupabaseClient,
+  filter: LogsFilter,
+): Promise<LogsPage> {
+  const spec = logsQuery(filter);
+  let q = client
+    .from(spec.table)
+    .select(spec.columns)
+    .gte("timestamp", spec.filters.dateFrom)
+    .lte("timestamp", spec.filters.dateTo)
+    .order(spec.order.column, { ascending: spec.order.ascending })
+    .range(spec.range.from, spec.range.to);
+
+  if (spec.filters.level) q = q.eq("level", spec.filters.level);
+  if (spec.filters.category) q = q.eq("category", spec.filters.category);
+  if (spec.filters.topic_slug) q = q.eq("topic_slug", spec.filters.topic_slug);
+
+  const { data, error } = await q;
+  if (error) throw error;
+
+  const rows = (data ?? []) as unknown as SystemLog[];
+  // If we got a full page, there might be more.
+  const hasMore = rows.length === spec.range.to - spec.range.from + 1;
+  return { rows, hasMore };
 }

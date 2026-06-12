@@ -1,7 +1,7 @@
 # Autonomous Source Curation — Design
 
 - **Date:** 2026-06-12
-- **Status:** Draft (awaiting review)
+- **Status:** Approved (2026-06-12) — in-app approval UI confirmed
 - **Owner:** @itomek
 
 ## Problem

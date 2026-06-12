@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from supabase import create_client
+from news_digest.supabase_client import get_client
 
 Level = Literal["info", "warn", "error"]
 Category = Literal[
@@ -82,11 +82,7 @@ def log(
         "metadata": metadata,
     }
     try:
-        from news_digest.config import get_settings
-
-        settings = get_settings()
-        client = create_client(settings.supabase_url, settings.supabase_service_key)
-        client.table("system_logs").insert(row).execute()
+        get_client().table("system_logs").insert(row).execute()
     except Exception:
         try:
             _write_fallback(row)
@@ -108,10 +104,7 @@ def drain_fallback() -> int:
         return 0
 
     try:
-        from news_digest.config import get_settings
-
-        settings = get_settings()
-        client = create_client(settings.supabase_url, settings.supabase_service_key)
+        client = get_client()
 
         for r in rows:
             row_id, ts, level, category, topic_slug, message, metadata_json = r

@@ -125,6 +125,8 @@ def test_client_authenticates_as_service_role(monkeypatch):
     """The agent is a trusted backend and authenticates as service_role for ALL
     Supabase access, reads included. Anon reads return zero rows since read
     policies moved to the `authenticated` role (#57 / migration 0006)."""
+    from news_digest import supabase_client
+
     captured = {}
 
     def fake_create_client(url, key):
@@ -137,8 +139,8 @@ def test_client_authenticates_as_service_role(monkeypatch):
         supabase_service_key="SERVICE_KEY",
         supabase_anon_key="ANON_KEY",
     )
-    monkeypatch.setattr(publishing, "create_client", fake_create_client)
-    monkeypatch.setattr(publishing, "get_settings", lambda: settings)
+    monkeypatch.setattr(supabase_client, "create_client", fake_create_client)
+    monkeypatch.setattr(supabase_client, "get_settings", lambda: settings)
 
     publishing._client()
 

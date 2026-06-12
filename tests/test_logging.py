@@ -24,7 +24,7 @@ def _mock_supabase_client():
 
 def test_log_writes_to_supabase_when_reachable(valid_env):
     mock_client = _mock_supabase_client()
-    with patch("news_digest.logging.create_client", return_value=mock_client):
+    with patch("news_digest.logging.get_client", return_value=mock_client):
         nd_logging.log("info", "scrape", "fetched 10 entries", topic_slug="ai_models")
 
     mock_client.table.assert_called_with("system_logs")
@@ -39,7 +39,7 @@ def test_log_writes_to_supabase_when_reachable(valid_env):
 
 def test_log_falls_back_to_sqlite_on_supabase_failure(valid_env, tmp_path):
     with patch(
-        "news_digest.logging.create_client", side_effect=Exception("network error")
+        "news_digest.logging.get_client", side_effect=Exception("network error")
     ):
         nd_logging.log("error", "publish", "supabase down", metadata={"retries": 3})
 
@@ -50,7 +50,7 @@ def test_log_falls_back_to_sqlite_on_supabase_failure(valid_env, tmp_path):
 
 
 def test_log_never_raises_on_any_failure(valid_env):
-    with patch("news_digest.logging.create_client", side_effect=RuntimeError("boom")):
+    with patch("news_digest.logging.get_client", side_effect=RuntimeError("boom")):
         with patch.object(
             nd_logging, "_write_fallback", side_effect=OSError("disk full")
         ):
@@ -58,7 +58,7 @@ def test_log_never_raises_on_any_failure(valid_env):
 
 
 def test_drain_fallback_pushes_rows_to_supabase(valid_env):
-    with patch("news_digest.logging.create_client", side_effect=Exception("down")):
+    with patch("news_digest.logging.get_client", side_effect=Exception("down")):
         nd_logging.log("info", "schedule", "msg1")
         nd_logging.log("info", "schedule", "msg2")
 
@@ -69,7 +69,7 @@ def test_drain_fallback_pushes_rows_to_supabase(valid_env):
     assert len(unsynced) == 2
 
     mock_client = _mock_supabase_client()
-    with patch("news_digest.logging.create_client", return_value=mock_client):
+    with patch("news_digest.logging.get_client", return_value=mock_client):
         drained = nd_logging.drain_fallback()
 
     assert drained == 2
@@ -80,7 +80,7 @@ def test_drain_fallback_pushes_rows_to_supabase(valid_env):
 
 
 def test_drain_fallback_returns_zero_when_supabase_still_down(valid_env):
-    with patch("news_digest.logging.create_client", side_effect=Exception("down")):
+    with patch("news_digest.logging.get_client", side_effect=Exception("down")):
         nd_logging.log("info", "schedule", "msg")
         result = nd_logging.drain_fallback()
     assert result == 0
@@ -88,7 +88,7 @@ def test_drain_fallback_returns_zero_when_supabase_still_down(valid_env):
 
 def test_drain_fallback_idempotent_on_already_synced_rows(valid_env):
     mock_client = _mock_supabase_client()
-    with patch("news_digest.logging.create_client", return_value=mock_client):
+    with patch("news_digest.logging.get_client", return_value=mock_client):
         nd_logging.log("info", "scrape", "already synced")
         nd_logging.drain_fallback()
         count = nd_logging.drain_fallback()

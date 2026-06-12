@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  candidateWhy,
   formatPct,
   formatRelativeTime,
+  formatRelevance,
   isSourceStale,
   partitionByHealth,
   STALE_LAST_SUCCESS_HOURS,
   STALE_SUCCESS_PCT_THRESHOLD,
 } from "../../src/pages/source-health";
-import type { SourceHealth } from "../../src/lib/types";
+import type { SourceCandidate, SourceHealth } from "../../src/lib/types";
 
 function makeRow(overrides: Partial<SourceHealth> = {}): SourceHealth {
   return {
@@ -163,5 +165,104 @@ describe("staleness thresholds", () => {
 
   it("STALE_LAST_SUCCESS_HOURS is 72", () => {
     expect(STALE_LAST_SUCCESS_HOURS).toBe(72);
+  });
+});
+
+// --- formatRelevance ----------------------------------------------------------
+
+function makeCandidate(overrides: Partial<SourceCandidate> = {}): SourceCandidate {
+  return {
+    id: "cand-001",
+    topic_slug: "ai_models",
+    url: "https://new.example.com/rss",
+    type: "rss",
+    replaces_url: "https://old.example.com/feed",
+    failure_class: "blocked",
+    relevance_score: 0.85,
+    validation: { fetch_ok: true, item_count: 5, parseable: true, recent: true },
+    status: "pending",
+    created_at: "2026-06-12T04:00:00Z",
+    decided_at: null,
+    ...overrides,
+  };
+}
+
+describe("formatRelevance", () => {
+  it("formats a score as rounded percent", () => {
+    expect(formatRelevance(0.85)).toBe("85%");
+    expect(formatRelevance(0.0)).toBe("0%");
+    expect(formatRelevance(1.0)).toBe("100%");
+    expect(formatRelevance(0.571)).toBe("57%");
+  });
+
+  it("returns N/A for null", () => {
+    expect(formatRelevance(null)).toBe("N/A");
+  });
+});
+
+// --- candidateWhy -------------------------------------------------------------
+
+describe("candidateWhy", () => {
+  it("returns dead message for dead failure class", () => {
+    const cand = makeCandidate({ failure_class: "dead" });
+    expect(candidateWhy(cand)).toContain("dead");
+  });
+
+  it("returns blocked message for blocked failure class", () => {
+    const cand = makeCandidate({ failure_class: "blocked" });
+    expect(candidateWhy(cand)).toContain("blocked");
+  });
+
+  it("returns item count when validation has item_count", () => {
+    const cand = makeCandidate({
+      failure_class: null,
+      validation: { item_count: 7 },
+    });
+    const why = candidateWhy(cand);
+    expect(why).toContain("7");
+  });
+
+  it("returns fallback for null failure_class and no validation", () => {
+    const cand = makeCandidate({ failure_class: null, validation: null });
+    expect(candidateWhy(cand)).toContain("web search");
+  });
+});
+
+// --- approveSourceCandidate / rejectSourceCandidate error mapping -------------
+
+import {
+  approveSourceCandidate,
+  rejectSourceCandidate,
+} from "../../src/lib/supabase";
+
+describe("approveSourceCandidate", () => {
+  it("returns null on success", async () => {
+    const client = { rpc: async () => ({ error: null }) } as never;
+    const result = await approveSourceCandidate(client, "cand-001");
+    expect(result).toBeNull();
+  });
+
+  it("returns error message string on failure", async () => {
+    const client = {
+      rpc: async () => ({ error: { message: "candidate not pending" } }),
+    } as never;
+    const result = await approveSourceCandidate(client, "cand-001");
+    expect(result).toBe("candidate not pending");
+  });
+});
+
+describe("rejectSourceCandidate", () => {
+  it("returns null on success", async () => {
+    const client = { rpc: async () => ({ error: null }) } as never;
+    const result = await rejectSourceCandidate(client, "cand-001");
+    expect(result).toBeNull();
+  });
+
+  it("returns error message string on failure", async () => {
+    const client = {
+      rpc: async () => ({ error: { message: "not found or not pending" } }),
+    } as never;
+    const result = await rejectSourceCandidate(client, "cand-001");
+    expect(result).toBe("not found or not pending");
   });
 });

@@ -52,3 +52,31 @@ def test_env_override(valid_env, monkeypatch):
     s = Settings()
     assert s.log_level == "debug"
     assert s.schedule_daily_hour == 7
+
+
+def test_perplexity_defaults(valid_env):
+    s = Settings()
+    assert s.perplexity_api_key == ""
+    assert s.perplexity_model == "sonar"
+
+
+def test_curator_schedule_defaults(valid_env):
+    s = Settings()
+    assert s.schedule_curator_hour == 4
+    assert s.schedule_curator_minute == 0
+
+
+def test_perplexity_key_env_override(valid_env, monkeypatch):
+    monkeypatch.setenv("PERPLEXITY_API_KEY", "pplx-test-key")
+    monkeypatch.setenv("PERPLEXITY_MODEL", "sonar-pro")
+    s = Settings()
+    assert s.perplexity_api_key == "pplx-test-key"
+    assert s.perplexity_model == "sonar-pro"
+
+
+def test_curator_schedule_env_override(valid_env, monkeypatch):
+    monkeypatch.setenv("SCHEDULE_CURATOR_HOUR", "6")
+    monkeypatch.setenv("SCHEDULE_CURATOR_MINUTE", "30")
+    s = Settings()
+    assert s.schedule_curator_hour == 6
+    assert s.schedule_curator_minute == 30

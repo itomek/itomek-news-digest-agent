@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     schedule_weekly_hour: int = 22
     schedule_weekly_minute: int = 0
 
+    # Perplexity API — source-curator web discovery (issue #98)
+    perplexity_api_key: str = ""  # PERPLEXITY_API_KEY (gitignored .env only)
+    perplexity_model: str = "sonar"  # PERPLEXITY_MODEL
+
+    # Source-curator daily schedule (UTC)
+    schedule_curator_hour: int = 4  # SCHEDULE_CURATOR_HOUR
+    schedule_curator_minute: int = 0  # SCHEDULE_CURATOR_MINUTE
+
     @field_validator("supabase_url", "supabase_anon_key", "supabase_service_key")
     @classmethod
     def must_be_non_empty(cls, v: str) -> str:

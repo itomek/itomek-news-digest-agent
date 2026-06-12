@@ -1,7 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isAuthenticatedAtRequiredLevel, signOut } from "../lib/auth";
-import { fetchSourceHealth } from "../lib/supabase";
-import type { SourceHealth } from "../lib/types";
+import {
+  approveSourceCandidate,
+  fetchSourceCandidates,
+  fetchSourceHealth,
+  rejectSourceCandidate,
+} from "../lib/supabase";
+import type { SourceCandidate, SourceHealth } from "../lib/types";
 import { renderAuthGate } from "../views/auth-gate";
 
 // Issue #20 — Source health page at `#/source-health`.
@@ -60,6 +65,26 @@ export function partitionByHealth(rows: SourceHealth[]): {
   return { stale, healthy };
 }
 
+// --- Pure helpers for SourceCandidate (unit-tested) --------------------------
+
+/** Format a relevance score as a percent string, or "N/A". */
+export function formatRelevance(score: number | null): string {
+  if (score === null) return "N/A";
+  return `${Math.round(score * 100)}%`;
+}
+
+/** Derive a short "why" string from candidate fields. */
+export function candidateWhy(candidate: SourceCandidate): string {
+  const fc = candidate.failure_class;
+  const val = candidate.validation;
+  if (fc === "dead") return "Source appears dead (DNS/404/410)";
+  if (fc === "blocked") return "Source blocked our bot UA";
+  if (val && typeof val === "object" && "item_count" in val) {
+    return `Validated: ${String(val["item_count"])} items`;
+  }
+  return "Discovered via web search";
+}
+
 // --- DOM rendering -----------------------------------------------------------
 
 function renderSourceTable(
@@ -112,6 +137,115 @@ function renderSourceTable(
     tdLastErr.textContent = row.last_error ?? "—";
     tr.appendChild(tdLastErr);
 
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  return wrap;
+}
+
+function renderCandidatesTable(
+  candidates: SourceCandidate[],
+  client: SupabaseClient,
+  onDecision: () => void,
+): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "logs-table-wrap";
+
+  if (candidates.length === 0) {
+    const p = document.createElement("p");
+    p.className = "empty-state";
+    p.textContent = "No pending candidates.";
+    wrap.appendChild(p);
+    return wrap;
+  }
+
+  const table = document.createElement("table");
+  table.className = "logs-table agg-table";
+  table.setAttribute("data-testid", "source-candidates-table");
+
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  for (const label of ["Topic", "Candidate URL", "Replaces", "Relevance", "Why", "Actions"]) {
+    const th = document.createElement("th");
+    th.textContent = label;
+    headRow.appendChild(th);
+  }
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  for (const cand of candidates) {
+    const tr = document.createElement("tr");
+    tr.setAttribute("data-testid", "source-candidate-row");
+    tr.setAttribute("data-id", cand.id);
+
+    const tdTopic = document.createElement("td");
+    tdTopic.textContent = cand.topic_slug;
+    tr.appendChild(tdTopic);
+
+    const tdUrl = document.createElement("td");
+    tdUrl.className = "agg-source-url";
+    tdUrl.textContent = cand.url;
+    tr.appendChild(tdUrl);
+
+    const tdReplaces = document.createElement("td");
+    tdReplaces.className = "agg-source-url";
+    tdReplaces.textContent = cand.replaces_url ?? "—";
+    tr.appendChild(tdReplaces);
+
+    const tdRelevance = document.createElement("td");
+    tdRelevance.textContent = formatRelevance(cand.relevance_score);
+    tr.appendChild(tdRelevance);
+
+    const tdWhy = document.createElement("td");
+    tdWhy.textContent = candidateWhy(cand);
+    tr.appendChild(tdWhy);
+
+    const tdActions = document.createElement("td");
+
+    const approveBtn = document.createElement("button");
+    approveBtn.type = "button";
+    approveBtn.textContent = "Approve";
+    approveBtn.setAttribute("data-testid", "approve-btn");
+    approveBtn.addEventListener("click", () => {
+      void (async () => {
+        const err = await approveSourceCandidate(client, cand.id);
+        if (err) {
+          const errSpan = document.createElement("span");
+          errSpan.className = "error-state";
+          errSpan.textContent = err;
+          tdActions.appendChild(errSpan);
+        } else {
+          tr.remove();
+          onDecision();
+        }
+      })();
+    });
+    tdActions.appendChild(approveBtn);
+
+    const rejectBtn = document.createElement("button");
+    rejectBtn.type = "button";
+    rejectBtn.textContent = "Reject";
+    rejectBtn.setAttribute("data-testid", "reject-btn");
+    rejectBtn.style.marginLeft = "0.5rem";
+    rejectBtn.addEventListener("click", () => {
+      void (async () => {
+        const err = await rejectSourceCandidate(client, cand.id);
+        if (err) {
+          const errSpan = document.createElement("span");
+          errSpan.className = "error-state";
+          errSpan.textContent = err;
+          tdActions.appendChild(errSpan);
+        } else {
+          tr.remove();
+          onDecision();
+        }
+      })();
+    });
+    tdActions.appendChild(rejectBtn);
+
+    tr.appendChild(tdActions);
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
@@ -180,7 +314,10 @@ export async function renderSourceHealthPage(
   root.appendChild(main);
 
   try {
-    const rows = await fetchSourceHealth(client);
+    const [rows, candidates] = await Promise.all([
+      fetchSourceHealth(client),
+      fetchSourceCandidates(client),
+    ]);
     main.replaceChildren();
 
     if (rows.length === 0) {
@@ -231,6 +368,32 @@ export async function renderSourceHealthPage(
     note.className = "agg-note";
     note.textContent = "Data from mv_source_health — refreshed hourly via pg_cron.";
     main.appendChild(note);
+
+    // Candidate sources section (additive — issue #98)
+    const candidateSection = document.createElement("section");
+    candidateSection.className = "agg-section";
+    const candidateHeading = document.createElement("h2");
+    candidateHeading.className = "agg-heading";
+    candidateHeading.textContent = candidates.length === 0
+      ? "Candidate sources — none pending"
+      : `Candidate sources (${candidates.length})`;
+    candidateSection.appendChild(candidateHeading);
+
+    const candidateNote = document.createElement("p");
+    candidateNote.className = "agg-note";
+    candidateNote.textContent =
+      "Discovered by the autonomous curator. Approve to add to the topic, Reject to discard.";
+    candidateSection.appendChild(candidateNote);
+
+    const updateHeading = () => {
+      const remaining = candidateSection.querySelectorAll("[data-testid='source-candidate-row']").length;
+      candidateHeading.textContent = remaining === 0
+        ? "Candidate sources — none pending"
+        : `Candidate sources (${remaining})`;
+    };
+
+    candidateSection.appendChild(renderCandidatesTable(candidates, client, updateHeading));
+    main.appendChild(candidateSection);
   } catch (err) {
     main.replaceChildren();
     const msg = document.createElement("p");

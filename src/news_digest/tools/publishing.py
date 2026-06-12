@@ -29,6 +29,17 @@ _CONFIG_CACHE_TTL: float = 300.0  # 5 minutes (issue #8)
 _config_cache: dict[str, tuple[float, dict]] = {}
 
 
+def _enabled_sources(sources: list | None) -> list:
+    """Return sources with enabled==false filtered out. Absent enabled ⇒ enabled."""
+    if not sources:
+        return sources or []
+    return [
+        s
+        for s in sources
+        if not (isinstance(s, dict) and s.get("enabled", True) is False)
+    ]
+
+
 def _now() -> float:
     """Monotonic clock seam so tests can drive cache expiry deterministically."""
     return time.monotonic()
@@ -61,7 +72,9 @@ def fetch_topic_config(slug: str) -> dict:
     """
     cached = _config_cache.get(slug)
     if cached is not None and (_now() - cached[0]) < _CONFIG_CACHE_TTL:
-        return dict(cached[1])  # copy so callers can't mutate the cached row
+        result = dict(cached[1])
+        result["sources"] = _enabled_sources(result.get("sources"))
+        return result
 
     try:
         resp = (
@@ -102,7 +115,9 @@ def fetch_topic_config(slug: str) -> dict:
         topic_slug=slug,
         metadata={"slug": slug, "enabled": config.get("enabled")},
     )
-    return dict(config)
+    result = dict(config)
+    result["sources"] = _enabled_sources(result.get("sources"))
+    return result
 
 
 @tool

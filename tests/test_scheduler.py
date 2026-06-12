@@ -432,7 +432,7 @@ def test_signal_handler_logs_and_shuts_down_cleanly(monkeypatch, log_calls):
     assert any("SIGTERM" in a[2] for (a, _) in schedule_logs)
 
 
-def test_main_survives_startup_run_cycle_failure(monkeypatch, log_calls):
+def test_main_survives_startup_run_cycle_failure(monkeypatch, log_calls, valid_env):
     """A crash in the synchronous startup run_cycle must not kill the daemon.
 
     The startup call runs outside APScheduler's executor protection; an
@@ -450,6 +450,7 @@ def test_main_survives_startup_run_cycle_failure(monkeypatch, log_calls):
         "run_cycle",
         MagicMock(side_effect=RuntimeError("lemonade down at boot")),
     )
+    monkeypatch.setattr(sched_module, "run_curator_cycle", MagicMock())
 
     sched_main()
 
@@ -458,7 +459,7 @@ def test_main_survives_startup_run_cycle_failure(monkeypatch, log_calls):
     assert any("startup run_cycle failed" in a[2] for a in errors)
 
 
-def test_main_registers_interval_job_with_max_instances_one(monkeypatch):
+def test_main_registers_interval_job_with_max_instances_one(monkeypatch, valid_env):
     """main() adds the 15-minute interval job with max_instances=1."""
     fake_scheduler = MagicMock()
     monkeypatch.setattr(
@@ -466,13 +467,17 @@ def test_main_registers_interval_job_with_max_instances_one(monkeypatch):
     )
     monkeypatch.setattr(sched_module, "_install_signal_handlers", lambda s: None)
     monkeypatch.setattr(sched_module, "run_cycle", MagicMock())
+    monkeypatch.setattr(sched_module, "run_curator_cycle", MagicMock())
 
     sched_main()
 
-    fake_scheduler.add_job.assert_called_once()
-    _, kwargs = fake_scheduler.add_job.call_args
-    assert kwargs["minutes"] == 15
-    assert kwargs["max_instances"] == 1
+    # Two jobs: digest_cycle (interval) + source_curator (cron)
+    assert fake_scheduler.add_job.call_count == 2
+    calls = fake_scheduler.add_job.call_args_list
+    # First call should be digest_cycle interval job
+    _, kwargs0 = calls[0]
+    assert kwargs0["minutes"] == 15
+    assert kwargs0["max_instances"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -793,3 +798,48 @@ def test_signal_handler_sets_shutdown_event(monkeypatch, log_calls):
     registered[signal.SIGTERM](signal.SIGTERM, None)
     assert fresh_event.is_set()
     scheduler.shutdown.assert_called_once_with(wait=True)
+
+
+# ---------------------------------------------------------------------------
+# source_curator job registration (issue #98)
+# ---------------------------------------------------------------------------
+
+
+def test_source_curator_job_registered(monkeypatch, valid_env):
+    """The 'source_curator' cron job must be registered in main()."""
+    registered_jobs = []
+
+    scheduler_mock = MagicMock()
+
+    def capture_add_job(func, trigger, **kwargs):
+        registered_jobs.append({"func": func, "trigger": trigger, **kwargs})
+        return MagicMock()
+
+    scheduler_mock.add_job.side_effect = capture_add_job
+
+    # Prevent actual blocking call and signal handler installation
+    scheduler_mock.start.return_value = None
+    scheduler_mock.shutdown.return_value = None
+
+    monkeypatch.setattr(sched_module, "BlockingScheduler", lambda **kw: scheduler_mock)
+    monkeypatch.setattr(sched_module, "_install_signal_handlers", lambda s: None)
+
+    # Prevent run_cycle from running at startup
+    monkeypatch.setattr(sched_module, "run_cycle", lambda: None)
+    monkeypatch.setattr(sched_module, "run_curator_cycle", lambda: None)
+    # Prevent scheduler.start() from blocking
+    scheduler_mock.start.side_effect = KeyboardInterrupt
+
+    try:
+        sched_main()
+    except KeyboardInterrupt:
+        pass
+
+    job_ids = [j.get("id") for j in registered_jobs]
+    assert "source_curator" in job_ids, (
+        f"source_curator not in registered jobs: {job_ids}"
+    )
+
+    curator_job = next(j for j in registered_jobs if j.get("id") == "source_curator")
+    assert curator_job["trigger"] == "cron"
+    assert curator_job["max_instances"] == 1

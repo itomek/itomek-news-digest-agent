@@ -5,13 +5,22 @@ kill-switch behaviour, per-topic failure isolation, and cycle logging are all
 tested by calling ``run_cycle`` and the helper functions directly.
 """
 
+import signal
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from news_digest import scheduler as sched_module
-from news_digest.scheduler import _is_topic_due, _parse_cadence, run_cycle
+from news_digest.scheduler import (
+    _install_signal_handlers,
+    _is_topic_due,
+    _parse_cadence,
+    run_cycle,
+)
+from news_digest.scheduler import (
+    main as sched_main,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -132,11 +141,17 @@ def test_is_due_unknown_cadence_returns_false(_patch_last_date, log_calls):
     assert "warn" in levels
 
 
-def test_is_due_bad_last_date_format_treats_as_due(_patch_last_date):
-    """Malformed last_date string is treated conservatively as due."""
+def test_is_due_bad_last_date_format_warns_and_skips(_patch_last_date, log_calls):
+    """Malformed last_date is a bug signal: warn and skip, never treat as due.
+
+    Treating it as due would re-trigger the LLM every 15 minutes for as long
+    as the bad value persists.
+    """
     _patch_last_date("not-a-date")
     topic = {"slug": "ai_models", "cadence": "24h"}
-    assert _is_topic_due(topic, _NOW) is True
+    assert _is_topic_due(topic, _NOW) is False
+    levels = [a[0] for (a, _) in log_calls]
+    assert "warn" in levels
 
 
 # ---------------------------------------------------------------------------
@@ -305,6 +320,8 @@ def test_supabase_fetch_failure_is_handled(monkeypatch, log_calls):
 # Multiple topics: only due ones are triggered
 def test_mixed_topics_only_due_ones_run(monkeypatch, log_calls):
     """With a mix of due and not-due topics, only the due ones are triggered."""
+    # Fixed "now" so the test never drifts with the real wall clock.
+    fixed_now = datetime(2026, 6, 11, 10, 0, 0, tzinfo=UTC)
 
     # ai_models: last digest yesterday → due
     # penguins: last digest 3 days ago with 7d cadence → not due
@@ -326,7 +343,12 @@ def test_mixed_topics_only_due_ones_run(monkeypatch, log_calls):
     client = _make_client(topics)
     agent = _make_agent()
 
-    with patch("news_digest.scheduler._client", return_value=client):
+    with (
+        patch("news_digest.scheduler._client", return_value=client),
+        patch("news_digest.scheduler.datetime") as mock_dt,
+    ):
+        mock_dt.now.return_value = fixed_now
+        mock_dt.side_effect = lambda *a, **k: datetime(*a, **k)
         run_cycle(agent=agent)
 
     assert agent.generate_and_publish.call_count == 1
@@ -346,3 +368,88 @@ def test_empty_topic_list_is_handled(monkeypatch, log_calls):
     agent.generate_and_publish.assert_not_called()
     infos = [a[2] for (a, _) in log_calls if a[0] == "info"]
     assert any("no topics" in m.lower() for m in infos)
+
+
+# ---------------------------------------------------------------------------
+# main() — clean shutdown and startup-cycle guard
+# ---------------------------------------------------------------------------
+
+
+def test_signal_handlers_installed_for_sigterm_and_sigint(monkeypatch):
+    """_install_signal_handlers registers handlers for SIGTERM and SIGINT."""
+    registered: dict[int, object] = {}
+    monkeypatch.setattr(
+        sched_module.signal,
+        "signal",
+        lambda signum, handler: registered.setdefault(signum, handler),
+    )
+
+    scheduler = MagicMock()
+    _install_signal_handlers(scheduler)
+
+    assert signal.SIGTERM in registered
+    assert signal.SIGINT in registered
+    # Both signals route to the same handler.
+    assert registered[signal.SIGTERM] is registered[signal.SIGINT]
+
+
+def test_signal_handler_logs_and_shuts_down_cleanly(monkeypatch, log_calls):
+    """The installed handler logs a schedule entry and calls shutdown(wait=True)."""
+    registered: dict[int, object] = {}
+    monkeypatch.setattr(
+        sched_module.signal,
+        "signal",
+        lambda signum, handler: registered.setdefault(signum, handler),
+    )
+
+    scheduler = MagicMock()
+    _install_signal_handlers(scheduler)
+
+    registered[signal.SIGTERM](signal.SIGTERM, None)
+
+    scheduler.shutdown.assert_called_once_with(wait=True)
+    schedule_logs = [(a, k) for (a, k) in log_calls if a[1] == "schedule"]
+    assert any("SIGTERM" in a[2] for (a, _) in schedule_logs)
+
+
+def test_main_survives_startup_run_cycle_failure(monkeypatch, log_calls):
+    """A crash in the synchronous startup run_cycle must not kill the daemon.
+
+    The startup call runs outside APScheduler's executor protection; an
+    exception there (e.g. agent init failing because Lemonade is down at boot)
+    must be logged and the process must still reach scheduler.start().
+    """
+    fake_scheduler = MagicMock()
+    monkeypatch.setattr(
+        sched_module, "BlockingScheduler", lambda *a, **k: fake_scheduler
+    )
+    # Don't install real handlers into the test process.
+    monkeypatch.setattr(sched_module, "_install_signal_handlers", lambda s: None)
+    monkeypatch.setattr(
+        sched_module,
+        "run_cycle",
+        MagicMock(side_effect=RuntimeError("lemonade down at boot")),
+    )
+
+    sched_main()
+
+    fake_scheduler.start.assert_called_once()
+    errors = [a for (a, _) in log_calls if a[0] == "error"]
+    assert any("startup run_cycle failed" in a[2] for a in errors)
+
+
+def test_main_registers_interval_job_with_max_instances_one(monkeypatch):
+    """main() adds the 15-minute interval job with max_instances=1."""
+    fake_scheduler = MagicMock()
+    monkeypatch.setattr(
+        sched_module, "BlockingScheduler", lambda *a, **k: fake_scheduler
+    )
+    monkeypatch.setattr(sched_module, "_install_signal_handlers", lambda s: None)
+    monkeypatch.setattr(sched_module, "run_cycle", MagicMock())
+
+    sched_main()
+
+    fake_scheduler.add_job.assert_called_once()
+    _, kwargs = fake_scheduler.add_job.call_args
+    assert kwargs["minutes"] == 15
+    assert kwargs["max_instances"] == 1

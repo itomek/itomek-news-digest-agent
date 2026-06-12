@@ -18,6 +18,7 @@ See §2.6, §4, and §5.5 of docs/architecture.md for the design spec.
 """
 
 import random
+import signal
 import time
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -102,14 +103,18 @@ def _is_topic_due(topic: dict[str, Any], now: datetime) -> bool:
     try:
         last_date: date = date.fromisoformat(last_date_str)
     except ValueError:
+        # A parse failure is a bug signal (digest_date is a Postgres date
+        # column, so this should never happen). Skip rather than treat as due:
+        # treating it as due would hammer the LLM every 15 minutes for as long
+        # as the bad value persists.
         log(
             "warn",
             "schedule",
-            f"_is_topic_due: bad last_date {last_date_str!r} for {slug!r}; treating as due",
+            f"_is_topic_due: bad last_date {last_date_str!r} for {slug!r}; skipping",
             topic_slug=slug,
             metadata={"slug": slug, "last_date": last_date_str},
         )
-        return True
+        return False
 
     # Compare last digest *date* (midnight UTC of that day) against now.
     last_datetime = datetime(last_date.year, last_date.month, last_date.day, tzinfo=UTC)
@@ -275,14 +280,44 @@ def _log_cycle_end(cycle_start: datetime, due_slugs: list[str]) -> None:
     )
 
 
+def _install_signal_handlers(scheduler: BlockingScheduler) -> None:
+    """Install SIGTERM/SIGINT handlers that shut the scheduler down cleanly.
+
+    ``systemctl stop`` sends SIGTERM; without a handler the process dies
+    mid-digest and systemd escalates to SIGKILL. The handler logs a
+    ``schedule`` entry and calls ``scheduler.shutdown(wait=True)``, which
+    waits for any in-flight job to finish and unblocks the
+    ``BlockingScheduler`` main loop so the process exits normally.
+
+    Args:
+        scheduler: The scheduler instance to shut down on signal.
+    """
+
+    def _handle(signum: int, frame: Any) -> None:
+        log(
+            "info",
+            "schedule",
+            f"received {signal.Signals(signum).name} — shutting down cleanly",
+            metadata={"signal": signal.Signals(signum).name},
+        )
+        scheduler.shutdown(wait=True)
+
+    signal.signal(signal.SIGTERM, _handle)
+    signal.signal(signal.SIGINT, _handle)
+
+
 def main() -> None:
     """Entry point for the scheduler daemon (runs via systemd).
 
     Starts a ``BlockingScheduler`` with a single interval job that calls
     ``run_cycle`` every 15 minutes.  Blocks the calling thread until the
-    process is terminated.
+    process receives SIGTERM/SIGINT, then shuts down cleanly (waiting for
+    any in-flight digest run to finish).
     """
     scheduler = BlockingScheduler(timezone="UTC")
+    # Overrun safety: APScheduler's default coalesce=True plus max_instances=1
+    # self-throttles when a cycle (jitter + LLM runs) overruns the 15-minute
+    # tick — missed ticks collapse into one and never run concurrently.
     scheduler.add_job(
         run_cycle,
         "interval",
@@ -292,6 +327,8 @@ def main() -> None:
         replace_existing=True,
     )
 
+    _install_signal_handlers(scheduler)
+
     log(
         "info",
         "schedule",
@@ -300,8 +337,19 @@ def main() -> None:
     )
 
     # Fire one cycle immediately at startup so the first digest is not delayed
-    # up to 15 minutes when the daemon (re-)starts.
-    run_cycle()
+    # up to 15 minutes when the daemon (re-)starts. This call runs outside
+    # APScheduler's executor protection, so guard it: an exception here (e.g.
+    # NewsDigestAgent() init failing because Lemonade is down at boot) must not
+    # kill the daemon before scheduler.start() — the next tick retries.
+    try:
+        run_cycle()
+    except Exception as exc:  # noqa: BLE001 — startup must reach scheduler.start()
+        log(
+            "error",
+            "schedule",
+            f"startup run_cycle failed: {exc.__class__.__name__}: {exc}",
+            metadata={"error": str(exc), "exc_type": exc.__class__.__name__},
+        )
 
     scheduler.start()
 

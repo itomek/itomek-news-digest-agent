@@ -25,6 +25,8 @@ from typing import Any
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 
+from news_digest.config import get_settings
+from news_digest.curator import run_curator_cycle
 from news_digest.logging import log
 from news_digest.tools.publishing import get_last_digest_date
 from supabase import Client
@@ -464,6 +466,17 @@ def main() -> None:
         "interval",
         minutes=_TICK_MINUTES,
         id="digest_cycle",
+        max_instances=1,
+        replace_existing=True,
+    )
+
+    _curator_settings = get_settings()
+    scheduler.add_job(
+        run_curator_cycle,
+        "cron",
+        hour=_curator_settings.schedule_curator_hour,
+        minute=_curator_settings.schedule_curator_minute,
+        id="source_curator",
         max_instances=1,
         replace_existing=True,
     )

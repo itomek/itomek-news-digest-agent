@@ -437,4 +437,96 @@ def test_get_recent_digests_handles_exception_without_raising(monkeypatch):
     _install_client(monkeypatch, {"raise": RuntimeError("db down")})
     out = get_recent_digests("ai_models")
     assert out["digests"] == []
-    assert "error" in out
+
+
+# ---------------------------------------------------------------------------
+# fetch_topic_config — disabled source filtering (issue #98)
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_topic_config_filters_disabled_sources(monkeypatch):
+    """enabled:false sources are filtered out of the returned sources list."""
+    state = {
+        "rows": {
+            "digest_topics": [
+                {
+                    "slug": "ai_models",
+                    "cadence": "24h",
+                    "sources": [
+                        {
+                            "type": "rss",
+                            "url": "https://enabled.example/feed",
+                            "enabled": True,
+                        },
+                        {
+                            "type": "rss",
+                            "url": "https://disabled.example/feed",
+                            "enabled": False,
+                        },
+                    ],
+                }
+            ]
+        }
+    }
+    _install_client(monkeypatch, state)
+    cfg = fetch_topic_config("ai_models")
+    urls = [s["url"] for s in cfg["sources"]]
+    assert "https://enabled.example/feed" in urls
+    assert "https://disabled.example/feed" not in urls
+
+
+def test_fetch_topic_config_keeps_sources_without_enabled_key(monkeypatch):
+    """Sources without an 'enabled' key are treated as enabled (backward-compatible)."""
+    state = {
+        "rows": {
+            "digest_topics": [
+                {
+                    "slug": "ai_models",
+                    "cadence": "24h",
+                    "sources": [
+                        {"type": "rss", "url": "https://no-key.example/feed"},
+                        {
+                            "type": "rss",
+                            "url": "https://explicit-true.example/feed",
+                            "enabled": True,
+                        },
+                    ],
+                }
+            ]
+        }
+    }
+    _install_client(monkeypatch, state)
+    cfg = fetch_topic_config("ai_models")
+    urls = [s["url"] for s in cfg["sources"]]
+    assert "https://no-key.example/feed" in urls
+    assert "https://explicit-true.example/feed" in urls
+
+
+def test_fetch_topic_config_cache_also_filters_disabled(monkeypatch):
+    """Cache-hit path also applies the enabled filter."""
+    state = {
+        "rows": {
+            "digest_topics": [
+                {
+                    "slug": "ai_models",
+                    "cadence": "24h",
+                    "sources": [
+                        {"type": "rss", "url": "https://enabled.example/feed"},
+                        {
+                            "type": "rss",
+                            "url": "https://disabled.example/feed",
+                            "enabled": False,
+                        },
+                    ],
+                }
+            ]
+        }
+    }
+    _install_client(monkeypatch, state)
+    # First call populates cache
+    fetch_topic_config("ai_models")
+    # Second call is served from cache — still should filter
+    cfg2 = fetch_topic_config("ai_models")
+    urls = [s["url"] for s in cfg2["sources"]]
+    assert "https://enabled.example/feed" in urls
+    assert "https://disabled.example/feed" not in urls

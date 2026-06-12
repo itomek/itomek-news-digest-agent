@@ -2,15 +2,22 @@ import { groupDigestsByTopicAndDate } from "../lib/group";
 import type { Digest, Topic } from "../lib/types";
 import { renderDigestCard } from "./digest-card";
 
+// timeZone: "UTC" is required. digest_date is a calendar date (YYYY-MM-DD) with
+// no time-of-day or zone meaning. We build the Date at UTC midnight, so we must
+// also format it in UTC — otherwise Intl renders it in the viewer's local zone
+// and any viewer west of UTC sees the heading shift back a day (e.g. 2026-06-12
+// displayed as "Thu, Jun 11" in US Eastern). Must match the raw digest_date the
+// History view prints.
 const dateFmt = new Intl.DateTimeFormat(undefined, {
   weekday: "short",
   month: "short",
   day: "numeric",
   year: "numeric",
+  timeZone: "UTC",
 });
 
-function formatDate(iso: string): string {
-  // iso is YYYY-MM-DD; render in local-neutral form without TZ shifting.
+/** Format a YYYY-MM-DD calendar date for display, always in UTC (see dateFmt). */
+export function formatDate(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);
   if (!y || !m || !d) return iso;
   return dateFmt.format(new Date(Date.UTC(y, m - 1, d)));

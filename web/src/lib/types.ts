@@ -89,6 +89,21 @@ export interface ErrorsPerDay {
   error_count: number;
 }
 
+/** One row from source_candidates (pending/approved/rejected). */
+export interface SourceCandidate {
+  id: string;
+  topic_slug: string;
+  url: string;
+  type: string;
+  replaces_url: string | null;
+  failure_class: string | null;
+  relevance_score: number | null;
+  validation: Record<string, unknown> | null;
+  status: string;
+  created_at: string;
+  decided_at: string | null;
+}
+
 /** One row from v_source_success_rate or mv_source_health. */
 export interface SourceHealth {
   source_url: string;

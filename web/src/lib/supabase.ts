@@ -13,6 +13,7 @@ import type {
   ErrorsPerDay,
   MissedDigest,
   RunDuration,
+  SourceCandidate,
   SourceHealth,
   SystemLog,
   TokenUsageDay,
@@ -225,4 +226,35 @@ export async function fetchMissedDigests(
     .order("topic_slug", { ascending: true });
   if (error) throw error;
   return (data ?? []) as unknown as MissedDigest[];
+}
+
+/** Fetch pending source candidate rows (awaiting human approval). */
+export async function fetchSourceCandidates(
+  client: SupabaseClient,
+): Promise<SourceCandidate[]> {
+  const { data, error } = await client
+    .from("source_candidates")
+    .select("id, topic_slug, url, type, replaces_url, failure_class, relevance_score, validation, status, created_at, decided_at")
+    .eq("status", "pending")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as unknown as SourceCandidate[];
+}
+
+/** Approve a pending source candidate via the security-definer RPC. */
+export async function approveSourceCandidate(
+  client: SupabaseClient,
+  id: string,
+): Promise<string | null> {
+  const { error } = await client.rpc("approve_source_candidate", { candidate_id: id });
+  return error?.message ?? null;
+}
+
+/** Reject a pending source candidate via the security-definer RPC. */
+export async function rejectSourceCandidate(
+  client: SupabaseClient,
+  id: string,
+): Promise<string | null> {
+  const { error } = await client.rpc("reject_source_candidate", { candidate_id: id });
+  return error?.message ?? null;
 }

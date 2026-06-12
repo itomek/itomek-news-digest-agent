@@ -24,6 +24,7 @@ from news_digest.curator import (
     RELEVANCE_CANDIDATE,
     STALE_HOURS,
     STALE_SUCCESS_PCT,
+    FailingSource,
     add_source,
     build_failing_sources,
     classify_failure,
@@ -465,8 +466,9 @@ class TestAddSource:
             "replaces": "https://old.example/feed",
             "discovered_at": NOW.isoformat(),
         }
-        add_source(topic, new_obj, client)
+        ok = add_source(topic, new_obj, client)
 
+        assert ok is True
         assert len(update_calls) == 1
         updated_sources = update_calls[0]["sources"]
         urls = [s["url"] for s in updated_sources]
@@ -475,6 +477,32 @@ class TestAddSource:
             s for s in updated_sources if s["url"] == "https://new.example/feed"
         )
         assert added.get("added_by") == "curator"
+
+    def test_returns_false_when_write_fails(self):
+        """A failed Supabase write returns False (caller must be able to tell)."""
+        topic = {
+            "slug": "ai_models",
+            "sources": [{"type": "rss", "url": "https://old.example/feed"}],
+        }
+
+        chain = MagicMock()
+        chain.select.return_value = chain
+        chain.eq.return_value = chain
+        chain.update.return_value = chain
+        # select().execute() returns the row; update().execute() raises.
+        select_resp = MagicMock()
+        select_resp.data = [dict(topic)]
+        chain.execute.side_effect = [select_resp, RuntimeError("supabase write error")]
+
+        client = MagicMock()
+        client.table.return_value = chain
+
+        ok = add_source(
+            topic,
+            {"type": "rss", "url": "https://new.example/feed", "added_by": "curator"},
+            client,
+        )
+        assert ok is False
 
 
 # ---------------------------------------------------------------------------
@@ -605,6 +633,117 @@ class TestRunCuratorCycleHappyPath:
         assert result["detected"] >= 1
         assert result["processed"] >= 1
         get_settings.cache_clear()
+
+
+# ---------------------------------------------------------------------------
+# auto_use path — strand guard on a failed replacement write
+# ---------------------------------------------------------------------------
+
+
+class TestAutoUseStrandGuard:
+    def _setup_auto_use(self, monkeypatch, add_succeeds: bool):
+        """Wire up _process_failing_source for the auto_use branch.
+
+        Returns (fs, client, summary, quarantine_calls, add_calls).
+        add_source is stubbed to return add_succeeds; quarantine_source is
+        stubbed to record whether it was invoked.
+        """
+        stale_url = "https://stale.amd.com/feed"
+        new_url = "https://new.example.com/rss"
+        topic = {
+            "slug": "ai_models",
+            "name": "AI Models",
+            "cadence": "24h",
+            "sources": [{"type": "rss", "url": stale_url}],
+        }
+        fs = FailingSource(
+            topic=topic,
+            source_obj=topic["sources"][0],
+            url=stale_url,
+            type="rss",
+            health_row=_make_health_row(source_url=stale_url),
+            error="Connection reset",
+        )
+
+        client = MagicMock()
+
+        # LLM: craft query + judge high relevance → auto_use tier
+        monkeypatch.setattr(curator, "_llm_complete", lambda messages: "0.95")
+        monkeypatch.setattr(
+            curator,
+            "_web_search",
+            lambda *a, **kw: [
+                {"url": new_url, "title": "New AI RSS", "date": "2026-06-01"}
+            ],
+        )
+        # Validation passes (good RSS feed, recent items)
+        good_items = [
+            {
+                "title": f"Item {i}",
+                "url": f"{new_url}/{i}",
+                "published": NOW.isoformat(),
+            }
+            for i in range(MIN_FEED_ENTRIES + 1)
+        ]
+        monkeypatch.setattr(curator, "_fetch_rss", lambda url, **kw: good_items)
+
+        quarantine_calls = []
+        add_calls = []
+
+        def fake_quarantine(*a, **kw):
+            quarantine_calls.append((a, kw))
+
+        def fake_add(topic_arg, new_obj, client_arg):
+            add_calls.append(new_obj)
+            return add_succeeds
+
+        monkeypatch.setattr(curator, "quarantine_source", fake_quarantine)
+        monkeypatch.setattr(curator, "add_source", fake_add)
+
+        summary = {
+            "detected": 1,
+            "processed": 0,
+            "auto_added": 0,
+            "candidates_created": 0,
+            "rejected": 0,
+            "alerts": [],
+        }
+        return fs, client, summary, quarantine_calls, add_calls
+
+    def test_add_failure_does_not_quarantine_and_warns(self, monkeypatch, mock_log):
+        """When add_source fails in auto_use, the failing source stays enabled.
+
+        No quarantine, auto_added unchanged, and a warn is logged.
+        """
+        fs, client, summary, quarantine_calls, add_calls = self._setup_auto_use(
+            monkeypatch, add_succeeds=False
+        )
+
+        curator._process_failing_source(fs, client, NOW, summary, 0, [fs.topic])
+
+        # add was attempted, but the failing source was NOT quarantined
+        assert len(add_calls) == 1
+        assert quarantine_calls == []
+        # auto_added must not have been incremented
+        assert summary["auto_added"] == 0
+        # a warning was logged about the failed replacement
+        warns = [(a, k) for (a, k) in mock_log.call_args_list if a and a[0] == "warn"]
+        assert any("replacement add failed" in a[2] for (a, k) in warns if len(a) >= 3)
+
+    def test_add_success_quarantines_and_increments(self, monkeypatch, mock_log):
+        """When add_source succeeds in auto_use, quarantine fires and auto_added++."""
+        fs, client, summary, quarantine_calls, add_calls = self._setup_auto_use(
+            monkeypatch, add_succeeds=True
+        )
+
+        curator._process_failing_source(fs, client, NOW, summary, 0, [fs.topic])
+
+        assert len(add_calls) == 1
+        assert len(quarantine_calls) == 1
+        # quarantine was called with adding_replacement=True
+        _, q_kwargs = quarantine_calls[0]
+        assert q_kwargs.get("adding_replacement") is True
+        assert summary["auto_added"] == 1
 
 
 # ---------------------------------------------------------------------------

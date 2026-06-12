@@ -532,8 +532,14 @@ def quarantine_source(
         log("warn", "curator", f"quarantine_source update failed for {url!r}: {exc}")
 
 
-def add_source(topic: dict, new_obj: dict, client) -> None:
-    """Append a new source object to a topic's sources array."""
+def add_source(topic: dict, new_obj: dict, client) -> bool:
+    """Append a new source object to a topic's sources array.
+
+    Returns True on a confirmed write, False on failure. The caller relies on
+    this signal to decide whether it is safe to quarantine the failing source
+    (never strand a topic by disabling its last source when the replacement
+    write did not land).
+    """
     slug = topic["slug"]
 
     # Re-read for freshness before appending
@@ -566,10 +572,12 @@ def add_source(topic: dict, new_obj: dict, client) -> None:
                 "replaces": new_obj.get("replaces"),
             },
         )
+        return True
     except Exception as exc:
         log(
             "warn", "curator", f"add_source update failed for {new_obj['url']!r}: {exc}"
         )
+        return False
 
 
 def insert_candidate(
@@ -847,7 +855,10 @@ def _process_failing_source(
     cand_type = best_validation.get("type") or "rss"
 
     if best_tier == "auto_use" and auto_added_count < MAX_AUTO_ADDS_PER_RUN:
-        # Auto-add: quarantine old + add new
+        # Auto-add: ADD the replacement FIRST, then quarantine the failing source
+        # only if the add actually landed. Quarantining first with the strand
+        # guard bypassed (adding_replacement=True) would strand the topic with
+        # zero enabled sources if the add write then failed.
         new_source = {
             "type": cand_type,
             "url": cand_url,
@@ -856,23 +867,41 @@ def _process_failing_source(
             "replaces": fs.url,
             "discovered_at": now.isoformat(),
         }
-        quarantine_source(
-            topic, fs.url, failure_class, now, client, adding_replacement=True
-        )
-        add_source(topic, new_source, client)
-        summary["auto_added"] += 1
-        log(
-            "info",
-            "curator",
-            f"auto-added {cand_url!r} as replacement for {fs.url!r} in topic {slug!r}",
-            topic_slug=slug,
-            metadata={
-                "source_url": cand_url,
-                "topic_slug": slug,
-                "action": "auto_add",
-                "replaces": fs.url,
-            },
-        )
+        if add_source(topic, new_source, client):
+            quarantine_source(
+                topic, fs.url, failure_class, now, client, adding_replacement=True
+            )
+            summary["auto_added"] += 1
+            log(
+                "info",
+                "curator",
+                f"auto-added {cand_url!r} as replacement for {fs.url!r} in topic {slug!r}",
+                topic_slug=slug,
+                metadata={
+                    "source_url": cand_url,
+                    "topic_slug": slug,
+                    "action": "auto_add",
+                    "replaces": fs.url,
+                },
+            )
+        else:
+            # Replacement write failed — keep the failing source enabled rather
+            # than strand the topic. Logged under category 'curator' so this run
+            # still counts toward the source's cooldown (treated like a no-op
+            # outcome, same as reject/no-candidate).
+            log(
+                "warn",
+                "curator",
+                f"replacement add failed for {fs.url!r}; leaving it enabled "
+                f"(not quarantining) to avoid stranding topic {slug!r}",
+                topic_slug=slug,
+                metadata={
+                    "source_url": fs.url,
+                    "topic_slug": slug,
+                    "action": "auto_add_failed",
+                    "candidate_url": cand_url,
+                },
+            )
     else:
         # Candidate: quarantine old (or leave it if strand risk) + insert pending candidate
         quarantine_source(

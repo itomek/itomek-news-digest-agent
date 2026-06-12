@@ -10,7 +10,6 @@ from news_digest.prompts import (
     enforce_length,
     extract_sentiment_tag,
     flatten_digest,
-    validate_sentiment_tag,
 )
 
 # ---------------------------------------------------------------------------
@@ -224,7 +223,7 @@ def test_system_prompt_instructs_final_answer_json_not_publish_tool():
 
 
 # ---------------------------------------------------------------------------
-# Sentiment helpers — issue #19 (world_news topic)
+# Per-item sentiment — issue #19 (world_news topic, metadata.sentiment contract)
 # ---------------------------------------------------------------------------
 
 
@@ -232,35 +231,40 @@ def test_sentiment_tags_contains_exactly_four_values():
     assert SENTIMENT_TAGS == {"positive", "negative", "neutral", "concerning"}
 
 
-def test_validate_sentiment_tag_accepts_all_valid_values():
-    for tag in ("positive", "negative", "neutral", "concerning"):
-        assert validate_sentiment_tag(tag), f"{tag!r} should be valid"
-
-
-def test_validate_sentiment_tag_rejects_unknown_values():
-    for bad in ("", "good", "bad", "POSITIVE", "Neutral", "risk"):
-        assert not validate_sentiment_tag(bad), f"{bad!r} should be invalid"
-
-
-def test_extract_sentiment_tag_returns_first_tag():
+def test_extract_sentiment_tag_reads_metadata_sentiment():
     item = {
         "headline": "Test",
         "blurb": "A thing.",
         "detail": "Details.",
         "metadata": {
             "sources": [],
-            "tags": ["concerning", "geopolitics"],
+            "sentiment": "concerning",
+            "tags": ["geopolitics"],
         },
     }
     assert extract_sentiment_tag(item) == "concerning"
 
 
-def test_extract_sentiment_tag_returns_none_when_no_tags():
-    item = {"headline": "Test", "metadata": {"sources": [], "tags": []}}
+def test_extract_sentiment_tag_accepts_all_four_values():
+    for tag in ("positive", "negative", "neutral", "concerning"):
+        item = {"headline": "T", "metadata": {"sentiment": tag}}
+        assert extract_sentiment_tag(item) == tag
+
+
+def test_extract_sentiment_tag_rejects_unknown_values():
+    for bad in ("", "good", "bad", "POSITIVE", "Neutral", "risk", 7, None):
+        item = {"headline": "T", "metadata": {"sentiment": bad}}
+        assert extract_sentiment_tag(item) is None, f"{bad!r} should be rejected"
+
+
+def test_extract_sentiment_tag_ignores_tags_array():
+    # Sentiment lives in metadata.sentiment, NOT in tags[0] — a tags array
+    # containing a sentiment word must not be picked up.
+    item = {"headline": "T", "metadata": {"tags": ["concerning", "geopolitics"]}}
     assert extract_sentiment_tag(item) is None
 
 
-def test_extract_sentiment_tag_returns_none_when_tags_key_absent():
+def test_extract_sentiment_tag_returns_none_when_sentiment_key_absent():
     item = {"headline": "Test", "metadata": {"sources": []}}
     assert extract_sentiment_tag(item) is None
 
@@ -338,6 +342,21 @@ def test_world_news_migration_instructs_english_output():
     world_news_file = next(migrations.glob("*world_news*"))
     content = world_news_file.read_text()
     assert "english" in content.lower() or "English" in content
+
+
+def test_world_news_migration_instructs_metadata_sentiment_key():
+    """The prompt_hint must instruct the LLM to emit metadata.sentiment (a
+    dedicated key, not tags[0]) with the four canonical values."""
+    import pathlib
+
+    migrations = pathlib.Path(__file__).parent.parent / "supabase" / "migrations"
+    world_news_file = next(migrations.glob("*world_news*"))
+    content = world_news_file.read_text()
+    assert '"sentiment"' in content
+    for tag in SENTIMENT_TAGS:
+        assert tag in content, f"sentiment value {tag!r} missing from prompt_hint"
+    # Must explicitly steer away from the tags-array encoding.
+    assert "Do not put sentiment in the tags array" in content
 
 
 def test_world_news_migration_lists_six_rss_sources():

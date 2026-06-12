@@ -292,6 +292,88 @@ describe("renderDigestCard — item headline element (issue #67)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Issue #19 — per-item sentiment badge (metadata.sentiment)
+// ---------------------------------------------------------------------------
+
+describe("renderDigestCard — sentiment badge (issue #19)", () => {
+  function makeSentimentItem(sentiment: unknown): DigestItem {
+    return {
+      headline: "World event",
+      blurb: "Something happened.",
+      detail: "Details about the event.",
+      metadata: {
+        sources: [{ title: "NYT", url: "https://nytimes.com/a" }],
+        sentiment: sentiment as string,
+      },
+    };
+  }
+
+  it.each(["positive", "negative", "neutral", "concerning"])(
+    "renders a badge for valid sentiment %s",
+    (sentiment) => {
+      const digest = makeDigest({ summary: "S.", items: [makeSentimentItem(sentiment)] });
+      const card = renderDigestCard(digest);
+      document.body.appendChild(card);
+      const badge = card.querySelector(".item-sentiment");
+      expect(badge).not.toBeNull();
+      expect(badge!.textContent).toBe(sentiment);
+      expect(badge!.classList.contains(`item-sentiment--${sentiment}`)).toBe(true);
+    },
+  );
+
+  it("renders the badge inside the item's <summary> header", () => {
+    const digest = makeDigest({ summary: "S.", items: [makeSentimentItem("concerning")] });
+    const card = renderDigestCard(digest);
+    document.body.appendChild(card);
+    const badge = card.querySelector("details.digest-item > summary .item-sentiment");
+    expect(badge).not.toBeNull();
+  });
+
+  it.each(["", "good", "POSITIVE", "Neutral", "<script>alert(1)</script>", 42, null])(
+    "does not render a badge for invalid sentiment %s",
+    (bad) => {
+      const digest = makeDigest({ summary: "S.", items: [makeSentimentItem(bad)] });
+      const card = renderDigestCard(digest);
+      document.body.appendChild(card);
+      expect(card.querySelector(".item-sentiment")).toBeNull();
+    },
+  );
+
+  it("does not render a badge when sentiment key is absent", () => {
+    const digest = makeDigest({ summary: "S.", items: sampleItems });
+    const card = renderDigestCard(digest);
+    document.body.appendChild(card);
+    expect(card.querySelector(".item-sentiment")).toBeNull();
+  });
+
+  it("does not pick up sentiment words from the tags array", () => {
+    const item: DigestItem = {
+      headline: "Tagged item",
+      blurb: "Blurb.",
+      detail: "Detail.",
+      metadata: { sources: [], tags: ["concerning", "geopolitics"] },
+    };
+    const digest = makeDigest({ summary: "S.", items: [item] });
+    const card = renderDigestCard(digest);
+    document.body.appendChild(card);
+    expect(card.querySelector(".item-sentiment")).toBeNull();
+  });
+
+  it("renders injected markup as inert text, never as HTML (XSS guard)", () => {
+    // Even though invalid values are filtered, verify the badge path uses
+    // textContent semantics by checking no script element can appear.
+    const digest = makeDigest({
+      summary: "S.",
+      items: [makeSentimentItem("<img src=x onerror=alert(1)>")],
+    });
+    const card = renderDigestCard(digest);
+    document.body.appendChild(card);
+    expect(card.querySelector("img")).toBeNull();
+    expect(card.querySelector("script")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // TTS playback slot preserved in both modes (issue #11 contract)
 // ---------------------------------------------------------------------------
 

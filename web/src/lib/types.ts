@@ -14,6 +14,11 @@ export interface DigestItem {
   metadata?: {
     sources?: DigestItemSource[];
     tags?: string[];
+    /** Per-item sentiment (world_news topic, issue #19): one of
+     *  "positive" | "negative" | "neutral" | "concerning".
+     *  Typed as string because the value is LLM-generated — the renderer
+     *  validates against the allowed set before displaying a badge. */
+    sentiment?: string;
   };
 }
 

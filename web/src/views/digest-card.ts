@@ -1,24 +1,42 @@
 import type { Digest, DigestItem } from "../lib/types";
 
-// Renders a single digest. Includes an explicit, documented mount point for
-// playback controls.
+// Renders a single digest. Includes explicit, documented mount points for
+// playback and feedback controls.
 //
 // #11 (TTS) mounts TTS controls into the `.playback-slot` element below WITHOUT
 // editing this file's core: it provides a `mountPlaybackControls` hook that this
 // renderer invokes against the slot. The slot carries `data-digest-id` so #11 can
 // wire per-digest playback.
 //
+// #22 (feedback) mounts feedback controls into the `.feedback-slot` element
+// via a parallel `registerFeedbackSlotMounter` hook. Item-flag buttons are
+// injected into each `.digest-item` via a `registerItemFlagMounter` hook.
+//
 // Rendering modes (issue #58):
 //   Structured: digest.items?.length > 0  →  summary + one <details> per item
 //   Fallback:   items null/empty           →  <p class="digest-body"> from content
 
 export type MountPlaybackControls = (slotEl: HTMLElement, digest: Digest) => void;
+export type MountFeedbackSlot = (slotEl: HTMLElement, digest: Digest) => void;
+export type MountItemFlags = (card: HTMLElement, digest: Digest) => void;
 
 let playbackMounter: MountPlaybackControls | null = null;
+let feedbackSlotMounter: MountFeedbackSlot | null = null;
+let itemFlagMounter: MountItemFlags | null = null;
 
 /** #11 calls this once at boot to register its playback UI. */
 export function registerPlaybackControls(fn: MountPlaybackControls): void {
   playbackMounter = fn;
+}
+
+/** #22 calls this once at boot to register feedback panel UI. */
+export function registerFeedbackSlotMounter(fn: MountFeedbackSlot): void {
+  feedbackSlotMounter = fn;
+}
+
+/** #22 calls this once at boot to register per-item flag buttons. */
+export function registerItemFlagMounter(fn: MountItemFlags): void {
+  itemFlagMounter = fn;
 }
 
 /**
@@ -169,10 +187,10 @@ export function renderDigestCard(digest: Digest): HTMLElement {
 
   // #11 mounts TTS controls into .playback-slot — always present regardless of
   // rendering mode. TTS reads digest.content (flat prose), never the structured fields.
-  const slot = document.createElement("div");
-  slot.className = "playback-slot";
-  slot.setAttribute("data-digest-id", digest.id);
-  card.appendChild(slot);
+  const playbackSlot = document.createElement("div");
+  playbackSlot.className = "playback-slot";
+  playbackSlot.setAttribute("data-digest-id", digest.id);
+  card.appendChild(playbackSlot);
 
   const hasStructuredItems = (digest.items?.length ?? 0) > 0;
   if (hasStructuredItems) {
@@ -181,8 +199,23 @@ export function renderDigestCard(digest: Digest): HTMLElement {
     renderFallback(card, digest);
   }
 
+  // #22 mounts per-item flag buttons into each .digest-item after rendering.
+  if (itemFlagMounter) {
+    itemFlagMounter(card, digest);
+  }
+
+  // #22 mounts the feedback panel into .feedback-slot.
+  const feedbackSlot = document.createElement("div");
+  feedbackSlot.className = "feedback-slot";
+  feedbackSlot.setAttribute("data-digest-id", digest.id);
+  card.appendChild(feedbackSlot);
+
   if (playbackMounter) {
-    playbackMounter(slot, digest);
+    playbackMounter(playbackSlot, digest);
+  }
+
+  if (feedbackSlotMounter) {
+    feedbackSlotMounter(feedbackSlot, digest);
   }
 
   return card;

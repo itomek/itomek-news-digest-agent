@@ -1,8 +1,12 @@
 """Tests for structured run logging and error recovery — issue #15.
 
 Covers the three failure modes required by the DoD:
-  1. Supabase down during publish → falls back to SQLite, drain on next run.
+  1. Supabase down during publish → falls back to SQLite, drained into Supabase
+     at the start of the next generate_and_publish run.
   2. Lemonade down → topic logged under summarize/error, skipped, no crash.
+     Detection is grounded in an empirical probe against a closed port (see
+     OBSERVED_CONNECTION_REFUSED_ENTRY) and guards against GAIA's mixed
+     string/dict error_history.
   3. Scrape flake then success → tenacity retries, exactly one log entry.
 
 These tests monkeypatch network boundaries (Supabase client, httpx transport,
@@ -116,18 +120,26 @@ def test_supabase_down_drain_idempotent(valid_env):
 # Failure mode 2: Lemonade down → topic skipped, summarize/error logged
 # ---------------------------------------------------------------------------
 
+# The exact error_history entry GAIA produced on a refused connection, observed
+# by running process_query against a closed port (LEMONADE_BASE_URL=
+# http://127.0.0.1:9). NOTE the tag is 'llm_error', NOT 'llm_connection_error':
+# the requests-based Lemonade stack never raises builtin ConnectionError, so a
+# real outage lands in GAIA's generic exception handler.
+OBSERVED_CONNECTION_REFUSED_ENTRY = {
+    "step": 1,
+    "error": (
+        "HTTPConnectionPool(host='127.0.0.1', port=9): Max retries exceeded "
+        "with url: /api/v1/chat/completions (Caused by NewConnectionError("
+        "\"HTTPConnection(host='127.0.0.1', port=9): Failed to establish a "
+        'new connection: [Errno 61] Connection refused"))'
+    ),
+    "type": "llm_error",
+}
 
-def test_lemonade_down_logs_error_and_returns_failure(valid_env, monkeypatch):
-    """When process_query records an llm_connection_error, generate_and_publish
-    must log category=summarize/level=error and return success=False without
-    crashing or attempting to publish."""
-    # Import here to avoid GAIA agent construction at module level.
-    from news_digest import agent as nd_agent
 
-    # Construct a minimal fake agent without network calls.
-    fake_agent = MagicMock(spec=nd_agent.NewsDigestAgent)
-    fake_agent.model_id = "test-model"
-    fake_agent.process_query.return_value = {
+def _process_query_result(error_history: list) -> dict:
+    """Build a minimal failed process_query result with the given error_history."""
+    return {
         "status": "failed",
         "result": "",
         "conversation": [],
@@ -136,70 +148,200 @@ def test_lemonade_down_logs_error_and_returns_failure(valid_env, monkeypatch):
         "input_tokens": 0,
         "output_tokens": 0,
         "total_tokens": 0,
-        "error_count": 1,
-        "error_history": [
-            {
-                "step": 1,
-                "error": "LLM Server Connection Failed (streaming): connection refused",
-                "type": "llm_connection_error",
-            }
-        ],
+        "error_count": len(error_history),
+        "error_history": error_history,
     }
 
-    logged_calls: list[dict] = []
 
-    def _capture_log(level, category, message, topic_slug=None, metadata=None):
-        logged_calls.append(
-            {
-                "level": level,
-                "category": category,
-                "message": message,
-                "metadata": metadata,
-            }
-        )
+def _run_generate_and_publish(monkeypatch, process_query_result, capture_logs=None):
+    """Drive NewsDigestAgent.generate_and_publish with a mocked self/process_query.
 
-    monkeypatch.setattr(nd_agent, "log", _capture_log)
+    Calls the real unbound method so the detection + logging + publish wiring is
+    exercised; only the network boundaries (process_query, log, publish) are
+    replaced.
+    """
+    from news_digest import agent as nd_agent
+
+    fake_agent = MagicMock()
+    fake_agent.model_id = "test-model"
+    fake_agent.process_query.return_value = process_query_result
+
+    if capture_logs is not None:
+
+        def _capture_log(level, category, message, topic_slug=None, metadata=None):
+            capture_logs.append(
+                {
+                    "level": level,
+                    "category": category,
+                    "message": message,
+                    "metadata": metadata,
+                }
+            )
+
+        monkeypatch.setattr(nd_agent, "log", _capture_log)
+    else:
+        monkeypatch.setattr(nd_agent, "log", MagicMock())
+
+    publish_mock = MagicMock(return_value={"success": True, "id": "fake-id"})
+    monkeypatch.setattr(nd_agent, "_publish_from_result", publish_mock)
 
     result = nd_agent.NewsDigestAgent.generate_and_publish(
         fake_agent, "Generate ai_models digest for today"
     )
+    return result, publish_mock
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        # Observed empirically: connection refused → generic 'llm_error' tag.
+        OBSERVED_CONNECTION_REFUSED_ENTRY,
+        # Builtin ConnectionError path (kept for completeness).
+        {
+            "step": 1,
+            "error": "LLM Server Connection Failed: connection reset",
+            "type": "llm_connection_error",
+        },
+        # Streaming path with openai.APIConnectionError's message shape.
+        {"step": 1, "error": "Connection error.", "type": "llm_streaming_error"},
+    ],
+    ids=["observed_llm_error", "llm_connection_error", "streaming_apiconnerror"],
+)
+def test_lemonade_down_logs_error_and_returns_failure(valid_env, monkeypatch, entry):
+    """A connection-level LLM failure must log summarize/error and return
+    success=False without crashing or attempting to publish."""
+    logged: list[dict] = []
+    result, publish_mock = _run_generate_and_publish(
+        monkeypatch, _process_query_result([entry]), capture_logs=logged
+    )
 
     assert result == {"success": False, "error": "lemonade_down"}
-    assert len(logged_calls) == 1
-    call = logged_calls[0]
+    publish_mock.assert_not_called()
+    summarize_logs = [c for c in logged if c["category"] == "summarize"]
+    assert len(summarize_logs) == 1
+    call = summarize_logs[0]
     assert call["level"] == "error"
-    assert call["category"] == "summarize"
     assert "Lemonade" in call["message"] or "unreachable" in call["message"]
 
 
-def test_lemonade_down_does_not_call_publish(valid_env, monkeypatch):
-    """No push_to_supabase call should happen when Lemonade is unreachable."""
+def test_lemonade_down_detection_survives_mixed_error_history(valid_env, monkeypatch):
+    """GAIA's error_history mixes plain strings (tool/parse errors) with dicts.
+    Detection must not raise AttributeError on string entries and must still
+    find the connection failure among them."""
+    mixed_history = [
+        "Empty LLM response",  # gaia agent.py:890 — plain string
+        "Failed to parse tool_args JSON: Expecting value: line 1",  # string
+        OBSERVED_CONNECTION_REFUSED_ENTRY,  # the real outage entry
+        "ConnectError: connection refused",  # tool error str(e) — string
+    ]
+
+    result, publish_mock = _run_generate_and_publish(
+        monkeypatch, _process_query_result(mixed_history)
+    )
+
+    assert result == {"success": False, "error": "lemonade_down"}
+    publish_mock.assert_not_called()
+
+
+def test_all_string_error_history_does_not_crash_or_skip(valid_env, monkeypatch):
+    """An error_history of only strings (tool errors) is not a Lemonade outage:
+    no AttributeError, and the run proceeds to publish."""
+    result, publish_mock = _run_generate_and_publish(
+        monkeypatch,
+        _process_query_result(["Empty LLM response", "tool boom"]),
+    )
+
+    publish_mock.assert_called_once()
+    assert result == {"success": True, "id": "fake-id"}
+
+
+def test_ordinary_llm_error_is_not_classified_as_lemonade_down(valid_env, monkeypatch):
+    """A generic llm_error without connection-level markers (e.g. a mid-run
+    model failure) must NOT skip the topic — publish still runs."""
+    entry = {
+        "step": 2,
+        "error": "Invalid response format: expected JSON object",
+        "type": "llm_error",
+    }
+    result, publish_mock = _run_generate_and_publish(
+        monkeypatch, _process_query_result([entry])
+    )
+
+    publish_mock.assert_called_once()
+    assert result == {"success": True, "id": "fake-id"}
+
+
+def test_is_lemonade_down_handles_none_and_empty():
+    from news_digest.agent import _is_lemonade_down
+
+    assert _is_lemonade_down(None) is False
+    assert _is_lemonade_down([]) is False
+
+
+# ---------------------------------------------------------------------------
+# Recovery: fallback rows drained at the start of the next run
+# ---------------------------------------------------------------------------
+
+
+def test_generate_and_publish_drains_fallback_on_next_run(valid_env, monkeypatch):
+    """A log row stranded in SQLite during a Supabase outage must be drained to
+    Supabase by the next generate_and_publish run once Supabase is reachable."""
     from news_digest import agent as nd_agent
 
-    fake_agent = MagicMock(spec=nd_agent.NewsDigestAgent)
+    # Phase 1: Supabase down — a publish-failure log lands in the fallback DB.
+    with patch(
+        "news_digest.logging.create_client", side_effect=Exception("supabase down")
+    ):
+        nd_logging.log("error", "publish", "upsert failed during outage")
+
+    db = nd_logging._get_fallback_db()
+    assert (
+        len(db.execute("SELECT id FROM system_logs WHERE synced_at IS NULL").fetchall())
+        == 1
+    )
+
+    # Phase 2: Supabase back up — the next run drains the stranded row.
+    fake_agent = MagicMock()
     fake_agent.model_id = "test-model"
-    fake_agent.process_query.return_value = {
-        "status": "failed",
-        "result": "",
-        "conversation": [],
-        "steps_taken": 0,
-        "duration": 0.1,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "total_tokens": 0,
-        "error_count": 1,
-        "error_history": [
-            {"step": 0, "error": "conn refused", "type": "llm_connection_error"}
-        ],
-    }
+    fake_agent.process_query.return_value = _process_query_result([])
+    fake_agent.process_query.return_value["status"] = "success"
 
     monkeypatch.setattr(nd_agent, "log", MagicMock())
-    publish_mock = MagicMock()
-    monkeypatch.setattr(nd_agent, "_publish_from_result", publish_mock)
+    monkeypatch.setattr(
+        nd_agent, "_publish_from_result", MagicMock(return_value={"success": True})
+    )
 
-    nd_agent.NewsDigestAgent.generate_and_publish(fake_agent, "Generate digest")
+    mock_client = _mock_supabase_client()
+    with patch("news_digest.logging.create_client", return_value=mock_client):
+        nd_agent.NewsDigestAgent.generate_and_publish(fake_agent, "Generate digest")
 
-    publish_mock.assert_not_called()
+    # The stranded row was upserted to Supabase and marked synced locally.
+    mock_client.table.assert_called_with("system_logs")
+    assert (
+        len(db.execute("SELECT id FROM system_logs WHERE synced_at IS NULL").fetchall())
+        == 0
+    )
+
+
+def test_generate_and_publish_survives_drain_failure(valid_env, monkeypatch):
+    """A broken fallback DB (disk error) must never block the run."""
+    from news_digest import agent as nd_agent
+
+    monkeypatch.setattr(
+        nd_agent, "drain_fallback", MagicMock(side_effect=OSError("disk full"))
+    )
+    monkeypatch.setattr(nd_agent, "log", MagicMock())
+    monkeypatch.setattr(
+        nd_agent, "_publish_from_result", MagicMock(return_value={"success": True})
+    )
+
+    fake_agent = MagicMock()
+    fake_agent.model_id = "test-model"
+    fake_agent.process_query.return_value = _process_query_result([])
+
+    result = nd_agent.NewsDigestAgent.generate_and_publish(fake_agent, "Generate")
+
+    assert result == {"success": True}
 
 
 # ---------------------------------------------------------------------------

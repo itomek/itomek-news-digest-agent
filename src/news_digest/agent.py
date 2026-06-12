@@ -17,7 +17,7 @@ from gaia.database import DatabaseMixin
 from gaia.llm.lemonade_client import LemonadeClient
 
 from news_digest.config import get_settings
-from news_digest.logging import log
+from news_digest.logging import drain_fallback, log
 from news_digest.prompts import SYSTEM_PROMPT
 
 # Importing the tool modules registers their @tool functions into GAIA's global
@@ -30,6 +30,60 @@ from news_digest.tools.publishing import push_to_supabase
 # exceeds n_ctx and the completion is rejected). The digest models support up to
 # 131072; 32768 leaves ample headroom for a multi-source run.
 _HEAVY_CTX_SIZE = 32768
+
+# Substrings (lowercase) that mark an LLM-call failure as connection-level, i.e.
+# Lemonade is unreachable rather than misbehaving mid-generation. Grounded in an
+# empirical probe against a closed port (LEMONADE_BASE_URL=http://127.0.0.1:9),
+# where GAIA recorded:
+#   {'step': 1, 'error': "HTTPConnectionPool(host='127.0.0.1', port=9): Max
+#    retries exceeded with url: /api/v1/chat/completions (Caused by
+#    NewConnectionError(... Failed to establish a new connection: [Errno 61]
+#    Connection refused))", 'type': 'llm_error'}
+# "connection error" additionally covers openai.APIConnectionError, whose str()
+# is "Connection error." on the openai-client path. Timeouts are deliberately
+# excluded: a slow generation is not an outage.
+_CONNECTION_FAILURE_MARKERS = (
+    "connection refused",
+    "connection error",
+    "apiconnectionerror",
+    "failed to establish a new connection",
+    "cannot connect to host",
+)
+
+
+def _is_lemonade_down(error_history: list[Any] | None) -> bool:
+    """Decide whether a process_query failure means Lemonade is unreachable.
+
+    GAIA's ``error_history`` is a MIXED list: tool/parse errors are appended as
+    plain strings, while failed LLM calls are dicts with a ``type`` tag (see
+    gaia/agents/base/agent.py). Non-dict entries are skipped — they are never
+    LLM connection failures.
+
+    Dict tags: ``llm_connection_error`` fires only on builtin ConnectionError,
+    which the requests/openai-based Lemonade stack never raises; a real outage
+    lands in the generic handlers as ``llm_error`` (non-streaming, observed
+    empirically) or ``llm_streaming_error`` (streaming). For those two tags the
+    error message must additionally look connection-level — ordinary
+    mid-generation LLM errors (bad JSON, empty response) must not be classified
+    as an outage.
+
+    Args:
+        error_history: The ``error_history`` list from a process_query result.
+
+    Returns:
+        True when the history shows a connection-level LLM failure.
+    """
+    for entry in error_history or []:
+        if not isinstance(entry, dict):
+            continue
+        etype = entry.get("type")
+        if etype == "llm_connection_error":
+            return True
+        if etype in ("llm_error", "llm_streaming_error"):
+            message = str(entry.get("error", "")).lower()
+            if any(marker in message for marker in _CONNECTION_FAILURE_MARKERS):
+                return True
+    return False
 
 
 def _strip_code_fences(text: str) -> str:
@@ -238,10 +292,13 @@ class NewsDigestAgent(Agent, DatabaseMixin):
         "assemble structured digest" step, kept in Python because local models do
         not reliably emit a final publish tool call.
 
-        Logs a ``summarize`` entry after process_query returns, covering: model,
-        token counts (from GAIA's aggregated stats), duration, and status. When
-        Lemonade is unreachable (``llm_connection_error`` in error_history) the
-        topic is logged and skipped without crashing the process.
+        Starts by draining any log rows stranded in the SQLite fallback from
+        earlier Supabase outages (best-effort — a drain failure never blocks the
+        run). Logs a ``summarize`` entry after process_query returns, covering:
+        model, token counts (from GAIA's aggregated stats), duration, and
+        status. When Lemonade is unreachable (connection-level LLM failure in
+        error_history, see ``_is_lemonade_down``) the topic is logged and
+        skipped without crashing the process.
 
         Token counts come from GAIA's per-step conversation stats aggregation.
         Zero means the streaming backend did not report them for this run.
@@ -254,15 +311,25 @@ class NewsDigestAgent(Agent, DatabaseMixin):
             The push_to_supabase result dict on success, or
             ``{"success": False, "error": <reason>}`` on any failure. Never raises.
         """
+        # Ship logs accumulated in the SQLite fallback while Supabase was down.
+        # Best-effort: drain_fallback() itself swallows Supabase errors, but the
+        # fallback DB open can still fail (disk) — never let that break a run.
+        try:
+            drained = drain_fallback()
+            if drained:
+                log(
+                    "info",
+                    "system",
+                    f"drained {drained} fallback log row(s) to Supabase",
+                    metadata={"rows_drained": drained},
+                )
+        except Exception:  # noqa: BLE001 - recovery must never block the run
+            pass
+
         result = self.process_query(query)
 
-        # Detect Lemonade-down: GAIA records llm_connection_error in error_history.
-        # Log and skip so the scheduler can continue to the next topic.
-        lemonade_down = any(
-            e.get("type") == "llm_connection_error"
-            for e in (result.get("error_history") or [])
-        )
-        if lemonade_down:
+        # Detect Lemonade-down and skip the topic so the scheduler can continue.
+        if _is_lemonade_down(result.get("error_history")):
             log(
                 "error",
                 "summarize",

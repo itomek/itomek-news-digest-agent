@@ -5,12 +5,53 @@ import {
   signOut,
   validatePassword,
 } from "../lib/auth";
+import { isToday } from "../lib/dates";
 import { fetchDigests, fetchMissedDigests, fetchTopics } from "../lib/supabase";
-import type { MissedDigest } from "../lib/types";
+import type { Digest, MissedDigest } from "../lib/types";
 import { renderAuthGate } from "../views/auth-gate";
 import { renderDigestList } from "../views/digest-list";
 
 // Home page: auth gate for unauthenticated/AAL1 users, grouped digest list otherwise.
+
+// ── Digest filtering helpers (exported for unit tests) ───────────────────────
+
+/**
+ * No-news sentinel patterns produced by the LLM when there is nothing to report.
+ * This heuristic will be superseded by issue #91 (structured filler detection).
+ * We drop a digest whose content matches any of these patterns.
+ */
+const FILLER_STARTS = ["no new", "no significant", "nothing", "there were no"] as const;
+const FILLER_CONTAINS = ["were reported by curated sources", "no news"] as const;
+
+/**
+ * Return true if the digest has content worth showing on the home screen.
+ *
+ * Priority:
+ *  1. A non-empty `items` array → always publishable (structured content wins).
+ *  2. Otherwise fall back to `content`: keep if non-empty and not a no-news sentinel.
+ *
+ * NOTE: issue #91 will supersede the sentinel heuristic with a structured flag.
+ */
+export function isPublishableDigest(d: Digest): boolean {
+  if (Array.isArray(d.items) && d.items.length > 0) return true;
+
+  const text = d.content.trim();
+  if (!text) return false;
+
+  const lower = text.toLowerCase();
+  if (FILLER_STARTS.some((prefix) => lower.startsWith(prefix))) return false;
+  if (FILLER_CONTAINS.some((phrase) => lower.includes(phrase))) return false;
+
+  return true;
+}
+
+/**
+ * Filter `digests` to only those for today (America/New_York) that are publishable.
+ * Accepts an optional `now` for testability.
+ */
+export function filterTodayDigests(digests: readonly Digest[], now: Date = new Date()): Digest[] {
+  return digests.filter((d) => isToday(d.digest_date, now) && isPublishableDigest(d));
+}
 
 /** Minimal authenticated Account control: change the (initially temporary) password. */
 function renderAccount(client: SupabaseClient): HTMLElement {
@@ -132,11 +173,14 @@ export async function renderHome(root: HTMLElement, client: SupabaseClient): Pro
   try {
     // Fetch digests, topics, and missed-digest alerts in parallel.
     // Missed-digest fetch failure is non-fatal — banner simply won't appear.
-    const [digests, topics, missed] = await Promise.all([
+    const [allDigests, topics, missed] = await Promise.all([
       fetchDigests(client),
       fetchTopics(client),
       fetchMissedDigests(client).catch((): MissedDigest[] => []),
     ]);
+
+    // Show only today's publishable digests on the home screen. History has the full set.
+    const digests = filterTodayDigests(allDigests);
 
     main.replaceChildren();
 

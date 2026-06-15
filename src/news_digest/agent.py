@@ -86,6 +86,30 @@ def _is_lemonade_down(error_history: list[Any] | None) -> bool:
     return False
 
 
+def _is_llm_error_response(text: str) -> bool:
+    """Return True when *text* is a GAIA error-fallback string, not a digest.
+
+    GAIA wraps certain upstream LLM failures (e.g. HTTP 400 "2+ assistant
+    messages") into a user-facing apology string rather than raising.  These
+    strings must be classified as ``llm_error`` upstream failures, not as
+    ``parse_error`` (which would imply the model produced garbled JSON).
+
+    Conservative match (case-insensitive, on the stripped text):
+    - Starts with ``"sorry, i ran into an unexpected problem"``
+    - OR contains ``"error in chat completions"``
+
+    Args:
+        text: The stripped raw final-answer string from process_query.
+
+    Returns:
+        True when the text matches a known GAIA error-fallback pattern.
+    """
+    lowered = text.strip().lower()
+    return lowered.startswith("sorry, i ran into an unexpected problem") or (
+        "error in chat completions" in lowered
+    )
+
+
 def _strip_code_fences(text: str) -> str:
     """Strip leading/trailing markdown code fences from a model answer.
 
@@ -149,8 +173,19 @@ def _publish_from_result(result: dict[str, Any]) -> dict[str, Any]:
         )
         return {"success": False, "error": "no_answer"}
 
+    stripped = _strip_code_fences(raw)
+    if _is_llm_error_response(stripped):
+        log(
+            "error",
+            "publish",
+            "generate_and_publish: LLM returned an error response, not a digest"
+            " (upstream LLM failure)",
+            metadata={"raw": raw[:300]},
+        )
+        return {"success": False, "error": "llm_error"}
+
     try:
-        parsed = json.loads(_strip_code_fences(raw))
+        parsed = json.loads(stripped)
     except (ValueError, TypeError) as exc:
         log(
             "error",

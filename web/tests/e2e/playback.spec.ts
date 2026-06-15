@@ -5,6 +5,12 @@ import { LIVE_AUTH, LIVE_AUTH_SKIP, signInAal2 } from "./live-auth";
 // authenticated (AAL2) session — RLS gates reads to the `authenticated` role.
 test.skip(!LIVE_AUTH, LIVE_AUTH_SKIP);
 
+// These specs drive real audio over LIVE prod data, which is volatile (today-only
+// home, filler suppression, scheduler churn) → flaky as a CI gate. Run them
+// locally/manually; CI keeps the stable live READ specs. Audio-regression safety
+// is the tts-neural unit invariant + manual real-browser validation on changes.
+test.skip(!!process.env.CI, "playback behaviour specs are live-data-dependent; run locally, not in CI");
+
 // Stub the Web Speech API before any app code runs. Headless chromium emits no
 // audio, so we record speak/pause/cancel calls and let tests fire `onend` to
 // drive the queue. Records land on window.__tts.

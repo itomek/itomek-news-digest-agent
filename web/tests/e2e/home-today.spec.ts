@@ -47,10 +47,10 @@ test.describe("home today-only digest view (live authenticated reads)", () => {
     await expect(page.getByTestId("digest-content")).toBeVisible();
     await page.waitForSelector(".digest-list", { timeout: 15_000 });
 
-    const groups = page.locator(".topic-group");
+    const groups = page.locator(".date-group");
     const empty = page.locator(".empty-state");
 
-    // Either topic groups exist (today has digests) or the empty state shows.
+    // Either date groups exist (today has digests) or the empty state shows.
     const groupCount = await groups.count();
     const emptyCount = await empty.count();
     expect(groupCount + emptyCount).toBeGreaterThan(0);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   digestMeta,
+  excludeToday,
   filterDigests,
   generateFixtureDigests,
   parseHistoryState,
@@ -176,6 +177,34 @@ describe("withinLastDays", () => {
 
   it("returns an empty array unchanged", () => {
     expect(withinLastDays([], 7)).toEqual([]);
+  });
+});
+
+describe("excludeToday", () => {
+  // Pin "now" so isToday is deterministic: 2026-06-15 Eastern is the pinned today.
+  const pinnedNow = new Date("2026-06-15T12:00:00-04:00");
+
+  it("removes digests whose digest_date is today", () => {
+    const digests = [
+      digest({ topic_slug: "ai_models", digest_date: "2026-06-15" }), // today — excluded
+      digest({ topic_slug: "ai_models", digest_date: "2026-06-14" }), // yesterday — kept
+      digest({ topic_slug: "ai_models", digest_date: "2026-06-13" }), // 2 days ago — kept
+    ];
+    const out = excludeToday(digests, pinnedNow);
+    expect(out.map((d) => d.digest_date)).toEqual(["2026-06-14", "2026-06-13"]);
+  });
+
+  it("returns all digests when none are today", () => {
+    const digests = [
+      digest({ topic_slug: "ai_models", digest_date: "2026-06-14" }),
+      digest({ topic_slug: "ai_models", digest_date: "2026-06-13" }),
+    ];
+    const out = excludeToday(digests, pinnedNow);
+    expect(out).toHaveLength(2);
+  });
+
+  it("returns an empty array unchanged", () => {
+    expect(excludeToday([], pinnedNow)).toEqual([]);
   });
 });
 

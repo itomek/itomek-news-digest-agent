@@ -1,10 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isAuthenticatedAtRequiredLevel, signOut } from "../lib/auth";
-import { groupDigestsByTopicAndDate } from "../lib/group";
+import { appToday } from "../lib/dates";
+import { groupDigestsByDateAndTopic } from "../lib/group";
 import { fetchAllDigests, fetchTopics } from "../lib/supabase";
 import type { Digest, Topic } from "../lib/types";
 import { renderAuthGate } from "../views/auth-gate";
 import { renderDigestCard } from "../views/digest-card";
+import { formatDate } from "../views/digest-list";
 
 // Issue #12 — Digest history view and navigation.
 //
@@ -17,8 +19,14 @@ import { renderDigestCard } from "../views/digest-card";
 //
 // Filtering, searching and grouping are all client-side: the dataset is tiny
 // (~5 topics x 30 days = 150 rows), so server-side FTS is unnecessary.
-
-const DEFAULT_WINDOW_DAYS = 7;
+//
+// Issue #101 — History shows PREVIOUS days only (date-first grouping).
+// Today's digests live on Home. History excludes today via excludeToday() so
+// both views stay coherent regardless of how many days the backend retains.
+// We deliberately do NOT use a fixed window size here: the backend retention
+// contract (#102) is ≤3 calendar days (today + 2 prior), so History shows at
+// most 2 prior days. Applying a window filter on top of that would be redundant
+// and would silently hide data if retention ever increases.
 
 // --- Pure, DOM-free helpers (unit-tested) ----------------------------------
 
@@ -112,6 +120,16 @@ export function filterDigests(digests: readonly Digest[], state: HistoryState): 
   if (state.date) out = out.filter((d) => d.digest_date === state.date);
   out = searchDigests(out, state.q);
   return out;
+}
+
+/**
+ * Remove digests whose digest_date matches today in America/New_York.
+ * Accepts an optional `now` for testability; defaults to the current instant.
+ * Today's digests belong on the Home view, not in History.
+ */
+export function excludeToday(digests: readonly Digest[], now: Date = new Date()): Digest[] {
+  const today = appToday(now);
+  return digests.filter((d) => d.digest_date !== today);
 }
 
 /** Keep digests within N days of the newest digest's date (inclusive). */
@@ -222,7 +240,7 @@ function renderList(
   topics: readonly Topic[],
 ): void {
   container.replaceChildren();
-  const groups = groupDigestsByTopicAndDate(digests, topics);
+  const groups = groupDigestsByDateAndTopic(digests, topics);
 
   if (groups.length === 0) {
     const empty = document.createElement("p");
@@ -232,24 +250,25 @@ function renderList(
     return;
   }
 
-  for (const group of groups) {
+  for (const dateGroup of groups) {
     const section = document.createElement("section");
-    section.className = "topic-group";
-    section.setAttribute("data-topic-slug", group.slug);
+    section.className = "date-group";
+    section.setAttribute("data-date", dateGroup.date);
 
-    const heading = document.createElement("h2");
-    heading.className = "topic-heading";
-    heading.textContent = group.name;
-    section.appendChild(heading);
+    const dateHeading = document.createElement("h2");
+    dateHeading.className = "date-heading";
+    dateHeading.setAttribute("data-date", dateGroup.date);
+    dateHeading.textContent = formatDate(dateGroup.date);
+    section.appendChild(dateHeading);
 
-    for (const dateGroup of group.dates) {
-      const dateHeading = document.createElement("h3");
-      dateHeading.className = "date-heading";
-      dateHeading.setAttribute("data-date", dateGroup.date);
-      dateHeading.textContent = dateGroup.date;
-      section.appendChild(dateHeading);
+    for (const topicBucket of dateGroup.topics) {
+      const topicHeading = document.createElement("h3");
+      topicHeading.className = "topic-heading";
+      topicHeading.setAttribute("data-topic-slug", topicBucket.slug);
+      topicHeading.textContent = topicBucket.name;
+      section.appendChild(topicHeading);
 
-      for (const digest of dateGroup.digests) {
+      for (const digest of topicBucket.digests) {
         const card = renderDigestCard(digest);
         card.appendChild(metaLine(digestMeta(digest, topics)));
         section.appendChild(card);
@@ -400,10 +419,11 @@ export async function renderHistory(root: HTMLElement, client: SupabaseClient): 
   listContainer.setAttribute("data-testid", "history-list");
 
   const apply = (state: HistoryState) => {
-    // Default view: when no explicit filters, scope to the last 7 days.
-    const hasFilter = !!(state.topic || state.date || state.q.trim());
-    const scoped = hasFilter ? allDigests : withinLastDays(allDigests, DEFAULT_WINDOW_DAYS);
-    renderList(listContainer, filterDigests(scoped, state), topics);
+    // Always exclude today — today's digests belong on Home, not History.
+    // Explicit filters (topic/date/search) operate on the already-scoped set
+    // so users can't accidentally surface today's content via search either.
+    const withoutToday = excludeToday(allDigests);
+    renderList(listContainer, filterDigests(withoutToday, state), topics);
   };
 
   const onChange = (next: HistoryState) => {

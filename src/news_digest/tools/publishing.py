@@ -15,10 +15,10 @@ failure it logs and returns a failure/empty status so the agent loop continues.
 """
 
 import time
-from datetime import UTC, datetime
 
 from gaia.agents.base.tools import tool
 
+from news_digest.dates import app_today
 from news_digest.logging import log
 from news_digest.prompts import PROMPT_VERSION, flatten_digest
 from news_digest.supabase_client import get_client
@@ -201,7 +201,9 @@ def push_to_supabase(
         {'success': True, 'id': <row id>, 'digest_date': <iso date>} on success,
         or {'success': False, 'error': <reason>} on failure.
     """
-    digest_date = datetime.now(UTC).date().isoformat()
+    # Use the Eastern-canonical date (issue #102). UTC rows written before this
+    # deploy retain their UTC dates and will be purged within retention_days.
+    digest_date = app_today().isoformat()
 
     config = fetch_topic_config(topic_slug)
     cadence = config.get("cadence")

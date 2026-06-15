@@ -468,11 +468,12 @@ def test_main_registers_interval_job_with_max_instances_one(monkeypatch, valid_e
     monkeypatch.setattr(sched_module, "_install_signal_handlers", lambda s: None)
     monkeypatch.setattr(sched_module, "run_cycle", MagicMock())
     monkeypatch.setattr(sched_module, "run_curator_cycle", MagicMock())
+    monkeypatch.setattr(sched_module, "run_purge_cycle", MagicMock())
 
     sched_main()
 
-    # Two jobs: digest_cycle (interval) + source_curator (cron)
-    assert fake_scheduler.add_job.call_count == 2
+    # Three jobs: digest_cycle (interval) + source_curator (cron) + digest_retention (cron)
+    assert fake_scheduler.add_job.call_count == 3
     calls = fake_scheduler.add_job.call_args_list
     # First call should be digest_cycle interval job
     _, kwargs0 = calls[0]
@@ -486,8 +487,12 @@ def test_main_registers_interval_job_with_max_instances_one(monkeypatch, valid_e
 
 
 def test_is_published_today_returns_true_when_date_matches_today(monkeypatch):
-    """Returns True when last_date equals today's UTC date."""
-    today_iso = datetime.now(UTC).date().isoformat()
+    """Returns True when last_date equals today's Eastern date (issue #102)."""
+    from datetime import date
+
+    fixed_today = date(2026, 6, 15)
+    monkeypatch.setattr(sched_module, "app_today", lambda: fixed_today)
+    today_iso = fixed_today.isoformat()
     monkeypatch.setattr(
         sched_module,
         "get_last_digest_date",
@@ -497,10 +502,12 @@ def test_is_published_today_returns_true_when_date_matches_today(monkeypatch):
 
 
 def test_is_published_today_returns_false_when_date_is_yesterday(monkeypatch):
-    """Returns False when last_date is before today."""
-    from datetime import timedelta
+    """Returns False when last_date is before today's Eastern date."""
+    from datetime import date, timedelta
 
-    yesterday_iso = (datetime.now(UTC).date() - timedelta(days=1)).isoformat()
+    fixed_today = date(2026, 6, 15)
+    monkeypatch.setattr(sched_module, "app_today", lambda: fixed_today)
+    yesterday_iso = (fixed_today - timedelta(days=1)).isoformat()
     monkeypatch.setattr(
         sched_module,
         "get_last_digest_date",
@@ -805,10 +812,9 @@ def test_signal_handler_sets_shutdown_event(monkeypatch, log_calls):
 # ---------------------------------------------------------------------------
 
 
-def test_source_curator_job_registered(monkeypatch, valid_env):
-    """The 'source_curator' cron job must be registered in main()."""
+def _capture_jobs(monkeypatch, valid_env_fixture, sched_mod):
+    """Helper: register jobs via main() and return the list of captured jobs."""
     registered_jobs = []
-
     scheduler_mock = MagicMock()
 
     def capture_add_job(func, trigger, **kwargs):
@@ -816,24 +822,29 @@ def test_source_curator_job_registered(monkeypatch, valid_env):
         return MagicMock()
 
     scheduler_mock.add_job.side_effect = capture_add_job
-
-    # Prevent actual blocking call and signal handler installation
     scheduler_mock.start.return_value = None
     scheduler_mock.shutdown.return_value = None
 
-    monkeypatch.setattr(sched_module, "BlockingScheduler", lambda **kw: scheduler_mock)
-    monkeypatch.setattr(sched_module, "_install_signal_handlers", lambda s: None)
-
-    # Prevent run_cycle from running at startup
-    monkeypatch.setattr(sched_module, "run_cycle", lambda: None)
-    monkeypatch.setattr(sched_module, "run_curator_cycle", lambda: None)
-    # Prevent scheduler.start() from blocking
+    monkeypatch.setattr(sched_mod, "BlockingScheduler", lambda **kw: scheduler_mock)
+    monkeypatch.setattr(sched_mod, "_install_signal_handlers", lambda s: None)
+    monkeypatch.setattr(sched_mod, "run_cycle", lambda: None)
+    monkeypatch.setattr(sched_mod, "run_curator_cycle", lambda: None)
+    monkeypatch.setattr(sched_mod, "run_purge_cycle", lambda: None)
     scheduler_mock.start.side_effect = KeyboardInterrupt
 
     try:
-        sched_main()
+        from news_digest.scheduler import main as sched_main_fn
+
+        sched_main_fn()
     except KeyboardInterrupt:
         pass
+
+    return registered_jobs
+
+
+def test_source_curator_job_registered(monkeypatch, valid_env):
+    """The 'source_curator' cron job must be registered in main()."""
+    registered_jobs = _capture_jobs(monkeypatch, valid_env, sched_module)
 
     job_ids = [j.get("id") for j in registered_jobs]
     assert "source_curator" in job_ids, (
@@ -843,3 +854,21 @@ def test_source_curator_job_registered(monkeypatch, valid_env):
     curator_job = next(j for j in registered_jobs if j.get("id") == "source_curator")
     assert curator_job["trigger"] == "cron"
     assert curator_job["max_instances"] == 1
+
+
+def test_retention_job_registered(monkeypatch, valid_env):
+    """The 'digest_retention' cron job must be registered in main() (issue #102)."""
+    registered_jobs = _capture_jobs(monkeypatch, valid_env, sched_module)
+
+    job_ids = [j.get("id") for j in registered_jobs]
+    assert "digest_retention" in job_ids, (
+        f"digest_retention not in registered jobs: {job_ids}"
+    )
+
+    retention_job = next(
+        j for j in registered_jobs if j.get("id") == "digest_retention"
+    )
+    assert retention_job["trigger"] == "cron"
+    assert retention_job["max_instances"] == 1
+    # Default hour is 5 UTC (settings.schedule_retention_hour default)
+    assert retention_job["hour"] == 5

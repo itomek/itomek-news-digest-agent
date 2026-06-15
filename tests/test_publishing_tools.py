@@ -1,4 +1,4 @@
-"""Tests for src/news_digest/tools/publishing.py — issue #8, #58.
+"""Tests for src/news_digest/tools/publishing.py — issue #8, #58, #102.
 
 These use a lightweight fake Supabase client. Per the project's testing policy
 the real pass gate is the live-Supabase integration run on the host; these
@@ -6,7 +6,7 @@ mocked tests lock the logic (cache, upsert payload, None-handling, graceful
 failure) and are tracked against the real-world result.
 """
 
-from datetime import UTC, datetime
+from datetime import date
 from unittest.mock import MagicMock
 
 import pytest
@@ -19,6 +19,9 @@ from news_digest.tools.publishing import (
     list_topics,
     push_to_supabase,
 )
+
+# Fixed Eastern date used across push_to_supabase tests (issue #102).
+_FAKE_TODAY = date(2026, 6, 15)
 
 
 class FakeResp:
@@ -103,6 +106,17 @@ def _clear_cache():
     publishing._config_cache.clear()
     yield
     publishing._config_cache.clear()
+
+
+@pytest.fixture(autouse=True)
+def _patch_app_today(monkeypatch):
+    """Freeze app_today() to _FAKE_TODAY for all publishing tests (issue #102).
+
+    Prevents push_to_supabase from calling get_settings() which requires
+    Supabase env vars in the hermetic test environment, and makes the
+    digest_date assertions deterministic.
+    """
+    monkeypatch.setattr(publishing, "app_today", lambda: _FAKE_TODAY)
 
 
 def _install_client(monkeypatch, state):
@@ -245,7 +259,8 @@ def test_push_to_supabase_upserts_expected_row_and_returns_id(monkeypatch):
     assert row["token_count"] == 123
     assert row["cadence"] == "24h"
     assert row["prompt_version"] == publishing.PROMPT_VERSION
-    assert row["digest_date"] == datetime.now(UTC).date().isoformat()
+    # digest_date uses the Eastern-canonical date (issue #102), frozen to _FAKE_TODAY
+    assert row["digest_date"] == _FAKE_TODAY.isoformat()
 
 
 def test_push_to_supabase_explicit_content_is_honored(monkeypatch):
@@ -299,6 +314,40 @@ def test_push_to_supabase_handles_db_failure_gracefully(monkeypatch):
     )
     assert result["success"] is False
     assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# push_to_supabase — Eastern date stamping (issue #102)
+# ---------------------------------------------------------------------------
+
+
+def test_push_stamps_eastern_date_not_utc(monkeypatch):
+    """digest_date uses app_today() (Eastern), not datetime.now(UTC).date().
+
+    The autouse _patch_app_today fixture freezes app_today() to _FAKE_TODAY
+    (2026-06-15). We additionally patch it here to a different date to prove
+    it is the sole source — the UTC date from the real clock is irrelevant.
+    """
+    eastern_date = date(2026, 3, 10)  # a specific Eastern date for the test
+    monkeypatch.setattr(publishing, "app_today", lambda: eastern_date)
+
+    state = {"rows": {"digest_topics": [{"slug": "ai_models", "cadence": "24h"}]}}
+    _install_client(monkeypatch, state)
+
+    result = push_to_supabase(
+        "ai_models",
+        summary="Test digest.",
+        items=[],
+        sources_used=[],
+        token_count=0,
+    )
+
+    assert result["success"] is True
+    row = state["upserts"][-1]["row"]
+    assert row["digest_date"] == "2026-03-10", (
+        "push_to_supabase must stamp the Eastern date from app_today(), "
+        f"not the UTC date. Got: {row['digest_date']!r}"
+    )
 
 
 # ---------------------------------------------------------------------------

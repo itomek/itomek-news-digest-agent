@@ -16,6 +16,7 @@ Category = Literal[
     "hello_world",
     "system",
     "curator",
+    "retention",
 ]
 
 _fallback_db: sqlite3.Connection | None = None

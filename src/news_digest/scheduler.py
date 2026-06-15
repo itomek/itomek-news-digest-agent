@@ -27,7 +27,9 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 
 from news_digest.config import get_settings
 from news_digest.curator import run_curator_cycle
+from news_digest.dates import app_today
 from news_digest.logging import log
+from news_digest.retention import purge_old_digests
 from news_digest.tools.publishing import get_last_digest_date
 from supabase import Client
 
@@ -134,17 +136,17 @@ def _is_topic_due(topic: dict[str, Any], now: datetime) -> bool:
 
 
 def _is_published_today(slug: str) -> bool | None:
-    """Check whether a digest for *slug* has already been written today (UTC).
+    """Check whether a digest for *slug* has already been written today.
 
-    Compares the most recent digest date against today's UTC date, matching the
-    timezone used by ``push_to_supabase`` (``datetime.now(UTC).date()``).
+    Compares the most recent digest date against today's Eastern date, matching
+    the timezone used by ``push_to_supabase`` (``app_today()`` — issue #102).
 
     Args:
         slug: The topic slug to check.
 
     Returns:
-        True when a digest row exists for today's UTC date, False when it does
-        not, and None when verification is unavailable because the Supabase
+        True when a digest row exists for today's Eastern date, False when it
+        does not, and None when verification is unavailable because the Supabase
         read failed (``get_last_digest_date`` swallowed an exception and
         returned an ``error`` key). None lets the caller fall back to the
         run's own publish result instead of burning retries — three full 35B
@@ -160,7 +162,7 @@ def _is_published_today(slug: str) -> bool | None:
         last_date = date.fromisoformat(last_date_str)
     except ValueError:
         return False
-    return last_date == datetime.now(UTC).date()
+    return last_date == app_today()
 
 
 def _run_topic(topic: dict[str, Any], agent: Any) -> None:
@@ -449,6 +451,20 @@ def _install_signal_handlers(scheduler: BlockingScheduler) -> None:
     signal.signal(signal.SIGINT, _handle)
 
 
+def run_purge_cycle() -> None:
+    """Wrapper around ``purge_old_digests`` for use as an APScheduler job.
+
+    Logs the start of the purge run and delegates to ``purge_old_digests``,
+    which handles all errors internally and never raises.
+    """
+    log(
+        "info",
+        "retention",
+        "run_purge_cycle: starting daily digest retention purge",
+    )
+    purge_old_digests()
+
+
 def main() -> None:
     """Entry point for the scheduler daemon (runs via systemd).
 
@@ -470,13 +486,22 @@ def main() -> None:
         replace_existing=True,
     )
 
-    _curator_settings = get_settings()
+    _settings = get_settings()
     scheduler.add_job(
         run_curator_cycle,
         "cron",
-        hour=_curator_settings.schedule_curator_hour,
-        minute=_curator_settings.schedule_curator_minute,
+        hour=_settings.schedule_curator_hour,
+        minute=_settings.schedule_curator_minute,
         id="source_curator",
+        max_instances=1,
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        run_purge_cycle,
+        "cron",
+        hour=_settings.schedule_retention_hour,
+        minute=0,
+        id="digest_retention",
         max_instances=1,
         replace_existing=True,
     )
@@ -486,8 +511,13 @@ def main() -> None:
     log(
         "info",
         "schedule",
-        f"scheduler started — tick every {_TICK_MINUTES} minutes (UTC)",
-        metadata={"tick_minutes": _TICK_MINUTES},
+        f"scheduler started — tick every {_TICK_MINUTES} minutes (UTC); "
+        f"retention purge daily at {_settings.schedule_retention_hour:02d}:00 UTC",
+        metadata={
+            "tick_minutes": _TICK_MINUTES,
+            "retention_hour_utc": _settings.schedule_retention_hour,
+            "retention_days": _settings.retention_days,
+        },
     )
 
     # Fire one cycle immediately at startup so the first digest is not delayed

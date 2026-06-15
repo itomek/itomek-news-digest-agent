@@ -45,6 +45,343 @@ Design invariants:
 
 ---
 
+## §1.5 The local-first stack: GAIA + Lemonade + Strix Halo
+
+Everything that reasons about your news runs on one AMD workstation under your
+desk. No inference request, no article text, and no prompt ever leaves the
+machine. The only thing that crosses the network is the finished digest on its
+way to storage — and the logs that say it happened.
+
+That's not an accident of deployment; it's the whole point. Three layers make it
+work:
+
+- 🧠 **GAIA** — *the agent framework.* A GAIA `Agent` reasons over a topic, calls
+  `@tool` scrapers, reads what comes back, and decides when the digest is done.
+- ⚡ **Lemonade** — *the inference runtime.* GAIA talks to Lemonade Server over a
+  standard OpenAI-compatible API on `localhost`; it serves the model that writes
+  every summary.
+- 🔴 **Strix Halo** — *the silicon.* 128 GB unified memory lets a heavy model stay
+  resident across runs — no reload, no cloud.
+
+```mermaid
+flowchart TB
+    subgraph HOST["🔴 AMD Strix Halo workstation · Ubuntu 24.04 · 128 GB · 24/7"]
+        direction TB
+        G["🧠 GAIA — the agent<br/>reasons, calls @tool scrapers,<br/>decides when the digest is done"]
+        L["⚡ Lemonade Server — inference runtime<br/>OpenAI-compatible API on localhost<br/>writes every summary"]
+        S["🔴 Strix Halo silicon<br/>128 GB unified memory keeps a heavy<br/>model resident — no reload, no cloud"]
+        G ==>|"every completion"| L
+        L ==>|"tokens generated on"| S
+    end
+    HOST ==>|"only digests + logs leave the box"| SB[("Supabase")]
+    style HOST fill:#f6f8fa,stroke:#888
+    style G fill:#f3fff0,stroke:#393
+    style L fill:#fff7e6,stroke:#d80
+    style S fill:#ffecec,stroke:#d33
+```
+
+**What this buys you:** your reading habits and source list never become someone
+else's training data or telemetry; there's no per-token bill and no rate limit;
+and the round trip is a loopback call, not an internet hop. The cloud's only job
+is to hold the output — `digests` and `system_logs` in Supabase — so you can read
+the result from your phone.
+
+> Measured throughput — model id, tokens/sec, and per-digest wall-clock on this
+> host — belongs here once captured from a real run.
+> *(placeholder: run `python -m news_digest "…"` and record the actual numbers
+> rather than estimating.)*
+
+---
+
+## §1.6 🧠 Meet GAIA — the framework doing the thinking
+
+**GAIA is [AMD's open-source, local-first agent framework](https://github.com/amd/gaia).**
+It gives us the hard parts of an LLM agent — a planning loop, a tool registry,
+conversation/token accounting, and a client for local inference — so the app
+only has to supply *tools* and a *prompt*. We **build on GAIA, we don't fork it**:
+a pinned-revision [capability audit](gaia-audit.md) confirmed every primitive we
+rely on, with machine-checkable contract tests guarding the pin.
+
+### GAIA at a glance — the four primitives we compose
+
+| Primitive | What GAIA gives us | Where we use it |
+|---|---|---|
+| 🤖 **`Agent`** | The plan → act → reason loop, tool dispatch, and `process_query()` entry point | base class of [`NewsDigestAgent`](../src/news_digest/agent.py) |
+| 🔧 **`@tool`** | A decorator that registers a plain function into a global tool registry the model can call | [`fetch_rss` · `fetch_html` · `parse_article`](../src/news_digest/tools/scraping.py) |
+| 💾 **`DatabaseMixin`** | Drop-in SQLite helpers (`init_db`, `query`, `insert`…) for local state | mixed into the agent, [`init_db`](../src/news_digest/agent.py) |
+| ⚡ **`LemonadeClient`** | An OpenAI-style client for the **local** Lemonade runtime | model + context management, [`load_model`](../src/news_digest/agent.py) |
+
+### How the pieces compose — GAIA → Lemonade → Strix Halo
+
+Our code is small; GAIA is the engine underneath it, and the engine runs the
+model locally on AMD silicon. The same picture, top to bottom, is the whole
+local-inference story.
+
+```mermaid
+flowchart TB
+    subgraph OURS["📰 Our code · src/news_digest/"]
+        direction TB
+        AG["<b>NewsDigestAgent</b>"]
+        TOOLS["@tool scrapers<br/>fetch_rss · fetch_html · parse_article"]
+        PROMPT["SYSTEM_PROMPT<br/>(the digest 'job description')"]
+    end
+
+    subgraph GAIA["🧠 GAIA framework · amd-gaia"]
+        direction TB
+        BASE["<b>Agent</b><br/>plan / execute loop · tool registry"]
+        TOOLDEC["<b>@tool</b><br/>global registry"]
+        DBM["<b>DatabaseMixin</b><br/>SQLite helpers"]
+        LC["<b>LemonadeClient</b><br/>OpenAI-style client"]
+    end
+
+    subgraph LEM["⚡ Lemonade Server · localhost"]
+        direction TB
+        API["/api/v1/chat/completions<br/>OpenAI-compatible endpoint"]
+        MODEL["heavy 35B model<br/>pinned resident · 32k ctx"]
+        API --> MODEL
+    end
+
+    subgraph HW["🔴 AMD Strix Halo · the silicon"]
+        direction TB
+        GPU["Radeon GPU · llama.cpp / vulkan"]
+        MEM["128 GB unified memory<br/>(model stays loaded, no reload)"]
+        GPU --- MEM
+    end
+
+    AG ==>|"inherits"| BASE
+    AG ==>|"inherits"| DBM
+    TOOLS -->|"registered by"| TOOLDEC
+    BASE -->|"advertises tools to model"| TOOLDEC
+    AG -.->|"_get_system_prompt()"| PROMPT
+
+    BASE ==>|"every completion runs through"| LC
+    LC ==>|"HTTP · stays on localhost"| API
+    MODEL ==>|"tokens generated on"| GPU
+
+    style OURS fill:#eef6ff,stroke:#369
+    style GAIA fill:#f3fff0,stroke:#393
+    style LEM fill:#fff7e6,stroke:#d80
+    style HW fill:#ffecec,stroke:#d33
+    style AG fill:#fff,stroke:#369,stroke-width:2px
+    style BASE fill:#fff,stroke:#393,stroke-width:2px
+    style LC fill:#fff,stroke:#d80,stroke-width:2px
+    style MODEL fill:#fff,stroke:#d33,stroke-width:2px
+```
+
+### Inside one `process_query()` — GAIA's agent loop
+
+When we hand GAIA a topic, it runs its own **planner state machine**
+([audit §1.2](gaia-audit.md)): `STATE_PLANNING` → `STATE_EXECUTING_PLAN` /
+`STATE_DIRECT_EXECUTION` → `STATE_COMPLETION`, with `STATE_ERROR_RECOVERY` as the
+safety net. The model decides which tools to call and when the digest is finished
+— that reasoning *is* the summarizer (design invariant #1). Every "reason" step
+is a chat completion served by **Lemonade on the Strix Halo GPU**.
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    state "🗺️ Planning" as Planning
+    state "⚙️ Executing — the reasoning loop" as Executing {
+        direction LR
+        [*] --> CallTool
+        state "pick a @tool" as CallTool
+        state "scrape returns" as ReadResult
+        state "enough? what's missing?" as Reason
+        CallTool --> ReadResult
+        ReadResult --> Reason
+        Reason --> CallTool: need more sources
+        Reason --> [*]: digest assembled
+        note right of Reason
+            chat completion →
+            Lemonade on Strix Halo GPU
+        end note
+    }
+    state "✅ Completion" as Completion
+    state "🛟 Error recovery" as Recovery
+    [*] --> Planning: process_query(query)
+    Planning --> Executing: plan ready
+    Planning --> Completion: simple query (direct execution)
+    Executing --> Completion: final-answer JSON
+    Executing --> Recovery: tool / LLM error
+    Recovery --> Executing: recover & retry
+    Recovery --> Completion: degrade gracefully
+    Completion --> [*]: result dict
+```
+
+### What GAIA hands back — built-in observability
+
+`process_query()` doesn't just return text — it returns a result dict GAIA
+assembled with **per-run accounting we log on every digest**
+([agent.py](../src/news_digest/agent.py), the `summarize` log entry). That's how
+the dashboard knows token cost and latency per topic, for free:
+
+```mermaid
+flowchart LR
+    PQ["process_query()<br/>result dict"] --> R1["result · the digest JSON"]
+    PQ --> R2["input / output / total_tokens"]
+    PQ --> R3["duration · steps_taken"]
+    PQ --> R4["error_history · conversation"]
+    R2 --> LOG[("system_logs<br/>category=summarize")]
+    R3 --> LOG
+```
+
+### Tuning GAIA for *local* models — the honest part
+
+GAIA's defaults target hosted models; a resident **35B running locally** needs a
+firmer hand. Everything we adjust is a GAIA seam, set once in
+[`NewsDigestAgent.__init__`](../src/news_digest/agent.py):
+
+- 🎯 **`temperature = 0`** — local models emit malformed JSON far less often when
+  deterministic.
+- 📏 **`max_tokens = 4096`** — GAIA defaults to 512, which truncates a 5–7-item
+  digest mid-JSON.
+- 🧵 **`enable_thinking = False`** — the loaded chat models otherwise emit
+  "thinking" with empty content, which breaks GAIA's JSON-in-content tool
+  protocol.
+- 🪟 **32k context window** — pinned via `LemonadeClient.load_model(ctx_size=…)`
+  so a multi-source run doesn't overflow Lemonade's 4096 default.
+- 🐍 **Publish in Python, not via a tool call** — local models don't reliably emit
+  a final publish tool call, so GAIA produces the digest as its *final answer*
+  and `_publish_from_result` persists it deterministically.
+
+> The takeaway: GAIA does the orchestration, planning, and local-LLM plumbing; we
+> supply three scraper tools, one prompt, and a handful of local-model tuning
+> knobs. That's the whole agent.
+
+---
+
+## §1.7 Where GAIA is invoked — the call path
+
+A digest is one call into GAIA. Everything above it is plumbing; everything below
+it is the local model doing the reasoning. The chain from a scheduler tick down
+to the token generator on the AMD GPU:
+
+```mermaid
+flowchart TD
+    A["systemd: news-digest.service"] --> B["scheduler.main()<br/>BlockingScheduler, UTC"]
+    B -->|"every 15-min tick"| C["run_cycle()"]
+    C -->|"one due topic at a time"| D["_run_topic()"]
+    D --> E["agent.generate_and_publish(query)"]
+    E --> F["self.process_query(query)<br/>↞ THE GAIA hand-off"]
+
+    subgraph GAIA["🧠 GAIA agent loop — amd-gaia (in-process)"]
+        direction TB
+        G["plan → invoke @tool scrapers<br/>fetch_rss / fetch_html / parse_article"]
+        H["chat.send_messages()<br/>temperature=0 · max_tokens=4096"]
+        G --> H
+        H --> G
+    end
+
+    F --> G
+    H -->|"HTTP POST /api/v1/chat/completions"| I["⚡ Lemonade Server<br/>localhost · 🔴 Strix Halo GPU"]
+    I -->|"final-answer JSON (the digest)"| J["_publish_from_result()<br/>parse JSON, NOT an LLM tool call"]
+    J --> K[("Supabase · digests")]
+
+    style F fill:#f3fff0,stroke:#393,stroke-width:2px
+    style I fill:#ffecec,stroke:#d33,stroke-width:2px
+```
+
+The three places the model/GAIA boundary is crossed — each is one line in the
+codebase:
+
+| What | Where | Note |
+|---|---|---|
+| **GAIA entry point** | `self.process_query(query)` ([agent.py](../src/news_digest/agent.py)) | The *only* call that hands control to GAIA. One per topic run. |
+| **GAIA → Lemonade** | GAIA's `chat.send_messages()`, wrapped in `_force_no_thinking` | Every completion in the loop hits `LEMONADE_BASE_URL` over the OpenAI-compatible API. |
+| **Direct Lemonade call** | `LemonadeClient(...).load_model(ctx_size=32768)` | The one place we touch Lemonade directly — to pin a 32k context window so multi-source runs don't overflow the 4096 default. |
+
+The agent itself is `NewsDigestAgent(Agent, DatabaseMixin)` — exactly the two
+GAIA primitives composed.
+
+---
+
+## §1.8 How the timing works
+
+Two clocks run. A **15-minute tick** decides *whether* any topic is due; each
+topic's **cadence** (`24h` or `7d`) decides *when* it actually fires. Because the
+local model is the bottleneck, only one topic runs at a time
+(`max_instances=1`).
+
+```mermaid
+flowchart LR
+    T["⏱ Tick<br/>every 15 min"] --> Q{"For each topic:<br/>enabled?"}
+    Q -->|"no — kill switch"| SKIP1["skip, log"]
+    Q -->|"yes"| DUE{"now − last_digest<br/>≥ cadence?"}
+    DUE -->|"no"| SKIP2["not due, wait"]
+    DUE -->|"yes"| J["jitter 0–300s"]
+    J --> R["run topic<br/>max_instances=1"]
+    R --> V{"row landed<br/>in Supabase?"}
+    V -->|"yes"| DONE["✓ published"]
+    V -->|"no · lemonade_down"| STOP["stop — no retry<br/>(LLM unreachable)"]
+    V -->|"no · other"| RETRY{"attempt < 3?"}
+    RETRY -->|"yes"| R
+    RETRY -->|"no"| ERR["✗ log error<br/>(not faked as success)"]
+```
+
+The daily wall-clock picture — the digest loop runs around the clock, with two
+maintenance jobs at configurable UTC hours (`config.py` defaults shown):
+
+| Job | When (UTC) | What it does |
+|---|---|---|
+| 🔁 **Digest cycle** | every 15 min, 24/7 | tick → due-check → run each due topic |
+| 🔎 **Source curator** | `04:00` daily *(default)* | discovers new sources (optional, Perplexity) |
+| 🧹 **Retention purge** | `05:00` daily *(default)* | drops digests older than the retention window |
+
+Timing facts worth showing, all from [scheduler.py](../src/news_digest/scheduler.py):
+
+- **Tick: 15 min**, `coalesce + max_instances=1` — if a digest run overruns the
+  tick, missed ticks collapse instead of stacking.
+- **Jitter: 0–300 s** per topic, so sources aren't all hit on the same instant.
+- **Cadence gate:** a topic fires only when `now − last_digest_date ≥ 24h | 7d` —
+  publishing is data-driven, not a fixed cron hour.
+- **Retry-until-verified:** up to 3 attempts, but it re-reads Supabase to confirm
+  a row actually landed — GAIA can report `status=success` on a malformed final
+  turn that published nothing.
+- **Immediate first cycle** on (re)start so a reboot doesn't delay the first
+  digest by 15 min.
+
+---
+
+## §1.9 Service architecture
+
+What actually runs on the box, and what crosses the network:
+
+```mermaid
+flowchart TB
+    subgraph HOST["🔴 AMD Strix Halo · Ubuntu 24.04 · 128 GB · always-on"]
+        subgraph U1["systemd unit: news-digest.service"]
+            SCHED["scheduler (BlockingScheduler)<br/>+ NewsDigestAgent in-process"]
+            SQLITE[("SQLite<br/>run log · article cache<br/>log fallback")]
+            SCHED --- SQLITE
+        end
+        subgraph U2["systemd unit: lemonade (always-on)"]
+            LEM["⚡ Lemonade Server<br/>heavy model pinned resident"]
+            GPU["AMD GPU<br/>llama.cpp · vulkan"]
+            LEM --- GPU
+        end
+        SCHED -->|"OpenAI API · localhost"| LEM
+    end
+
+    SCHED -->|"scrape RSS/HTML<br/>1.5s/domain, SSRF-guarded"| WEB["🌐 curated sources"]
+    SCHED -->|"service_role · digests + logs"| SB[("Supabase<br/>Postgres + RLS")]
+    SCHED -.->|"source discovery"| PPLX["Perplexity API"]
+    SB -->|"anon key · RLS read-only"| WEBAPP["web app<br/>Cloudflare Pages"]
+    WEBAPP -->|"reads digests, TTS playback"| USER["📱 user"]
+
+    style LEM fill:#ffecec,stroke:#d33,color:#000
+    style GPU fill:#ffecec,stroke:#d33,color:#000
+    style HOST fill:#f6f8fa,stroke:#888
+```
+
+The boundary is the whole point: **inference and source text never leave the
+host.** Two systemd units share the box — the agent and an always-on Lemonade
+with the heavy model resident, talking over `localhost`. Only finished digests
+and logs cross to Supabase; the phone reads those through an anon key under RLS.
+(The one external API call beyond storage is the optional Perplexity
+source-curator — discovery, not inference.)
+
+---
+
 ## §2 Component map
 
 ### §2.1 `NewsDigestAgent` — `src/news_digest/agent.py`
@@ -388,7 +725,7 @@ Tracking issues: #28 (E0), #29 (E1), #30 (E2), #31 (E3), #32 (E4), #33 (E5), #34
 ## §12 Glossary & links
 
 - **GAIA** — AMD's local-first agent framework. [amd/gaia](https://github.com/amd/gaia). Primitives used: `Agent`, `@tool`, `DatabaseMixin`, `LemonadeClient`.
-- **Lemonade Server** — AMD-optimized LLM runtime with OpenAI-compatible API. Default endpoint `http://localhost:8000/api/v1`.
+- **Lemonade Server** — AMD-optimized LLM runtime with OpenAI-compatible API. `config.py` defaults `LEMONADE_BASE_URL` to `http://localhost:8000/api/v1`; the Strix Halo host overrides this to `http://localhost:13305/api/v1` (Lemonade snap default) via `.env`. See [gaia-audit §2.2.b](gaia-audit.md).
 - **Strix Halo** — AMD's APU for workstations; hosts this project 24/7.
 - **BoardDocs** — platform hosting township meeting minutes for local news topic.
 - **PRAW** — Python Reddit API Wrapper (Epic 7 source).
@@ -397,4 +734,4 @@ Tracking issues: #28 (E0), #29 (E1), #30 (E2), #31 (E3), #32 (E4), #33 (E5), #34
 
 ---
 
-*Last updated: 2026-05-09. Changes to architecture land on `main` with their implementation PR; this document is the source of truth.*
+*Last updated: 2026-06-15. Changes to architecture land on `main` with their implementation PR; this document is the source of truth.*

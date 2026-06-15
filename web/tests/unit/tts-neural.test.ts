@@ -60,22 +60,20 @@ function makeFetch(opts: { failSpeech?: boolean; failVoices?: boolean } = {}) {
 }
 
 /**
- * Build a backend with an injectable audioFactory that tracks all created
- * FakeAudio elements in an array. For the pool design, exactly 2 elements are
- * created during unlock(); `audioRef.ref` always points to the LAST created
- * element for backward-compat with tests that only care about the single element.
+ * Build a backend with an injectable audioFactory that returns a single
+ * FakeAudio.  The factory is called at most once (lazy element creation);
+ * subsequent speaks just reassign .src on the same element.
  */
 function makeBackend(
   fetchImpl: typeof fetch,
-  audioRef: { ref: FakeAudio | null; all?: FakeAudio[] },
+  singleAudio: { ref: FakeAudio | null },
   cacheCap?: number,
 ): NeuralHttpBackend {
   return new NeuralHttpBackend("http://tts.local:8880", {
     fetchImpl,
     audioFactory: () => {
       const a = new FakeAudio();
-      audioRef.ref = a;
-      if (audioRef.all) audioRef.all.push(a);
+      singleAudio.ref = a;
       return a as unknown as HTMLAudioElement;
     },
     maxCacheEntries: cacheCap,
@@ -301,7 +299,7 @@ describe("NeuralHttpBackend.unlock", () => {
     expect(audioRef.ref!.pauseCalls).toBeGreaterThanOrEqual(1);
   });
 
-  it("unlock() called twice builds the pool exactly once (2 elements total, not 4)", () => {
+  it("unlock() called twice does not create a second element", () => {
     const { fetchImpl } = makeFetch();
     let factoryCalls = 0;
     const backend = new NeuralHttpBackend("http://tts.local:8880", {
@@ -313,8 +311,7 @@ describe("NeuralHttpBackend.unlock", () => {
     });
     backend.unlock();
     backend.unlock();
-    // Pool is 2 elements built once — calling unlock() again must not add more.
-    expect(factoryCalls).toBe(2);
+    expect(factoryCalls).toBe(1);
   });
 
   it("TtsPlayer.play() calls unlock() on the backend before speakCurrentChunk", () => {
@@ -764,17 +761,13 @@ describe("NeuralHttpBackend.prefetch", () => {
     expect(ended).toBe(1);
   });
 
-  // Regression guard for #103: the broken double-buffer rewrite preloaded each
-  // next chunk into a FRESH HTMLAudioElement and played on it. Browser autoplay
-  // policy binds permission per-element to the elements unlocked inside the user
+  // Regression guard for #103: the double-buffer rewrite preloaded each next
+  // chunk into a FRESH HTMLAudioElement and played on it. Browser autoplay
+  // policy binds permission per-element to the one unlocked inside the user
   // gesture (see unlock()), so playing on a fresh element is blocked and
-  // playback dies after the first chunk.
-  //
-  // The correct fix is a BOUNDED POOL of exactly 2 pre-unlocked elements created
-  // once in unlock(). Every chunk plays on one of those two pool elements — the
-  // pool count NEVER grows beyond 2 no matter how many chunks play.
-  // Do not "optimize" this back into per-chunk fresh elements.
-  it("regression #103: plays every chunk on a pre-unlocked pool element (bounded pool of 2)", async () => {
+  // playback dies after the first chunk. Every chunk MUST play on the single
+  // unlocked element. Do not "optimize" this back into per-chunk elements.
+  it("regression #103: plays every chunk on ONE unlocked element (no per-chunk element)", async () => {
     const { fetchImpl } = makeFetch();
     let factoryCalls = 0;
     const elements: FakeAudio[] = [];
@@ -787,102 +780,16 @@ describe("NeuralHttpBackend.prefetch", () => {
         return a as unknown as HTMLAudioElement;
       },
     });
-    // unlock() must create BOTH pool elements and prime each with play()+pause()
-    // so BOTH gain autoplay permission inside the user gesture.
-    backend.unlock();
-    expect(factoryCalls).toBe(2); // both pool elements created upfront
-    expect(elements).toHaveLength(2);
-    // Both were primed (play() called on each).
-    expect(elements[0].playCalls).toBeGreaterThanOrEqual(1);
-    expect(elements[1].playCalls).toBeGreaterThanOrEqual(1);
-
+    backend.unlock(); // primes the single element inside the user gesture
     backend.speak("First chunk.", { rate: 1, voiceURI: null }, () => {});
     await flush();
     await backend.prefetch("Second chunk.", { rate: 1, voiceURI: null });
     await flush();
     backend.speak("Second chunk.", { rate: 1, voiceURI: null }, () => {});
     await flush();
-
-    // Pool must NOT have grown — still exactly 2 elements.
-    expect(factoryCalls).toBe(2);
-    expect(elements).toHaveLength(2);
-    // Both chunks played on pool elements (one or both should have extra playCalls
-    // beyond the unlock priming play).
-    const totalPlayCalls = elements.reduce((sum, e) => sum + e.playCalls, 0);
-    // unlock primes (2 plays) + first chunk + second chunk = at least 4
-    expect(totalPlayCalls).toBeGreaterThanOrEqual(4);
-  });
-});
-
-// --- gapless pool (ping-pong double-buffer) -------------------------------------------
-
-describe("NeuralHttpBackend gapless pool", () => {
-  it("gapless fast-path: prefetch loads spare element; speak(B) skips fetch and plays immediately", async () => {
-    const { fetchImpl, calls } = makeFetch();
-    const audioRef = { ref: null as FakeAudio | null, all: [] as FakeAudio[] };
-    const backend = makeBackend(fetchImpl, audioRef);
-
-    backend.unlock();
-    expect(audioRef.all!).toHaveLength(2); // pool created
-
-    // Speak chunk A — fetches and plays on active (pool[0]).
-    backend.speak("Chunk A.", { rate: 1, voiceURI: null }, () => {});
-    await flush();
-    const fetchesAfterA = calls.filter((c) => c.url.endsWith("/v1/audio/speech")).length;
-    expect(fetchesAfterA).toBe(1);
-
-    // Prefetch chunk B onto the spare (pool[1]).
-    await backend.prefetch("Chunk B.", { rate: 1, voiceURI: null });
-    const fetchesAfterPrefetch = calls.filter((c) => c.url.endsWith("/v1/audio/speech")).length;
-    expect(fetchesAfterPrefetch).toBe(2); // B was fetched and buffered
-
-    // Speak chunk B — must NOT trigger a new fetch (served from preloaded spare).
-    backend.speak("Chunk B.", { rate: 1, voiceURI: null }, () => {});
-    await flush();
-    const fetchesAfterB = calls.filter((c) => c.url.endsWith("/v1/audio/speech")).length;
-    expect(fetchesAfterB).toBe(2); // still 2 — gapless fast-path, no new fetch
-
-    // Pool must not have grown.
-    expect(audioRef.all!).toHaveLength(2);
-  });
-
-  it("ping-pong: active element alternates between the 2 pool elements across 3 chunks", async () => {
-    const { fetchImpl } = makeFetch();
-    const audioRef = { ref: null as FakeAudio | null, all: [] as FakeAudio[] };
-    const backend = makeBackend(fetchImpl, audioRef);
-
-    backend.unlock();
-    const [p0, p1] = audioRef.all!;
-
-    // Speak A on pool[0] (initial active).
-    backend.speak("Chunk A.", { rate: 1, voiceURI: null }, () => {});
-    await flush();
-    // prefetch B onto spare (pool[1]).
-    await backend.prefetch("Chunk B.", { rate: 1, voiceURI: null });
-    // Speak B — promotes pool[1] to active.
-    backend.speak("Chunk B.", { rate: 1, voiceURI: null }, () => {});
-    await flush();
-    // prefetch C onto spare (pool[0], now the new spare after ping-pong).
-    await backend.prefetch("Chunk C.", { rate: 1, voiceURI: null });
-    // Speak C — promotes pool[0] back to active.
-    backend.speak("Chunk C.", { rate: 1, voiceURI: null }, () => {});
-    await flush();
-
-    // Pool never grew.
-    expect(audioRef.all!).toHaveLength(2);
-
-    // Total play calls across A(on p0), B(on p1), C(on p0) + 2 unlock primes = 5.
-    // p0: unlock(1) + speak(A)(1) + speak(C)(1) = 3
-    // p1: unlock(1) + speak(B)(1) = 2
-    const totalPlayCalls = p0.playCalls + p1.playCalls;
-    expect(totalPlayCalls).toBeGreaterThanOrEqual(5);
-
-    // A and C played on p0, B played on p1 (beyond unlock priming).
-    // After unlock, p0 gains play for A and C, p1 gains play for B.
-    // p0 must have been played at least 3 times (unlock + A + C).
-    expect(p0.playCalls).toBeGreaterThanOrEqual(3);
-    // p1 must have been played at least 2 times (unlock + B).
-    expect(p1.playCalls).toBeGreaterThanOrEqual(2);
+    expect(factoryCalls).toBe(1);
+    expect(elements).toHaveLength(1);
+    expect(elements[0].playCalls).toBeGreaterThanOrEqual(2);
   });
 });
 

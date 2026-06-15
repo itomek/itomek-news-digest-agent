@@ -1,4 +1,4 @@
-import { groupDigestsByTopicAndDate } from "../lib/group";
+import { groupDigestsByDateAndTopic } from "../lib/group";
 import type { Digest, Topic } from "../lib/types";
 import { renderDigestCard } from "./digest-card";
 
@@ -23,12 +23,17 @@ export function formatDate(iso: string): string {
   return dateFmt.format(new Date(Date.UTC(y, m - 1, d)));
 }
 
-/** Renders all digests grouped by topic, then by date (newest first). */
+/**
+ * Renders all digests grouped by date (newest first), then by topic within
+ * each date (issue #101). On Home the caller passes only today's digests so
+ * there is at most one date section; the same grouping as History keeps the
+ * two views structurally consistent.
+ */
 export function renderDigestList(digests: readonly Digest[], topics: readonly Topic[]): HTMLElement {
   const container = document.createElement("div");
   container.className = "digest-list";
 
-  const groups = groupDigestsByTopicAndDate(digests, topics);
+  const groups = groupDigestsByDateAndTopic(digests, topics);
   if (groups.length === 0) {
     const empty = document.createElement("p");
     empty.className = "empty-state";
@@ -37,24 +42,25 @@ export function renderDigestList(digests: readonly Digest[], topics: readonly To
     return container;
   }
 
-  for (const group of groups) {
+  for (const dateGroup of groups) {
     const section = document.createElement("section");
-    section.className = "topic-group";
-    section.setAttribute("data-topic-slug", group.slug);
+    section.className = "date-group";
+    section.setAttribute("data-date", dateGroup.date);
 
-    const heading = document.createElement("h2");
-    heading.className = "topic-heading";
-    heading.textContent = group.name;
-    section.appendChild(heading);
+    const dateHeading = document.createElement("h2");
+    dateHeading.className = "date-heading";
+    dateHeading.textContent = formatDate(dateGroup.date);
+    dateHeading.setAttribute("data-date", dateGroup.date);
+    section.appendChild(dateHeading);
 
-    for (const dateGroup of group.dates) {
-      const dateHeading = document.createElement("h3");
-      dateHeading.className = "date-heading";
-      dateHeading.textContent = formatDate(dateGroup.date);
-      dateHeading.setAttribute("data-date", dateGroup.date);
-      section.appendChild(dateHeading);
+    for (const topicBucket of dateGroup.topics) {
+      const topicHeading = document.createElement("h3");
+      topicHeading.className = "topic-heading";
+      topicHeading.setAttribute("data-topic-slug", topicBucket.slug);
+      topicHeading.textContent = topicBucket.name;
+      section.appendChild(topicHeading);
 
-      for (const digest of dateGroup.digests) {
+      for (const digest of topicBucket.digests) {
         section.appendChild(renderDigestCard(digest));
       }
     }

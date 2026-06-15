@@ -69,6 +69,22 @@ export interface DateGroup {
   digests: Digest[];
 }
 
+/** One topic bucket within a DateTopicGroup. */
+export interface DateTopicBucket {
+  slug: string;
+  name: string;
+  digests: Digest[];
+}
+
+/**
+ * Date-first grouping: one entry per calendar date (newest date first), with
+ * topics nested within each date. Used by History and Home views (issue #101).
+ */
+export interface DateTopicGroup {
+  date: string;
+  topics: DateTopicBucket[];
+}
+
 /** One row from the system_logs table (read-only, authenticated role). */
 export interface SystemLog {
   id: string;

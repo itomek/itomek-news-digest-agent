@@ -5,8 +5,9 @@ import { seedSession } from "./session";
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL ?? "https://eedfyviypptfpghyffip.supabase.co";
 const ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY ?? "sb_publishable_CCE4uRqvWCAonhnDis0BZQ_ixrd0jl2";
 
-// AC1: Past digests browsable, grouped by date descending — over the LIVE data path.
-// Reads real digests from Supabase, so it needs a genuine authenticated (AAL2) session
+// AC1 (issue #101): Past digests browsable, grouped DATE-FIRST then by topic,
+// dates descending, and TODAY is excluded (today lives on Home). Reads real
+// digests from Supabase, so it needs a genuine authenticated (AAL2) session
 // (RLS gates reads to the `authenticated` role).
 test.describe("history (live authenticated reads)", () => {
   test.skip(!LIVE_AUTH, LIVE_AUTH_SKIP);
@@ -15,21 +16,34 @@ test.describe("history (live authenticated reads)", () => {
     await signInAal2(page);
   });
 
-  test("history renders grouped by topic with date headings descending", async ({ page }) => {
+  test("history renders date-first headings descending with today excluded", async ({ page }) => {
     await page.goto("/#/history");
     await expect(page.getByTestId("history-content")).toBeVisible();
     await expect(page.getByTestId("auth-gate")).toHaveCount(0);
 
-    const groups = page.locator(".topic-group");
-    await expect(groups.first()).toBeVisible({ timeout: 15_000 });
+    // Top-level groups are now DATES (issue #101 changed topic-first -> date-first).
+    const dateGroups = page.locator("section.date-group");
+    await expect(dateGroups.first()).toBeVisible({ timeout: 15_000 });
 
+    // Each date section carries its calendar date on data-date; collect descending.
     const dates = await page
-      .locator(".topic-group")
-      .first()
-      .locator(".date-heading")
+      .locator("section.date-group")
       .evaluateAll((els) => els.map((el) => el.getAttribute("data-date") ?? ""));
     const sortedDesc = [...dates].sort().reverse();
     expect(dates).toEqual(sortedDesc);
+
+    // Today must NOT appear in History — it is shown on Home instead. The app's
+    // canonical "today" is America/New_York (see src/lib/dates.ts).
+    const todayET = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+    }).format(new Date());
+    expect(dates).not.toContain(todayET);
+
+    // Topics are nested beneath each date as h3 headings.
+    const topicHeadings = page.locator("section.date-group h3.topic-heading");
+    if ((await dateGroups.count()) > 0) {
+      await expect(topicHeadings.first()).toBeVisible();
+    }
   });
 });
 
@@ -53,19 +67,19 @@ test.describe("history (fixture data)", () => {
   });
 
   // AC4 + AC1: 150-row fixture renders all rows within a sane time budget.
+  // The fixture spans 2026-06-01 back ~30 days, none of which is the wall-clock
+  // "today", so excludeToday() drops nothing here and all 30 rows for a topic show.
   test("renders 150 fixture rows quickly", async ({ page }) => {
     const start = Date.now();
     await page.goto("/?fixture=150#/history");
     await expect(page.getByTestId("history-list")).toBeVisible();
-    // Fixture spans 30 days; with no filter the default 7-day window applies.
-    // Switch to "All topics" + clear-window by selecting a topic to force full set,
-    // then assert the full dataset can render. First measure default-view interactive.
-    await expect(page.locator(".topic-group").first()).toBeVisible();
+    // Top-level grouping is date-first (issue #101): assert a date section renders.
+    await expect(page.locator("section.date-group").first()).toBeVisible();
     const interactive = Date.now() - start;
     expect(interactive).toBeLessThan(1000);
 
-    // Force the entire 150-row set via a topic filter (bypasses 7-day window) and
-    // confirm every card for that topic renders. 150 rows total / 5 topics = 30 each.
+    // Filter to a single topic and confirm every card for that topic renders.
+    // 150 rows total / 5 topics = 30 each (across 30 distinct dates).
     await page.getByTestId("filter-topic").selectOption("ai_models");
     await expect(page.locator(".digest-card")).toHaveCount(30);
   });
@@ -76,12 +90,14 @@ test.describe("history (fixture data)", () => {
     await expect(page.getByTestId("history-list")).toBeVisible();
 
     await page.getByTestId("filter-topic").selectOption("penguins");
-    // Only the penguins group remains.
-    await expect(page.locator(".topic-group")).toHaveCount(1);
-    await expect(page.locator(".topic-group").first()).toHaveAttribute(
-      "data-topic-slug",
-      "penguins",
+    // Every nested topic heading is the penguins topic (date-first grouping).
+    const topicHeadings = page.locator("section.date-group h3.topic-heading");
+    await expect(topicHeadings.first()).toBeVisible();
+    const slugs = await topicHeadings.evaluateAll((els) =>
+      els.map((el) => el.getAttribute("data-topic-slug") ?? ""),
     );
+    expect(slugs.length).toBeGreaterThan(0);
+    expect(slugs.every((s) => s === "penguins")).toBe(true);
     // URL search reflects the selection (shareable).
     await expect.poll(() => new URL(page.url()).search).toContain("topic=penguins");
   });
@@ -90,11 +106,13 @@ test.describe("history (fixture data)", () => {
   test("shareable ?topic= URL loads pre-filtered", async ({ page }) => {
     await page.goto("/?fixture=150&topic=ai_models#/history");
     await expect(page.getByTestId("history-list")).toBeVisible();
-    await expect(page.locator(".topic-group")).toHaveCount(1);
-    await expect(page.locator(".topic-group").first()).toHaveAttribute(
-      "data-topic-slug",
-      "ai_models",
+    const topicHeadings = page.locator("section.date-group h3.topic-heading");
+    await expect(topicHeadings.first()).toBeVisible();
+    const slugs = await topicHeadings.evaluateAll((els) =>
+      els.map((el) => el.getAttribute("data-topic-slug") ?? ""),
     );
+    expect(slugs.length).toBeGreaterThan(0);
+    expect(slugs.every((s) => s === "ai_models")).toBe(true);
     // The topic control reflects the URL state.
     await expect(page.getByTestId("filter-topic")).toHaveValue("ai_models");
   });

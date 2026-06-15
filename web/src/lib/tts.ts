@@ -276,17 +276,90 @@ export function stripFormatting(text: string): string {
 
 // --- chunking -------------------------------------------------------------
 
+// Sentinel used to protect abbreviation periods during sentence splitting.
+// Must never appear in real input text.
+const PERIOD_SENTINEL = "\x00P\x00";
+
+/**
+ * Common abbreviations whose trailing period must never be treated as a
+ * sentence boundary. The replacement protects the period through the
+ * sentence-splitting regex and is restored afterwards.
+ *
+ * Pattern: word-boundary-anchored, case-sensitive where capitalization
+ * matters (Dr./Mr./Mrs. etc.), followed by the literal period.
+ */
+const ABBREV_PATTERNS: [RegExp, string][] = [
+  // Geographical / political
+  [/\bU\.S\./g, `U${PERIOD_SENTINEL}S${PERIOD_SENTINEL}`],
+  [/\bU\.K\./g, `U${PERIOD_SENTINEL}K${PERIOD_SENTINEL}`],
+  // Latin / connective
+  [/\be\.g\./g, `e${PERIOD_SENTINEL}g${PERIOD_SENTINEL}`],
+  [/\bi\.e\./g, `i${PERIOD_SENTINEL}e${PERIOD_SENTINEL}`],
+  [/\betc\./g, `etc${PERIOD_SENTINEL}`],
+  [/\bvs\./g, `vs${PERIOD_SENTINEL}`],
+  // Corporate suffixes
+  [/\bInc\./g, `Inc${PERIOD_SENTINEL}`],
+  [/\bLtd\./g, `Ltd${PERIOD_SENTINEL}`],
+  [/\bCorp\./g, `Corp${PERIOD_SENTINEL}`],
+  [/\bCo\./g, `Co${PERIOD_SENTINEL}`],
+  // Honorifics
+  [/\bDr\./g, `Dr${PERIOD_SENTINEL}`],
+  [/\bMr\./g, `Mr${PERIOD_SENTINEL}`],
+  [/\bMrs\./g, `Mrs${PERIOD_SENTINEL}`],
+  [/\bMs\./g, `Ms${PERIOD_SENTINEL}`],
+  [/\bProf\./g, `Prof${PERIOD_SENTINEL}`],
+  [/\bSt\./g, `St${PERIOD_SENTINEL}`],
+  [/\bJr\./g, `Jr${PERIOD_SENTINEL}`],
+  [/\bSr\./g, `Sr${PERIOD_SENTINEL}`],
+  // Time
+  [/\ba\.m\./g, `a${PERIOD_SENTINEL}m${PERIOD_SENTINEL}`],
+  [/\bp\.m\./g, `p${PERIOD_SENTINEL}m${PERIOD_SENTINEL}`],
+];
+
+/** Protect decimal numbers: digit.digit must not trigger sentence splitting. */
+const DECIMAL_RE = /(\d)\.(\d)/g;
+const DECIMAL_SENTINEL_L = `\x00DL\x00`;
+const DECIMAL_SENTINEL_R = `\x00DR\x00`;
+
+function protectAbbreviations(text: string): string {
+  let out = text;
+  // Protect known abbreviations
+  for (const [re, replacement] of ABBREV_PATTERNS) {
+    out = out.replace(re, replacement);
+  }
+  // Protect decimal numbers (e.g. "3.5")
+  out = out.replace(DECIMAL_RE, `$1${DECIMAL_SENTINEL_L}${DECIMAL_SENTINEL_R}$2`);
+  return out;
+}
+
+function restoreAbbreviations(text: string): string {
+  return text
+    .split(PERIOD_SENTINEL).join(".")
+    .split(DECIMAL_SENTINEL_L).join(".")
+    .split(DECIMAL_SENTINEL_R).join("");
+}
+
 /**
  * Split `text` into chunks no longer than `max` chars, breaking on sentence
  * boundaries where possible. A single sentence longer than `max` is split on
  * whitespace so no chunk exceeds the limit.
+ *
+ * Abbreviation-aware: periods in common abbreviations (U.S., Dr., etc.) and
+ * decimal numbers (3.5) are protected so they are never treated as sentence
+ * boundaries.
  */
 export function chunkText(text: string, max = 200): string[] {
   const clean = text.trim();
   if (!clean) return [];
 
+  // Protect abbreviation and decimal periods before splitting.
+  const protected_ = protectAbbreviations(clean);
+
   // Split into sentences, keeping terminal punctuation.
-  const sentences = clean.match(/[^.!?]+[.!?]+(?:["')\]]+)?|\S[^.!?]*$/g) ?? [clean];
+  const rawSentences = protected_.match(/[^.!?]+[.!?]+(?:["')\]]+)?|\S[^.!?]*$/g) ?? [protected_];
+
+  // Restore sentinels in each sentence fragment.
+  const sentences = rawSentences.map(restoreAbbreviations);
 
   const chunks: string[] = [];
   let buffer = "";

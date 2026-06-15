@@ -144,6 +144,59 @@ describe("chunkText", () => {
     expect(chunkText("", 200)).toEqual([]);
     expect(chunkText("   ", 200)).toEqual([]);
   });
+
+  // Fix #1 — abbreviation-aware segmentation
+  it("does not split on U.S. abbreviation mid-sentence", () => {
+    const text =
+      "Anthropic was ordered by the U.S. government to cut access to its Fable 5 model.";
+    const chunks = chunkText(text, 200);
+    // Entire sentence is under 200 chars — must remain ONE chunk
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toBe(text);
+  });
+
+  it("does not split on decimal numbers", () => {
+    const text = "The score was 3.5 to 2.";
+    const chunks = chunkText(text, 200);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toBe(text);
+  });
+
+  it("does not split on common honorifics and abbreviations", () => {
+    const cases = [
+      "Dr. Smith confirmed the results.",
+      "Mr. Jones and Mrs. Clark arrived.",
+      "The meeting starts at 9 a.m. sharp.",
+      "We spoke to Prof. Lee about the study.",
+      "Inc. filings are due Friday.",
+    ];
+    for (const text of cases) {
+      const chunks = chunkText(text, 200);
+      expect(chunks).toHaveLength(1);
+    }
+  });
+
+  it("still splits on real sentence boundaries between distinct sentences", () => {
+    // Each sentence is > 50 chars so they should land in separate chunks at max=60
+    const text =
+      "The company reported losses this quarter. Revenue fell sharply for the period.";
+    const chunks = chunkText(text, 60);
+    expect(chunks.length).toBeGreaterThan(1);
+  });
+
+  it("handles U.S. and U.K. mid-sentence with a real split boundary after", () => {
+    // Two distinct sentences; at max=120 they should each fit in their own chunk
+    const text =
+      "The U.S. market recovered strongly this week. The U.K. market also saw gains.";
+    // Both sentences are ~45 chars — at max=80 they should each be in their own chunk
+    const chunks = chunkText(text, 80);
+    // Neither chunk should contain both "U.S." and "U.K." as that would mean no split
+    // But more importantly no chunk should break the sentence at the abbrev period
+    for (const c of chunks) {
+      // A chunk boundary must not fall inside "U.S" or "U.K"
+      expect(c).not.toMatch(/U\.[SK]\.?$/);
+    }
+  });
 });
 
 // --- prefs ----------------------------------------------------------------

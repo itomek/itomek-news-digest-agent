@@ -1,7 +1,7 @@
 """Daily hard-purge of stale digests — issue #102.
 
 Deletes ``digests`` rows whose ``digest_date`` is older than the retention
-window.  With the default ``retention_days=3``, today's digest plus the two
+window.  With the default ``retention_days=4``, today's digest plus the three
 prior days are kept; anything older is deleted.
 
 Public API
@@ -14,9 +14,9 @@ _cutoff_date(today, retention_days) -> datetime.date
     Pure helper exposed for tests.  Returns the *inclusive* lower boundary:
     rows *on* the cutoff date are retained; rows *before* it are deleted.
 
-Retention window example (retention_days=3, today=2026-06-15):
-    Kept:    2026-06-13, 2026-06-14, 2026-06-15
-    Deleted: 2026-06-12 and older (digest_date < '2026-06-13')
+Retention window example (retention_days=4, today=2026-06-15):
+    Kept:    2026-06-12, 2026-06-13, 2026-06-14, 2026-06-15
+    Deleted: 2026-06-11 and older (digest_date < '2026-06-12')
 """
 
 from datetime import date, timedelta

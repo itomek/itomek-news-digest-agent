@@ -37,8 +37,19 @@ def _capture_push(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _silence_log(monkeypatch):
-    """Keep the parser's error logging from touching Supabase/SQLite in tests."""
-    monkeypatch.setattr(agent_module, "log", lambda *a, **k: None)
+    """Keep the parser's error logging from touching Supabase/SQLite in tests.
+
+    Returns the captured log call list so individual tests can assert on it.
+    """
+    calls = []
+    monkeypatch.setattr(agent_module, "log", lambda *a, **k: calls.append((a, k)))
+    return calls
+
+
+@pytest.fixture()
+def log_calls(_silence_log):
+    """Expose captured log calls to tests that inspect them."""
+    return _silence_log
 
 
 _ITEMS = [
@@ -296,3 +307,85 @@ def test_publish_answer_is_fenced_json_string(_capture_push):
     assert _capture_push[0]["topic_slug"] == "ai_models"
     assert _capture_push[0]["summary"] == "Top AI news today."
     assert _capture_push[0]["token_count"] == 7
+
+
+# ---------------------------------------------------------------------------
+# LLM error-fallback detection — Change 2 (GAIA 400 "2+ assistant messages")
+# ---------------------------------------------------------------------------
+
+# The exact string GAIA emits when the LLM call returns HTTP 400 and the
+# conversation has two consecutive assistant turns.
+_GAIA_400_FALLBACK = (
+    "Sorry, I ran into an unexpected problem. This might be a temporary issue"
+    " — try again in a moment.\n\n"
+    "*Technical details: Error in chat completions (status 400):"
+    " ...Cannot have 2 or more assistant messages..."
+)
+
+
+def test_llm_error_response_returns_llm_error_not_parse_error(_capture_push, log_calls):
+    """GAIA error-fallback string → error='llm_error', not 'parse_error'.
+
+    When the LLM returns a 400 "2+ assistant messages" error, GAIA wraps it in a
+    user-facing "Sorry, I ran into an unexpected problem" string.  This must be
+    classified as llm_error (upstream LLM failure) rather than parse_error
+    (which would imply the model produced garbled JSON).
+    """
+    result = {
+        "status": "failed",
+        "result": _GAIA_400_FALLBACK,
+        "output_tokens": 0,
+    }
+    out = _publish_from_result(result)
+
+    assert out == {"success": False, "error": "llm_error"}
+    assert _capture_push == [], "push_to_supabase must not be called on llm_error"
+
+    # Log message must mention the new classification, NOT "could not parse final answer"
+    logged_messages = [a[2] for (a, _) in log_calls if len(a) >= 3]
+    assert any("LLM returned an error response" in m for m in logged_messages), (
+        f"expected llm_error log message, got: {logged_messages}"
+    )
+    assert not any("could not parse final answer" in m for m in logged_messages), (
+        "must not emit the parse_error message for a GAIA error-fallback string"
+    )
+
+
+def test_llm_error_response_case_insensitive_match(_capture_push):
+    """Match is case-insensitive on the stripped text."""
+    # All-caps variant — unlikely in practice but the spec says case-insensitive.
+    raw = "SORRY, I RAN INTO AN UNEXPECTED PROBLEM — Error in chat completions (status 400)"
+    result = {"status": "failed", "result": raw, "output_tokens": 0}
+    out = _publish_from_result(result)
+    assert out == {"success": False, "error": "llm_error"}
+    assert _capture_push == []
+
+
+def test_llm_error_match_by_contains_error_in_chat_completions(_capture_push):
+    """Also matches when the string contains 'Error in chat completions' anywhere."""
+    raw = "Something went wrong. Error in chat completions (status 400): bad request."
+    result = {"status": "failed", "result": raw, "output_tokens": 0}
+    out = _publish_from_result(result)
+    assert out == {"success": False, "error": "llm_error"}
+    assert _capture_push == []
+
+
+def test_non_matching_malformed_json_still_returns_parse_error(
+    _capture_push, log_calls
+):
+    """Regression guard: a genuine bad-JSON string (no GAIA error pattern) → parse_error.
+
+    This must not regress: any non-matching string that fails json.loads must still
+    go through the existing path and return error='parse_error'.
+    """
+    result = {"status": "success", "result": "{bad json", "output_tokens": 0}
+    out = _publish_from_result(result)
+
+    assert out == {"success": False, "error": "parse_error"}
+    assert _capture_push == []
+
+    logged_messages = [a[2] for (a, _) in log_calls if len(a) >= 3]
+    assert any("could not parse final answer" in m for m in logged_messages), (
+        "parse_error path must still log 'could not parse final answer'"
+    )
+    assert not any("LLM returned an error response" in m for m in logged_messages)

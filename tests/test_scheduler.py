@@ -872,3 +872,52 @@ def test_retention_job_registered(monkeypatch, valid_env):
     assert retention_job["max_instances"] == 1
     # Default hour is 5 UTC (settings.schedule_retention_hour default)
     assert retention_job["hour"] == 5
+
+
+# ---------------------------------------------------------------------------
+# Traceback capture in crash path — Change 1
+# ---------------------------------------------------------------------------
+
+
+def test_run_topic_exception_log_includes_traceback_key(monkeypatch, log_calls):
+    """When generate_and_publish raises, the error log metadata includes 'traceback'.
+
+    The traceback key must contain the full stack trace string so that diagnosis
+    is possible from system_logs without needing to reproduce the failure.
+    """
+    # Arrange: agent that raises with a real Python exception (so traceback is real).
+    agent = MagicMock()
+    agent.generate_and_publish.side_effect = RuntimeError(
+        "unexpected crash for traceback test"
+    )
+
+    # Override _is_published_today so the retry loop stops after _MAX_RUN_ATTEMPTS
+    # (the autouse _assume_published fixture already defaults to True, but the
+    # exception path short-circuits before the publish check; so we override here
+    # to False to let all attempts exercise the except block).
+    monkeypatch.setattr(sched_module, "_is_published_today", lambda slug: False)
+
+    _run_topic(_topic_row(), agent)
+
+    # Find error log entries that came from the exception path
+    error_logs = [
+        (a, k)
+        for (a, k) in log_calls
+        if a[0] == "error" and "unhandled exception" in a[2]
+    ]
+    assert error_logs, "Expected at least one 'unhandled exception' error log"
+
+    # Every exception log must carry metadata with a 'traceback' key
+    for _, kwargs in error_logs:
+        meta = kwargs.get("metadata", {})
+        assert "traceback" in meta, (
+            f"metadata missing 'traceback' key; got keys: {list(meta.keys())}"
+        )
+        tb = meta["traceback"]
+        assert isinstance(tb, str) and len(tb) > 0, (
+            "traceback must be a non-empty string"
+        )
+        # The traceback should reference the actual exception
+        assert "RuntimeError" in tb or "unexpected crash" in tb, (
+            f"traceback does not mention the exception: {tb[:200]}"
+        )

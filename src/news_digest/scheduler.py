@@ -20,6 +20,7 @@ See §2.6, §4, and §5.5 of docs/architecture.md for the design spec.
 import random
 import signal
 import threading
+import traceback
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -237,6 +238,7 @@ def _run_topic(topic: dict[str, Any], agent: Any) -> None:
                     "error": str(exc),
                     "exc_type": exc.__class__.__name__,
                     "attempt": attempt,
+                    "traceback": traceback.format_exc(),
                 },
             )
             result = {"success": False, "error": exc.__class__.__name__}

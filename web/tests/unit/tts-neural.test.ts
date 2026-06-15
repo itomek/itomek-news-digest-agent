@@ -60,25 +60,20 @@ function makeFetch(opts: { failSpeech?: boolean; failVoices?: boolean } = {}) {
 }
 
 /**
- * Build a backend with an injectable audioFactory.
- *
- * `audioRef.ref` always points to the FIRST element created (the primary
- * playing element).  With the double-buffer fix, prefetch() creates additional
- * elements; those are tracked in `audioRef.all` but do NOT overwrite `.ref`.
- * Tests that don't call prefetch() continue to work unchanged.
+ * Build a backend with an injectable audioFactory that returns a single
+ * FakeAudio.  The factory is called at most once (lazy element creation);
+ * subsequent speaks just reassign .src on the same element.
  */
 function makeBackend(
   fetchImpl: typeof fetch,
-  audioRef: { ref: FakeAudio | null; all?: FakeAudio[] },
+  singleAudio: { ref: FakeAudio | null },
   cacheCap?: number,
 ): NeuralHttpBackend {
   return new NeuralHttpBackend("http://tts.local:8880", {
     fetchImpl,
     audioFactory: () => {
       const a = new FakeAudio();
-      // Only the first element becomes the canonical ref (primary element).
-      if (!audioRef.ref) audioRef.ref = a;
-      (audioRef.all ??= []).push(a);
+      singleAudio.ref = a;
       return a as unknown as HTMLAudioElement;
     },
     maxCacheEntries: cacheCap,
@@ -765,125 +760,36 @@ describe("NeuralHttpBackend.prefetch", () => {
     audioRef.ref!.onended?.();
     expect(ended).toBe(1);
   });
-});
 
-// --- double-buffer gapless playback (Fix #103) ----------------------------------------
-
-describe("NeuralHttpBackend double-buffer (gapless)", () => {
-  it("after prefetch(next), speak(next) plays without a new fetch", async () => {
-    const { fetchImpl, calls } = makeFetch();
-    const audioRef: { ref: FakeAudio | null; all: FakeAudio[] } = { ref: null, all: [] };
-    const backend = makeBackend(fetchImpl, audioRef);
-
-    // Prefetch the next chunk — this creates a slot element (all[0])
-    await backend.prefetch("Next chunk text.", { rate: 1.2, voiceURI: null });
-
-    const speechCallsAfterPrefetch = calls.filter((c) =>
-      c.url.endsWith("/v1/audio/speech"),
-    ).length;
-    expect(speechCallsAfterPrefetch).toBe(1); // prefetch did one fetch
-
-    // Now speak the same text — must use the preloaded slot, no new fetch
-    backend.speak("Next chunk text.", { rate: 1.2, voiceURI: null }, () => {});
-    // speak() uses the slot synchronously, so no flush() needed — but flush anyway
-    // to ensure any async fallback path would have also completed
-    await flush();
-
-    const speechCallsAfterSpeak = calls.filter((c) =>
-      c.url.endsWith("/v1/audio/speech"),
-    ).length;
-    // No new fetch — the double-buffer slot was consumed
-    expect(speechCallsAfterSpeak).toBe(1);
-    // The slot element (all[0]) was swapped in as primary — it was played
-    const slotEl = audioRef.all[0];
-    expect(slotEl).not.toBeNull();
-    expect(slotEl.playCalls).toBeGreaterThanOrEqual(1);
-  });
-
-  it("onended on current chunk plays next chunk with no awaited fetch round-trip", async () => {
-    const { fetchImpl, calls } = makeFetch();
-    const audioRef: { ref: FakeAudio | null; all: FakeAudio[] } = { ref: null, all: [] };
-    const backend = makeBackend(fetchImpl, audioRef);
-
-    // Simulate TtsPlayer: speak chunk 1 (creates primary = all[0] = ref),
-    // prefetch chunk 2 (creates slot = all[1]), then on chunk 1 end speak chunk 2
-    const ends: string[] = [];
-    backend.speak("Chunk one.", { rate: 1, voiceURI: null }, () => {
-      ends.push("one");
+  // Regression guard for #103: the double-buffer rewrite preloaded each next
+  // chunk into a FRESH HTMLAudioElement and played on it. Browser autoplay
+  // policy binds permission per-element to the one unlocked inside the user
+  // gesture (see unlock()), so playing on a fresh element is blocked and
+  // playback dies after the first chunk. Every chunk MUST play on the single
+  // unlocked element. Do not "optimize" this back into per-chunk elements.
+  it("regression #103: plays every chunk on ONE unlocked element (no per-chunk element)", async () => {
+    const { fetchImpl } = makeFetch();
+    let factoryCalls = 0;
+    const elements: FakeAudio[] = [];
+    const backend = new NeuralHttpBackend("http://tts.local:8880", {
+      fetchImpl,
+      audioFactory: () => {
+        factoryCalls += 1;
+        const a = new FakeAudio();
+        elements.push(a);
+        return a as unknown as HTMLAudioElement;
+      },
     });
+    backend.unlock(); // primes the single element inside the user gesture
+    backend.speak("First chunk.", { rate: 1, voiceURI: null }, () => {});
     await flush();
-    // all[0] is primary element
-    const primaryEl = audioRef.ref!;
-    expect(primaryEl).not.toBeNull();
-
-    // Prefetch chunk 2 while chunk 1 plays (as TtsPlayer does) — creates slot = all[1]
-    await backend.prefetch("Chunk two.", { rate: 1, voiceURI: null });
-
-    const callsBeforeEnd = calls.filter((c) => c.url.endsWith("/v1/audio/speech")).length;
-    // 2 calls so far: chunk 1 + chunk 2 prefetch
-    expect(callsBeforeEnd).toBe(2);
-
-    // Simulate chunk 1 ending: fire onended on the primary, then TtsPlayer calls speak(chunk 2)
-    primaryEl.onended?.();
-    backend.speak("Chunk two.", { rate: 1, voiceURI: null }, () => {
-      ends.push("two");
-    });
-    // The slot is ready synchronously — no additional fetch needed
+    await backend.prefetch("Second chunk.", { rate: 1, voiceURI: null });
     await flush();
-
-    const callsAfterEnd = calls.filter((c) => c.url.endsWith("/v1/audio/speech")).length;
-    // Still 2 — chunk 2 speak consumed the slot, no new fetch
-    expect(callsAfterEnd).toBe(callsBeforeEnd);
-    expect(ends[0]).toBe("one");
-    // The slot element (all[1]) is now active and was played
-    const slotEl = audioRef.all[1];
-    expect(slotEl.playCalls).toBeGreaterThanOrEqual(1);
-  });
-
-  it("cancel() then speak() still works correctly (no stale slot)", async () => {
-    const { fetchImpl, calls } = makeFetch();
-    const audioRef: { ref: FakeAudio | null; all: FakeAudio[] } = { ref: null, all: [] };
-    const backend = makeBackend(fetchImpl, audioRef);
-
-    // Prefetch something, then cancel (skip) before it's consumed
-    await backend.prefetch("Abandoned chunk.", { rate: 1, voiceURI: null });
-    backend.cancel();
-
-    // speak an entirely different chunk — must fetch fresh (slot was cleared)
-    backend.speak("Fresh chunk.", { rate: 1, voiceURI: null }, () => {});
+    backend.speak("Second chunk.", { rate: 1, voiceURI: null }, () => {});
     await flush();
-
-    // Fresh chunk needed a new fetch (not the abandoned preload)
-    const speechCalls = calls.filter((c) => c.url.endsWith("/v1/audio/speech"));
-    const freshFetch = speechCalls.find((c) => {
-      const body = JSON.parse(String(c.init?.body));
-      return body.input === "Fresh chunk.";
-    });
-    expect(freshFetch).toBeTruthy();
-    // play() was called for fresh chunk — on whichever element is current primary
-    const totalPlays = audioRef.all.reduce((sum, el) => sum + el.playCalls, 0);
-    expect(totalPlays).toBeGreaterThanOrEqual(1);
-  });
-
-  it("speak() with a mismatched text (skip case) falls back to fetch-then-play", async () => {
-    const { fetchImpl, calls } = makeFetch();
-    const audioRef: { ref: FakeAudio | null; all: FakeAudio[] } = { ref: null, all: [] };
-    const backend = makeBackend(fetchImpl, audioRef);
-
-    // Prefetch chunk A
-    await backend.prefetch("Prefetched chunk A.", { rate: 1, voiceURI: null });
-    const callsAfterPrefetch = calls.filter((c) => c.url.endsWith("/v1/audio/speech")).length;
-
-    // But then we speak chunk B (user skipped) — not in slot, must fetch
-    backend.speak("Completely different chunk B.", { rate: 1, voiceURI: null }, () => {});
-    await flush();
-
-    // B was not prefetched — it required a fetch
-    const callsAfterB = calls.filter((c) => c.url.endsWith("/v1/audio/speech")).length;
-    expect(callsAfterB).toBeGreaterThan(callsAfterPrefetch);
-    // play() was called on some element
-    const totalPlays = audioRef.all.reduce((sum, el) => sum + el.playCalls, 0);
-    expect(totalPlays).toBeGreaterThanOrEqual(1);
+    expect(factoryCalls).toBe(1);
+    expect(elements).toHaveLength(1);
+    expect(elements[0].playCalls).toBeGreaterThanOrEqual(2);
   });
 });
 

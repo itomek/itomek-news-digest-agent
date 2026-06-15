@@ -32,7 +32,7 @@ export function renderDigestList(digests: readonly Digest[], topics: readonly To
   if (groups.length === 0) {
     const empty = document.createElement("p");
     empty.className = "empty-state";
-    empty.textContent = "No digests yet. Check back after the next run.";
+    empty.textContent = "No news items were found.";
     container.appendChild(empty);
     return container;
   }

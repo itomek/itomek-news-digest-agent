@@ -36,6 +36,23 @@ test.describe("TOTP MFA end-to-end (live, credentialed)", () => {
     );
     expect(signedIn).toBeNull();
 
+    // This exercises the FRESH enroll → verify flow, which needs an account with
+    // no existing TOTP factor. The shared MFA_TEST account is permanently
+    // enrolled (it backs the live read specs), so skip when a verified factor
+    // already exists — the challenge→verify→aal2 path is covered by signInAal2()
+    // in the other live specs.
+    const hasFactor = await page.evaluate(async () => {
+      const client = (window as unknown as {
+        __supabase: import("@supabase/supabase-js").SupabaseClient;
+      }).__supabase;
+      const { data } = await client.auth.mfa.listFactors();
+      return (data?.totp ?? []).some((f) => f.status === "verified");
+    });
+    test.skip(
+      hasFactor,
+      "account already has a verified TOTP factor; enroll flow needs a factorless account",
+    );
+
     // Enroll a fresh TOTP factor; capture id + secret.
     const enroll = await page.evaluate(async () => {
       const client = (window as unknown as {

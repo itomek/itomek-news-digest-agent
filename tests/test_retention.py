@@ -74,6 +74,15 @@ class TestCutoffMath:
         cutoff = _cutoff_date(today, retention_days=3)
         assert date(2026, 6, 12) < cutoff  # 2026-06-12 < 2026-06-13 → deleted
 
+    def test_cutoff_with_retention_4_default(self):
+        """Default retention_days=4 → cutoff today-3; keeps today + 3 prior."""
+        from news_digest.retention import _cutoff_date
+
+        today = date(2026, 6, 15)
+        cutoff = _cutoff_date(today, retention_days=4)
+        # cutoff = today - 3 = 2026-06-12; keeps 06-12..06-15, deletes 06-11+
+        assert cutoff == date(2026, 6, 12)
+
     def test_cutoff_with_retention_1_keeps_only_today(self):
         """retention_days=1 → cutoff is today; keeps only today."""
         from news_digest.retention import _cutoff_date
@@ -89,6 +98,13 @@ class TestCutoffMath:
         today = date(2026, 6, 15)
         cutoff = _cutoff_date(today, retention_days=7)
         assert cutoff == date(2026, 6, 9)
+
+
+def test_default_retention_days_is_4():
+    """The shipped default keeps today + 3 prior calendar days."""
+    from news_digest.config import Settings
+
+    assert Settings.model_fields["retention_days"].default == 4
 
 
 # ---------------------------------------------------------------------------

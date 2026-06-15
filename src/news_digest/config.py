@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     # "published today" checks). The scheduler tick remains UTC; only the date
     # label shifts to Eastern so digests group by the listener's calendar day.
     app_timezone: str = "America/New_York"  # APP_TIMEZONE
-    retention_days: int = 3  # RETENTION_DAYS — keep today + N-1 prior days
+    retention_days: int = 4  # RETENTION_DAYS — keep today + N-1 prior days
     schedule_retention_hour: int = 5  # SCHEDULE_RETENTION_HOUR (UTC)
 
     @field_validator("supabase_url", "supabase_anon_key", "supabase_service_key")

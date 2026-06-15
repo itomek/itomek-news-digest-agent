@@ -24,8 +24,8 @@ import { formatDate } from "../views/digest-list";
 // Today's digests live on Home. History excludes today via excludeToday() so
 // both views stay coherent regardless of how many days the backend retains.
 // We deliberately do NOT use a fixed window size here: the backend retention
-// contract (#102) is ≤3 calendar days (today + 2 prior), so History shows at
-// most 2 prior days. Applying a window filter on top of that would be redundant
+// contract (#102) is ≤4 calendar days (today + 3 prior), so History shows at
+// most 3 prior days. Applying a window filter on top of that would be redundant
 // and would silently hide data if retention ever increases.
 
 // --- Pure, DOM-free helpers (unit-tested) ----------------------------------

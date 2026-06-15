@@ -18,24 +18,23 @@ test.describe("digest render (live authenticated reads)", () => {
     await expect(page.getByTestId("digest-content")).toBeVisible();
     await expect(page.getByTestId("auth-gate")).toHaveCount(0);
 
-    // At least one topic group with a topic heading and a date heading.
-    const groups = page.locator(".topic-group");
+    // At least one date group, with a date heading and a nested topic heading
+    // (date-first grouping, #101).
+    const groups = page.locator(".date-group");
     await expect(groups.first()).toBeVisible({ timeout: 15_000 });
     expect(await groups.count()).toBeGreaterThan(0);
 
-    await expect(page.locator(".topic-heading").first()).toBeVisible();
     await expect(page.locator(".date-heading").first()).toBeVisible();
+    await expect(page.locator(".topic-heading").first()).toBeVisible();
     await expect(page.locator(".digest-card").first()).toBeVisible();
 
-    // Grouping invariant: each topic-group carries a slug, and date headings carry
-    // dates that are sorted descending within the group.
-    const firstGroupDates = await page
-      .locator(".topic-group")
-      .first()
+    // Grouping invariant (date-first, #101): top-level date headings are sorted
+    // descending across the page.
+    const dates = await page
       .locator(".date-heading")
       .evaluateAll((els) => els.map((el) => el.getAttribute("data-date") ?? ""));
-    const sortedDesc = [...firstGroupDates].sort().reverse();
-    expect(firstGroupDates).toEqual(sortedDesc);
+    const sortedDesc = [...dates].sort().reverse();
+    expect(dates).toEqual(sortedDesc);
   });
 
   // AC: structured digests render summary + expandable items; legacy cards fall back.

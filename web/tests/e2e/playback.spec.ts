@@ -149,6 +149,18 @@ test("skip-30s utters again from an advanced position", async ({ page }) => {
       target = i;
     }
   }
+  // A 30s skip advances ~90 words (default rate 1.2). If even the longest digest
+  // is shorter than that, the skip lands past the end (advanceItem → idle, no new
+  // utterance) and there is nothing to assert — skip rather than flake on sparse
+  // live data.
+  const targetWords = (await page.locator(".digest-card").nth(target).innerText())
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
+  test.skip(
+    targetWords < 110,
+    `longest digest has ${targetWords} words; need >~90 for a mid-item 30s skip`,
+  );
   const controls = page.locator(".digest-card").nth(target).locator(".tts-controls");
   await controls.locator("button.tts-toggle").click();
   const before = await page.evaluate(() => (window as any).__tts.speaks.length);

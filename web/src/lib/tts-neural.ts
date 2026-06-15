@@ -6,12 +6,8 @@
 //   GET  /v1/audio/voices  -> { voices: [{ id, name }] }
 //
 // Responsibilities:
-//   - Synthesize one chunk per request, play via a FIXED POOL of two
-//     pre-unlocked HTMLAudioElements (ping-pong double-buffer).  The pool is
-//     built and both elements are primed in unlock() (inside the user gesture)
-//     so BOTH carry autoplay permission.  prefetch() pre-loads the next chunk
-//     onto the spare; speak() promotes the spare to active (gapless fast-path)
-//     or falls back to fetching on the active element.
+//   - Synthesize one chunk per request, play via a SINGLE long-lived
+//     HTMLAudioElement (src is swapped per chunk — never a new element).
 //   - Attach caller-provided headers (Supabase JWT) to every request — the
 //     function is deployed with JWT verification on.
 //   - In-memory cache keyed `${voice}|${rate}|hash(text)` -> object URL so a
@@ -21,8 +17,7 @@
 //     token guards the async fetch).
 //   - Fetch/decoding failure -> call onEnd so the player advances instead of
 //     wedging; never throw out of speak().
-//   - unlock() builds the pool and primes both elements inside the user gesture
-//     (Safari/Chrome per-element autoplay fix).
+//   - unlock() primes the element inside the user gesture (Safari autoplay fix).
 
 import type { TtsBackend, TtsVoice } from "./tts";
 
@@ -35,7 +30,7 @@ const MAX_CACHE_ENTRIES = 64;
 // sentences, so per-chunk prosody stays natural.
 const NEURAL_MAX_CHUNK_CHARS = 240;
 
-// Minimal silent MP3 (44 bytes): used to prime both pool elements in unlock()
+// Minimal silent MP3 (44 bytes): used to prime the audio element in unlock()
 // without triggering audible output.  The howler.js-style Safari unlock pattern
 // requires a real play() call on the element inside the gesture; a data-URI of
 // a tiny silent clip avoids a network round-trip.
@@ -50,10 +45,9 @@ export interface NeuralHttpBackendOptions {
   /** Injectable for tests; defaults to global fetch. */
   fetchImpl?: typeof fetch;
   /**
-   * Injectable for tests; called exactly twice during unlock() to build the
-   * pool of two pre-unlocked HTMLAudioElements (ping-pong double-buffer).
-   * In the degraded path (speak() without prior unlock()), called once lazily
-   * to create pool[0] only.  Defaults to `new Audio()`.
+   * Injectable for tests; called at most once to create the single long-lived
+   * HTMLAudioElement.  Subsequent speaks reassign .src on the same element.
+   * Defaults to `new Audio()`.
    */
   audioFactory?: () => HTMLAudioElement;
   /** Cache size cap; defaults to 64. */
@@ -71,12 +65,6 @@ function hashText(text: string): string {
   return h.toString(36);
 }
 
-/** Preload slot: identifies which chunk the spare pool element has buffered. */
-interface PreloadSlot {
-  key: string;
-  url: string;
-}
-
 export class NeuralHttpBackend implements TtsBackend {
   readonly supportsRealSeek = true;
   readonly maxChunkChars = NEURAL_MAX_CHUNK_CHARS;
@@ -90,30 +78,17 @@ export class NeuralHttpBackend implements TtsBackend {
   // key -> object URL. Map preserves insertion order, so the first key is the
   // oldest entry when we need to evict.
   private readonly cache = new Map<string, string>();
-
-  // Fixed pool of exactly 2 pre-unlocked elements, built in unlock().
-  // pool[activeIndex] is the element we play on; pool[1-activeIndex] is the spare.
-  // Lazily grown: if speak() is called before unlock(), we create pool[0] only
-  // (degraded path — no gapless, but no crash).
-  private pool: HTMLAudioElement[] = [];
-  private activeIndex = 0;
-
-  // The object URL assigned to each pool element's .src right now. Tracked so
-  // cache eviction never revokes a URL either element is still streaming.
-  // Index-aligned with pool[].
-  private poolSrc: (string | null)[] = [null, null];
-
-  // Pending preload: the chunk buffered onto the spare element, ready for the
-  // gapless fast-path swap in speak().  Cleared by cancel().
-  private preloadSlot: PreloadSlot | null = null;
-
+  // The single long-lived audio element, created lazily on first use.
+  private audioEl: HTMLAudioElement | null = null;
+  // The object URL actually assigned to audioEl.src right now. Tracked so cache
+  // eviction never revokes a URL the element is still streaming. Survives
+  // cancel() (the src stays loaded until the next speak() overwrites it).
+  private elementSrc: string | null = null;
   // True while a (non-cancelled) chunk is the current track — drives
   // getProgress()/seekWithinCurrent(), which must report nothing after cancel().
   private hasCurrentTrack = false;
-
   // True once unlock() has run, so we don't re-prime on repeated calls.
   private unlocked = false;
-
   // Monotonic token: cancel() bumps it, so an in-flight speak() whose token no
   // longer matches must not start playback or report an end.
   private session = 0;
@@ -130,38 +105,35 @@ export class NeuralHttpBackend implements TtsBackend {
   }
 
   /**
-   * Build the 2-element pool and prime BOTH elements inside a user gesture so
-   * Safari/Chrome grant autoplay permission to each.  Call this synchronously
-   * at the top of any user-gesture handler (e.g. TtsPlayer.play()) BEFORE any
-   * awaits.  Idempotent — safe to call multiple times; the pool is built once.
-   *
-   * Browser autoplay policy binds permission per-element to the element(s)
-   * play()'d inside the gesture.  Both pool elements must be primed here so
-   * the ping-pong swap can play on either without being blocked.
+   * Prime the single audio element inside a user gesture so Safari grants
+   * autoplay permission for all future chunk plays on the same element.
+   * Call this synchronously at the top of any user-gesture handler (e.g.
+   * TtsPlayer.play()) BEFORE any awaits.  Idempotent — safe to call multiple
+   * times; the unlock only happens once.
    */
   unlock(): void {
     if (this.unlocked) return;
     this.unlocked = true;
-    // Build both pool elements synchronously and prime each with the silent
-    // clip so both carry autoplay permission for all future play() calls.
-    for (let i = 0; i < 2; i++) {
-      const audio = this.audioFactory();
-      this.pool.push(audio);
-      audio.src = SILENT_MP3_DATA_URI;
-      try {
-        const p = audio.play();
-        if (p && typeof p.catch === "function") p.catch(() => {});
-      } catch {
-        // ignore — element still registered with Safari's policy.
-      }
-      try {
-        audio.pause();
-      } catch {
-        // ignore
-      }
+    const audio = this.getOrCreateElement();
+    // howler.js-style Safari unlock: assign a silent clip and play+pause
+    // immediately inside the gesture.  This registers the element's origin
+    // with Safari's autoplay policy so later play() calls (outside the
+    // gesture, after an async fetch) are permitted on the SAME element.
+    audio.src = SILENT_MP3_DATA_URI;
+    try {
+      const p = audio.play();
+      // Swallow a rejected play() promise (autoplay refusal pre-gesture, jsdom
+      // with no media stack) so unlock never throws into the click handler.
+      if (p && typeof p.catch === "function") p.catch(() => {});
+    } catch {
+      // ignore — element still registered with Safari's policy.
     }
-    // Reset poolSrc to track only the 2 pool elements.
-    this.poolSrc = [null, null];
+    // Pause synchronously, inside the same gesture, so no audible blip plays.
+    try {
+      audio.pause();
+    } catch {
+      // ignore
+    }
   }
 
   speak(
@@ -169,61 +141,28 @@ export class NeuralHttpBackend implements TtsBackend {
     opts: { rate: number; voiceURI: string | null },
     onEnd: () => void,
   ): void {
-    // Capture pending preload BEFORE cancel() clears it.
-    const pendingSlot = this.preloadSlot;
     this.cancel();
     const session = this.session;
+    // Empty voice -> the proxy applies its server-side default.
     const voice = opts.voiceURI ?? "";
-    const key = `${voice}|${opts.rate}|${hashText(text)}`;
 
-    // --- Gapless fast-path: spare element already has this chunk buffered. ---
-    if (pendingSlot && pendingSlot.key === key && this.pool.length >= 2) {
-      // Promote the spare to active (ping-pong swap).
-      this.activeIndex = 1 - this.activeIndex;
-      const audio = this.pool[this.activeIndex]!;
-      const url = pendingSlot.url;
-
-      // Wire handlers on the now-active element.
-      audio.onended = null;
-      audio.onerror = null;
-      const previousSrc = this.poolSrc[this.activeIndex] ?? null;
-      this.poolSrc[this.activeIndex] = url;
-      this.hasCurrentTrack = true;
-
-      // Deferred revocation of the old URL this pool slot had (if evicted).
-      if (previousSrc && previousSrc !== url && !this.cacheHasUrl(previousSrc)) {
-        URL.revokeObjectURL(previousSrc);
-      }
-
-      const finish = (): void => {
-        if (session !== this.session) return;
-        this.hasCurrentTrack = false;
-        onEnd();
-      };
-      audio.onended = finish;
-      audio.onerror = finish;
-      const p = audio.play();
-      if (p && typeof p.catch === "function") {
-        p.catch(() => {
-          if (session !== this.session) return;
-          this.hasCurrentTrack = false;
-          onEnd();
-        });
-      }
-      return;
-    }
-
-    // --- Fallback path: fetch (or cache-hit) then play on the active element. ---
     void this.getAudioUrl(text, voice, opts.rate)
       .then((url) => {
         if (session !== this.session) return; // superseded while fetching
-        const audio = this.getOrCreateActive();
+        const audio = this.getOrCreateElement();
+        // Detach any handlers from a previous chunk before reassigning.
         audio.onended = null;
         audio.onerror = null;
-        const previousSrc = this.poolSrc[this.activeIndex] ?? null;
-        this.poolSrc[this.activeIndex] = url;
+        const previousSrc = this.elementSrc;
+        // Swap the SAME element's source to this chunk. elementSrc records the
+        // URL the element is now streaming so eviction never revokes it.
+        this.elementSrc = url;
         this.hasCurrentTrack = true;
         audio.src = url;
+        // The element has moved on from previousSrc. If that URL was evicted
+        // from the cache while it was the live src (its revocation deferred),
+        // revoke it now — nothing references it anymore, so it would otherwise
+        // leak. Done AFTER reassigning src so we never revoke the live source.
         if (previousSrc && previousSrc !== url && !this.cacheHasUrl(previousSrc)) {
           URL.revokeObjectURL(previousSrc);
         }
@@ -235,6 +174,8 @@ export class NeuralHttpBackend implements TtsBackend {
         audio.onended = finish;
         audio.onerror = finish;
         const p = audio.play();
+        // play() returns a promise in browsers; a rejection (autoplay policy,
+        // decode failure) must advance the queue, not wedge it.
         if (p && typeof p.catch === "function") {
           p.catch(() => {
             if (session !== this.session) return;
@@ -244,6 +185,8 @@ export class NeuralHttpBackend implements TtsBackend {
         }
       })
       .catch(() => {
+        // Synthesis failed (network/server). Report the end so the player
+        // moves on; it will go idle if every chunk fails.
         if (session !== this.session) return;
         onEnd();
       });
@@ -251,22 +194,24 @@ export class NeuralHttpBackend implements TtsBackend {
 
   pause(): void {
     try {
-      this.pool[this.activeIndex]?.pause();
+      this.audioEl?.pause();
     } catch {
       // ignore
     }
   }
 
   resume(): void {
-    const p = this.pool[this.activeIndex]?.play();
+    const p = this.audioEl?.play();
     if (p && typeof p.catch === "function") p.catch(() => {});
   }
 
   cancel(): void {
     this.session += 1;
-    this.preloadSlot = null;
+    const audio = this.audioEl;
+    // Stop reporting progress/seek for this track, but keep the element alive
+    // for reuse and keep elementSrc set — the src stays loaded until the next
+    // speak() overwrites it, so we must not let eviction revoke it meanwhile.
     this.hasCurrentTrack = false;
-    const audio = this.pool[this.activeIndex];
     if (!audio) return;
     audio.onended = null;
     audio.onerror = null;
@@ -283,7 +228,7 @@ export class NeuralHttpBackend implements TtsBackend {
    * the target is at/past the end of the chunk.
    */
   seekWithinCurrent(seconds: number): boolean {
-    const audio = this.pool[this.activeIndex];
+    const audio = this.audioEl;
     if (!audio || !this.hasCurrentTrack) return false;
     const target = audio.currentTime + seconds;
     if (Number.isFinite(audio.duration) && target >= audio.duration) return false;
@@ -299,6 +244,7 @@ export class NeuralHttpBackend implements TtsBackend {
     const data = (await res.json()) as { voices?: unknown[] };
     const voices = Array.isArray(data.voices) ? data.voices : [];
     return voices.map((v) => {
+      // Locked contract is [{id, name}]; tolerate bare string ids too.
       if (typeof v === "string") return { id: v, label: v };
       const o = v as { id: string; name?: string };
       return { id: o.id, label: o.name ?? o.id };
@@ -306,38 +252,15 @@ export class NeuralHttpBackend implements TtsBackend {
   }
 
   /**
-   * Pre-load the next chunk onto the SPARE pool element so speak() can do a
-   * gapless swap.  If the pool hasn't been built yet (unlock() not called),
-   * falls back to cache-warming only (no element buffering).
+   * Warm the cache for `text` without playing it. Call this while the current
+   * chunk is playing so the next chunk is ready when its turn arrives.
    * All failures are swallowed — a cache miss is the only side-effect.
    */
   prefetch(text: string, opts: { rate: number; voiceURI: string | null }): Promise<void> {
     const voice = opts.voiceURI ?? "";
-    const key = `${voice}|${opts.rate}|${hashText(text)}`;
-
-    // Short-circuit: spare is already loaded with this exact chunk.
-    if (this.preloadSlot?.key === key) return Promise.resolve();
-
     return this.getAudioUrl(text, voice, opts.rate).then(
-      (url) => {
-        // If the pool is available, buffer the URL onto the spare element.
-        if (this.pool.length >= 2) {
-          const spareIndex = 1 - this.activeIndex;
-          const spare = this.pool[spareIndex]!;
-          const previousSrc = this.poolSrc[spareIndex] ?? null;
-          // Set src to buffer the audio (no play() — just preload).
-          spare.src = url;
-          this.poolSrc[spareIndex] = url;
-          // Deferred revocation for any URL the spare previously held.
-          if (previousSrc && previousSrc !== url && !this.cacheHasUrl(previousSrc)
-              && !this.poolSrcInUse(previousSrc)) {
-            URL.revokeObjectURL(previousSrc);
-          }
-        }
-        // Record the preload slot regardless (cache-warmed or element-buffered).
-        this.preloadSlot = { key, url };
-      },
-      () => { /* silently swallow fetch errors */ },
+      () => { /* cached; no playback */ },
+      () => { /* silently ignore fetch errors */ },
     );
   }
 
@@ -348,24 +271,19 @@ export class NeuralHttpBackend implements TtsBackend {
    * and "audio is playing but metadata not ready yet".
    */
   getProgress(): { currentTime: number; duration: number } | null {
-    const audio = this.pool[this.activeIndex];
+    const audio = this.audioEl;
     if (!audio || !this.hasCurrentTrack || !Number.isFinite(audio.duration)) return null;
     return { currentTime: audio.currentTime, duration: audio.duration };
   }
 
   // --- internals ------------------------------------------------------------
 
-  /**
-   * Return the active pool element, lazily creating pool[0] if speak() was
-   * called before unlock() (degraded path — no gapless, no crash).
-   */
-  private getOrCreateActive(): HTMLAudioElement {
-    if (this.pool.length === 0) {
-      const audio = this.audioFactory();
-      this.pool.push(audio);
-      this.poolSrc = [null];
+  /** Lazily create and return the single reused audio element. */
+  private getOrCreateElement(): HTMLAudioElement {
+    if (!this.audioEl) {
+      this.audioEl = this.audioFactory();
     }
-    return this.pool[this.activeIndex]!;
+    return this.audioEl;
   }
 
   /** True when `url` is still held by the cache (so it must not be revoked). */
@@ -374,11 +292,6 @@ export class NeuralHttpBackend implements TtsBackend {
       if (v === url) return true;
     }
     return false;
-  }
-
-  /** True when `url` is currently the .src of ANY pool element. */
-  private poolSrcInUse(url: string): boolean {
-    return this.poolSrc.some((s) => s === url);
   }
 
   private async resolveHeaders(): Promise<Record<string, string>> {
@@ -416,11 +329,10 @@ export class NeuralHttpBackend implements TtsBackend {
       const oldest = this.cache.keys().next().value as string;
       const evicted = this.cache.get(oldest);
       this.cache.delete(oldest);
-      // Never revoke a URL that is currently buffered in any pool element —
-      // the browser may still be streaming or have it loaded.  Defer: it will
-      // be overwritten the next time that element's src is reassigned, at which
-      // point it is safe to drop.
-      if (evicted && !this.poolSrcInUse(evicted)) {
+      // Never revoke a URL that is currently set as the element's src — the
+      // browser may still be streaming it.  Defer: it will be overwritten the
+      // next time speak() runs, at which point it is safe to drop.
+      if (evicted && evicted !== this.elementSrc) {
         URL.revokeObjectURL(evicted);
       }
     }

@@ -58,8 +58,8 @@ work:
 - 🧠 **GAIA** — *the agent framework.* A GAIA `Agent` reasons over a topic, calls
   `@tool` scrapers, reads what comes back, and decides when the digest is done.
 - ⚡ **Lemonade** — *the inference runtime.* GAIA talks to Lemonade Server over a
-  standard OpenAI-compatible API on `localhost`; it serves the model that writes
-  every summary.
+  standard OpenAI-compatible API on `localhost`; it serves the models that write
+  every digest and power source curation.
 - 🔴 **Strix Halo** — *the silicon.* 128 GB unified memory lets a heavy model stay
   resident across runs — no reload, no cloud.
 
@@ -90,6 +90,23 @@ the result from your phone.
 > host — belongs here once captured from a real run.
 > *(placeholder: run `python -m news_digest "…"` and record the actual numbers
 > rather than estimating.)*
+
+### Two model tiers, three jobs
+
+Lemonade serves two locally-resident model tiers, picked per task. Everything
+below runs on the Strix Halo GPU — no LLM call leaves the box.
+
+| Activity | Model tier | Config key | Where |
+|---|---|---|---|
+| **Generate the digest** — the reasoning loop *is* the summarizer (invariant #1) | heavy | `lemonade_heavy_model` | [agent.py](../src/news_digest/agent.py) |
+| **Curator: craft the web-search query** — turns a failing source + topic into a Perplexity query | light | `lemonade_light_model` | [`craft_query`](../src/news_digest/curator.py) |
+| **Curator: judge candidate relevance** — scores a discovered source against the topic (drives auto-adopt / queue / reject) | light | `lemonade_light_model` | [`judge_relevance`](../src/news_digest/curator.py) |
+
+The **heavy** model does the daily work — generating digests. The two **light**
+model calls fire only when the source curator is repairing a persistently-failing
+source, and fall back to the heavy model if no light model is configured
+([curator.py](../src/news_digest/curator.py)). Article deduplication
+(`deduplicate_articles`) is a pure function — **no model involved**.
 
 ---
 
@@ -324,7 +341,7 @@ maintenance jobs at configurable UTC hours (`config.py` defaults shown):
 | Job | When (UTC) | What it does |
 |---|---|---|
 | 🔁 **Digest cycle** | every 15 min, 24/7 | tick → due-check → run each due topic |
-| 🔎 **Source curator** | `04:00` daily *(default)* | discovers new sources (optional, Perplexity) |
+| 🔎 **Source curator** | `04:00` daily *(default)* | repairs failing sources: light-model query craft + relevance judging, plus optional Perplexity web search |
 | 🧹 **Retention purge** | `05:00` daily *(default)* | drops digests older than the retention window |
 
 Timing facts worth showing, all from [scheduler.py](../src/news_digest/scheduler.py):
@@ -377,8 +394,10 @@ The boundary is the whole point: **inference and source text never leave the
 host.** Two systemd units share the box — the agent and an always-on Lemonade
 with the heavy model resident, talking over `localhost`. Only finished digests
 and logs cross to Supabase; the phone reads those through an anon key under RLS.
-(The one external API call beyond storage is the optional Perplexity
-source-curator — discovery, not inference.)
+(The only external call beyond storage is the source-curator's optional
+Perplexity web search — that's *external discovery*. The curator's own
+reasoning — crafting the query and judging relevance — is local inference on
+the light model, same box as the digest.)
 
 ---
 

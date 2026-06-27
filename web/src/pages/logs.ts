@@ -40,6 +40,7 @@ export const LOG_CATEGORIES = [
 export const FALLBACK_TOPIC_SLUGS = [
   "ai_models",
   "ai_updates",
+  "f1",
   "local_news",
   "penguins",
   "world_news",

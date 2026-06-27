@@ -189,6 +189,7 @@ ruff format src tests
 | 3 | AI company/product updates         | 24h     | `ai_updates`      |
 | 4 | Pittsburgh Penguins (non-scores)   | 7-day   | `penguins`        |
 | 5 | US/Poland world news + sentiment   | TBD     | `world_news`      |
+| 6 | Formula 1 (general + Haas/Cadillac) | 24h     | `f1`              |
 
 **Build order:** Topic 1 first (end-to-end validation), then replicate to others.
 

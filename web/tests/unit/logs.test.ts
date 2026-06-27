@@ -314,10 +314,11 @@ describe("LOG_CATEGORIES", () => {
 });
 
 describe("FALLBACK_TOPIC_SLUGS", () => {
-  it("covers the five known digest topics", () => {
+  it("covers the six known digest topics", () => {
     expect([...FALLBACK_TOPIC_SLUGS].sort()).toEqual([
       "ai_models",
       "ai_updates",
+      "f1",
       "local_news",
       "penguins",
       "world_news",

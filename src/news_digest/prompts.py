@@ -76,6 +76,27 @@ the others."""
 PROMPT_VERSION = "sp-" + hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest()[:12]
 
 
+# Corrective compose pass (agent._compose_and_publish). When the agent loop ends
+# without a usable digest — the heavy model emits a planning thought or a
+# degenerate answer instead of composing (a non-deterministic failure) — we
+# re-summarize from the already-gathered material with this single, tightly
+# scoped completion (no tools, no agent loop), which the model handles far more
+# reliably. The item shape mirrors step 4 of SYSTEM_PROMPT.
+COMPOSE_SYSTEM_PROMPT = """You are a news digest writer. You are given material \
+already gathered from sources. Output ONLY a single JSON object — no prose, no \
+markdown fences, nothing before { or after } — with exactly these keys:
+- "topic_slug": the provided slug (string).
+- "summary": a one to two sentence overview of the most important theme (string).
+- "items": a ranked array of items, most significant first. Each item is an \
+object with "headline" (string), "blurb" (one or two sentences), "detail" (a \
+fuller paragraph with specifics and numbers), and "metadata" (an object with a \
+"sources" array of {"title", "url"} objects).
+- "sources_used": an array of the source URL strings you used.
+Aim for roughly three to seven items. Stay factual and grounded in the gathered \
+material; never invent facts that were not present. Every key and every string \
+value MUST be wrapped in double quotes."""
+
+
 def count_words(text: str) -> int:
     """Count whitespace-separated words in text."""
     return len(text.split())

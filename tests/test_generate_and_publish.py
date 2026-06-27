@@ -389,3 +389,324 @@ def test_non_matching_malformed_json_still_returns_parse_error(
         "parse_error path must still log 'could not parse final answer'"
     )
     assert not any("LLM returned an error response" in m for m in logged_messages)
+
+
+# ---------------------------------------------------------------------------
+# json_repair hardening — malformed JSON the heavy model emits (unquoted
+# keys/values), recovered before giving up. See agent._repair_json_text.
+# ---------------------------------------------------------------------------
+
+
+def test_repair_json_text_recovers_unquoted_keys_and_values():
+    """A tool call with unquoted keys/values (real Qwen shape) is recovered."""
+    from news_digest.agent import _repair_json_text
+
+    malformed = (
+        '{"thought": found the f1 topic, goal: Fetch config, '
+        "tool: fetch_topic_config, tool_args: {slug: f1}}"
+    )
+    out = _repair_json_text(malformed)
+    assert out["tool"] == "fetch_topic_config"
+    assert out["tool_args"] == {"slug": "f1"}
+
+
+def test_repair_json_text_returns_none_for_non_dict():
+    """Pure garbage / arrays must not be coerced into a dict (stay parse_error)."""
+    from news_digest.agent import _repair_json_text
+
+    assert _repair_json_text("not json {{{") is None
+    assert _repair_json_text("{bad json") is None
+    assert _repair_json_text("[1, 2, 3]") is None
+
+
+def test_is_actionable_response():
+    from news_digest.agent import _is_actionable_response
+
+    assert _is_actionable_response({"tool": "fetch_rss", "tool_args": {}})
+    assert _is_actionable_response({"answer": "the digest"})
+    assert _is_actionable_response({"plan": [{"tool": "x", "tool_args": {}}]})
+    assert _is_actionable_response({"summary": "s", "items": _ITEMS})
+    # A null-tool response is NOT actionable — feeding it back to GAIA loops.
+    assert not _is_actionable_response({"thought": "t", "tool": None, "tool_args": {}})
+    assert not _is_actionable_response({})
+    # An empty/null answer is NOT actionable either (truthy check, not presence).
+    assert not _is_actionable_response({"answer": ""})
+    assert not _is_actionable_response({"answer": None})
+
+
+def test_publish_repairs_unquoted_top_level_digest(_capture_push):
+    """result['result'] is a digest with an unquoted value → repaired & published."""
+    raw = (
+        '{"topic_slug": "ai_models", "summary": Top AI news today, "items": '
+        + json.dumps(_ITEMS)
+        + ', "sources_used": ["https://example.com"]}'
+    )
+    result = {"status": "success", "result": raw, "output_tokens": 3}
+    out = _publish_from_result(result)
+
+    assert out["success"] is True
+    assert _capture_push[0]["topic_slug"] == "ai_models"
+    assert _capture_push[0]["summary"] == "Top AI news today"
+
+
+def test_publish_repairs_malformed_nested_answer(_capture_push):
+    """A malformed (unquoted slug) digest nested under 'answer' is recovered."""
+    inner = (
+        '{topic_slug: ai_models, "summary": "S", "items": '
+        + json.dumps(_ITEMS)
+        + ', "sources_used": []}'
+    )
+    raw = json.dumps({"thought": "done", "answer": inner})
+    result = {
+        "status": "success",
+        "result": raw,
+        "conversation": [],
+        "output_tokens": 1,
+    }
+    out = _publish_from_result(result)
+
+    assert out["success"] is True
+    assert _capture_push[0]["topic_slug"] == "ai_models"
+
+
+# ---------------------------------------------------------------------------
+# _parse_llm_response override — repair before GAIA's parser sees the response
+# ---------------------------------------------------------------------------
+
+
+def _bare_agent():
+    """Construct a NewsDigestAgent without running __init__ (no Lemonade/DB)."""
+    from news_digest.agent import NewsDigestAgent
+
+    return NewsDigestAgent.__new__(NewsDigestAgent)
+
+
+def test_parse_llm_response_repairs_malformed_tool_call(monkeypatch):
+    """A malformed tool call is repaired to valid JSON before the base parser."""
+    from gaia.agents.base.agent import Agent
+
+    seen = {}
+    monkeypatch.setattr(
+        Agent,
+        "_parse_llm_response",
+        lambda self, response: seen.setdefault("response", response) or {},
+    )
+    malformed = (
+        '{"thought": found it, goal: do, tool: fetch_topic_config, '
+        "tool_args: {slug: f1}}"
+    )
+    _bare_agent()._parse_llm_response(malformed)
+    parsed = json.loads(seen["response"])  # must now be valid JSON
+    assert parsed["tool"] == "fetch_topic_config"
+    assert parsed["tool_args"] == {"slug": "f1"}
+
+
+def test_parse_llm_response_leaves_null_tool_to_base(monkeypatch):
+    """A repaired null-tool response is NOT substituted (avoids the loop)."""
+    from gaia.agents.base.agent import Agent
+
+    seen = {}
+    monkeypatch.setattr(
+        Agent,
+        "_parse_llm_response",
+        lambda self, response: seen.setdefault("response", response) or {},
+    )
+    malformed = '{"thought": I am done now, goal: x, tool: null, tool_args: {}}'
+    _bare_agent()._parse_llm_response(malformed)
+    assert seen["response"] == malformed  # passed through unchanged
+
+
+def test_parse_llm_response_passes_valid_json_unchanged(monkeypatch):
+    """Valid JSON takes the fast path untouched (no needless re-serialization)."""
+    from gaia.agents.base.agent import Agent
+
+    seen = {}
+    monkeypatch.setattr(
+        Agent,
+        "_parse_llm_response",
+        lambda self, response: seen.setdefault("response", response) or {},
+    )
+    valid = '{"thought": "t", "tool": "fetch_rss", "tool_args": {}}'
+    _bare_agent()._parse_llm_response(valid)
+    assert seen["response"] == valid
+
+
+# ---------------------------------------------------------------------------
+# Corrective compose pass — re-summarize gathered material when the agent loop
+# fails to produce a usable digest. See agent._compose_and_publish.
+# ---------------------------------------------------------------------------
+
+
+class _FakeResp:
+    def __init__(self, text):
+        self.text = text
+
+
+class _FakeChat:
+    """Stub for agent.chat — records calls, returns a fixed response text."""
+
+    def __init__(self, text, output_tokens=0):
+        self._text = text
+        self._output_tokens = output_tokens
+        self.calls = []
+
+    def send_messages(self, messages, system_prompt=None, **kwargs):
+        self.calls.append((messages, system_prompt))
+        return _FakeResp(self._text)
+
+    def get_stats(self):
+        return {"output_tokens": self._output_tokens}
+
+
+def test_extract_gathered_materials_pulls_tool_results():
+    from news_digest.agent import _extract_gathered_materials
+
+    conv = [
+        {"role": "user", "content": "q"},
+        {"role": "tool", "name": "fetch_rss", "content": {"items": [1, 2]}},
+        {"role": "assistant", "content": {"thought": "t"}},
+        {"role": "tool", "name": "parse_article", "content": "body text here"},
+    ]
+    out = _extract_gathered_materials(conv)
+    assert "fetch_rss" in out
+    assert "parse_article" in out
+    assert "body text here" in out
+
+
+def test_extract_gathered_materials_empty_when_no_tools():
+    from news_digest.agent import _extract_gathered_materials
+
+    assert _extract_gathered_materials([{"role": "assistant", "content": {}}]) == ""
+    assert _extract_gathered_materials(None) == ""
+
+
+def test_parse_digest_text_variants():
+    from news_digest.agent import _parse_digest_text
+
+    clean = json.dumps({"summary": "s", "items": [1]})
+    assert _parse_digest_text(clean)["summary"] == "s"
+    assert _parse_digest_text(f"```json\n{clean}\n```")["items"] == [1]
+    # malformed (unquoted value) is repaired
+    assert (
+        _parse_digest_text('{"summary": Hi there, "items": [1]}')["summary"]
+        == "Hi there"
+    )
+    # nested under answer
+    nested = json.dumps({"answer": {"summary": "s", "items": [1]}})
+    assert _parse_digest_text(nested)["summary"] == "s"
+    # unrecoverable / non-string
+    assert _parse_digest_text("not json {{{") is None
+    assert _parse_digest_text(123) is None
+
+
+def test_compose_and_publish_recovers_from_gathered_materials(_capture_push):
+    from news_digest.agent import NewsDigestAgent
+
+    agent = NewsDigestAgent.__new__(NewsDigestAgent)
+    agent.chat = _FakeChat(json.dumps(_answer_payload()))
+    conversation = [
+        {
+            "role": "tool",
+            "name": "fetch_topic_config",
+            "tool_args": {"slug": "ai_models"},
+        },
+        {"role": "tool", "name": "fetch_rss", "content": {"items": [{"t": "x"}]}},
+    ]
+    result = {"conversation": conversation, "output_tokens": 9}
+
+    out = agent._compose_and_publish("q", result, "ai_models")
+
+    assert out["success"] is True
+    assert _capture_push[0]["topic_slug"] == "ai_models"
+    # The compose call was handed the gathered material and the compose prompt.
+    sent_messages, system_prompt = agent.chat.calls[0]
+    assert "fetch_rss" in sent_messages[0]["content"]
+    assert "digest" in system_prompt.lower()
+
+
+def test_compose_and_publish_token_count_sums_primary_and_compose(_capture_push):
+    """token_count reflects the whole effort: primary run + compose call."""
+    from news_digest.agent import NewsDigestAgent
+
+    agent = NewsDigestAgent.__new__(NewsDigestAgent)
+    agent.chat = _FakeChat(json.dumps(_answer_payload()), output_tokens=200)
+    conversation = [{"role": "tool", "name": "fetch_rss", "content": {"x": 1}}]
+    result = {"conversation": conversation, "output_tokens": 50}
+
+    out = agent._compose_and_publish("q", result, "ai_models")
+
+    assert out["success"] is True
+    assert _capture_push[0]["token_count"] == 250  # 50 primary + 200 compose
+
+
+def test_compose_and_publish_repairs_malformed_compose_output(_capture_push):
+    from news_digest.agent import NewsDigestAgent
+
+    agent = NewsDigestAgent.__new__(NewsDigestAgent)
+    malformed = (
+        '{topic_slug: ai_models, "summary": Big news today, "items": '
+        + json.dumps(_ITEMS)
+        + "}"
+    )
+    agent.chat = _FakeChat(malformed)
+    conversation = [{"role": "tool", "name": "fetch_rss", "content": {"x": 1}}]
+
+    out = agent._compose_and_publish("q", {"conversation": conversation}, "ai_models")
+
+    assert out["success"] is True
+    assert _capture_push[0]["summary"] == "Big news today"
+
+
+def test_compose_and_publish_none_without_materials(_capture_push):
+    from news_digest.agent import NewsDigestAgent
+
+    agent = NewsDigestAgent.__new__(NewsDigestAgent)
+    agent.chat = _FakeChat("{}")  # must never be called
+
+    out = agent._compose_and_publish("q", {"conversation": []}, "ai_models")
+
+    assert out is None
+    assert agent.chat.calls == [], "model must not be called when nothing was gathered"
+    assert _capture_push == []
+
+
+def test_compose_and_publish_none_when_compose_has_no_digest(_capture_push):
+    from news_digest.agent import NewsDigestAgent
+
+    agent = NewsDigestAgent.__new__(NewsDigestAgent)
+    agent.chat = _FakeChat('{"thought": "I am done", "tool": null}')
+    conversation = [{"role": "tool", "name": "fetch_rss", "content": {"x": 1}}]
+
+    out = agent._compose_and_publish("q", {"conversation": conversation}, "ai_models")
+
+    assert out is None
+    assert _capture_push == []
+
+
+def test_generate_and_publish_falls_back_to_compose(monkeypatch, _capture_push):
+    """Primary publish fails (no-digest answer) but compose recovers & publishes."""
+    from news_digest.agent import NewsDigestAgent
+
+    conversation = [
+        {
+            "role": "tool",
+            "name": "fetch_topic_config",
+            "tool_args": {"slug": "ai_models"},
+        },
+        {"role": "tool", "name": "fetch_rss", "content": {"items": [{"t": "x"}]}},
+    ]
+    # final answer parses but carries no digest -> missing_fields on primary path
+    fake_result = {
+        "status": "success",
+        "result": json.dumps({"thought": "planning", "answer": "{}"}),
+        "conversation": conversation,
+        "output_tokens": 5,
+    }
+    agent = NewsDigestAgent.__new__(NewsDigestAgent)
+    monkeypatch.setattr(NewsDigestAgent, "process_query", lambda self, q: fake_result)
+    agent.chat = _FakeChat(json.dumps(_answer_payload()))
+
+    out = agent.generate_and_publish("Generate the AI digest")
+
+    assert out["success"] is True
+    assert _capture_push[0]["topic_slug"] == "ai_models"

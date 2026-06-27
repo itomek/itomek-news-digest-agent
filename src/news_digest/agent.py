@@ -12,13 +12,14 @@ local SQLite state (run log / article cache); Supabase remains the primary store
 import json
 from typing import Any
 
+import json_repair
 from gaia.agents.base.agent import Agent
 from gaia.database import DatabaseMixin
 from gaia.llm.lemonade_client import LemonadeClient
 
 from news_digest.config import get_settings
 from news_digest.logging import drain_fallback, log
-from news_digest.prompts import SYSTEM_PROMPT
+from news_digest.prompts import COMPOSE_SYSTEM_PROMPT, SYSTEM_PROMPT
 
 # Importing the tool modules registers their @tool functions into GAIA's global
 # tool registry at import time; the agent then advertises them to the model.
@@ -110,6 +111,47 @@ def _is_llm_error_response(text: str) -> bool:
     )
 
 
+def _repair_json_text(text: str) -> dict[str, Any] | None:
+    """Best-effort recovery of a JSON object from malformed model output.
+
+    The heavy local model (Qwen3.5-35B) intermittently emits JSON with unquoted
+    keys and/or unquoted string values — e.g. ``{"thought": I gathered ...,
+    goal: ..., tool: fetch_topic_config, tool_args: {slug: f1}}``. This is a
+    non-deterministic sampling artifact (it varies run-to-run even at
+    temperature 0, from llama-server batching numerics), so it cannot be steered
+    away with the prompt alone. ``json.loads`` rejects it; ``json_repair`` quotes
+    the dangling keys/values and parses it.
+
+    Returns the repaired dict, or ``None`` when repair yields anything other than
+    a JSON object (so callers can fall back to their existing handling).
+    """
+    try:
+        obj = json_repair.loads(text)
+    except Exception:  # noqa: BLE001 - repair must never raise into the caller
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def _is_actionable_response(parsed: dict[str, Any]) -> bool:
+    """Whether a repaired response dict is worth substituting for the raw text.
+
+    A repaired dict is only substituted back into GAIA's loop when it carries a
+    real instruction: a (truthy) ``tool`` call, an ``answer``, a non-empty
+    ``plan``, or a bare digest (``summary`` + ``items``). A repaired
+    ``{"thought": ..., "tool": null}`` is deliberately NOT actionable — feeding
+    a null tool back to GAIA makes it append consecutive assistant turns and
+    loop until llama-server rejects the message list ("2+ assistant messages"),
+    which is worse than letting GAIA's own fallback finalize the turn.
+    """
+    if parsed.get("tool"):
+        return True
+    if parsed.get("answer"):
+        return True
+    if isinstance(parsed.get("plan"), list) and parsed["plan"]:
+        return True
+    return bool(parsed.get("summary") and parsed.get("items"))
+
+
 def _strip_code_fences(text: str) -> str:
     """Strip leading/trailing markdown code fences from a model answer.
 
@@ -144,6 +186,56 @@ def _topic_slug_from_conversation(conversation: list[dict] | None) -> str | None
             if slug:
                 return slug
     return None
+
+
+# Caps for the corrective compose pass (_compose_and_publish). Sized for the
+# 32K-token context: ~24K chars of gathered material plus the prompt still
+# leaves ample room for the heavy model to emit a multi-item digest.
+_COMPOSE_MAX_PER_TOOL = 6000
+_COMPOSE_MAX_TOTAL = 24000
+
+
+def _extract_gathered_materials(conversation: list[dict] | None) -> str:
+    """Concatenate the tool results (scraped feeds/articles) from a run.
+
+    The corrective compose pass re-summarizes from what the agent already
+    fetched, so this pulls every ``role="tool"`` entry's content out of the
+    process_query conversation, capped per-tool and overall to stay within the
+    model's context window. Returns an empty string when nothing was gathered
+    (e.g. the run failed before any source was fetched).
+    """
+    chunks: list[str] = []
+    total = 0
+    for msg in conversation or []:
+        if msg.get("role") != "tool":
+            continue
+        text = json.dumps(msg.get("content"), default=str)[:_COMPOSE_MAX_PER_TOOL]
+        piece = f"### {msg.get('name')}\n{text}"
+        if total + len(piece) > _COMPOSE_MAX_TOTAL:
+            break
+        chunks.append(piece)
+        total += len(piece)
+    return "\n\n".join(chunks)
+
+
+def _parse_digest_text(text: str) -> dict[str, Any] | None:
+    """Parse a compose-pass response into a digest dict, repairing if needed.
+
+    Strips any fences, tries strict JSON, then ``_repair_json_text``, and
+    unwraps a nested ``answer`` object. Returns ``None`` when no JSON object can
+    be recovered.
+    """
+    if not isinstance(text, str):
+        return None
+    stripped = _strip_code_fences(text)
+    try:
+        parsed = json.loads(stripped)
+    except (ValueError, TypeError):
+        parsed = _repair_json_text(stripped)
+    if not isinstance(parsed, dict):
+        return None
+    answer = parsed.get("answer")
+    return answer if isinstance(answer, dict) else parsed
 
 
 def _publish_from_result(result: dict[str, Any]) -> dict[str, Any]:
@@ -187,14 +279,18 @@ def _publish_from_result(result: dict[str, Any]) -> dict[str, Any]:
     try:
         parsed = json.loads(stripped)
     except (ValueError, TypeError) as exc:
-        log(
-            "error",
-            "publish",
-            f"generate_and_publish: could not parse final answer: "
-            f"{exc.__class__.__name__}",
-            metadata={"error": str(exc), "raw": raw[:500]},
-        )
-        return {"success": False, "error": "parse_error"}
+        # The heavy model often emits unquoted keys/values; recover before
+        # giving up (see _repair_json_text).
+        parsed = _repair_json_text(stripped)
+        if parsed is None:
+            log(
+                "error",
+                "publish",
+                f"generate_and_publish: could not parse final answer: "
+                f"{exc.__class__.__name__}",
+                metadata={"error": str(exc), "raw": raw[:500]},
+            )
+            return {"success": False, "error": "parse_error"}
 
     if not isinstance(parsed, dict):
         log(
@@ -212,10 +308,11 @@ def _publish_from_result(result: dict[str, Any]) -> dict[str, Any]:
     if isinstance(answer, dict):
         digest = answer
     elif isinstance(answer, str):
+        inner_text = _strip_code_fences(answer)
         try:
-            inner = json.loads(_strip_code_fences(answer))
+            inner = json.loads(inner_text)
         except (ValueError, TypeError):
-            inner = None
+            inner = _repair_json_text(inner_text)
         digest = inner if isinstance(inner, dict) else parsed
     else:
         digest = parsed
@@ -414,7 +511,126 @@ class NewsDigestAgent(Agent, DatabaseMixin):
             },
         )
 
-        return _publish_from_result(result)
+        publish_result = _publish_from_result(result)
+        if publish_result.get("success"):
+            return publish_result
+
+        # The agent loop ended without a usable digest — the heavy model emitted
+        # a planning thought or a degenerate/empty answer instead of composing
+        # (a non-deterministic failure, see _repair_json_text). Try one
+        # corrective compose pass from the material already gathered before
+        # giving up; on success it lands the row, otherwise the original failure
+        # stands.
+        fallback = self._compose_and_publish(query, result, topic_slug)
+        return fallback if fallback is not None else publish_result
+
+    def _compose_and_publish(
+        self, query: str, result: dict[str, Any], topic_slug: str | None
+    ) -> dict[str, Any] | None:
+        """Re-summarize the gathered material with one tightly scoped call.
+
+        The agent loop occasionally fails to compose a digest even though every
+        source was fetched successfully. Rather than lose the run, this re-asks
+        the model for just the digest — no tools, no agent protocol — over the
+        material it already gathered, which it produces far more reliably (see
+        COMPOSE_SYSTEM_PROMPT). Returns the push_to_supabase result on success,
+        or ``None`` when no digest could be recovered (caller then keeps the
+        original failure). Never raises.
+
+        Args:
+            query: The original natural-language request.
+            result: The process_query result (its conversation holds the
+                gathered tool outputs).
+            topic_slug: The slug resolved from the run, if any.
+
+        Returns:
+            The push_to_supabase result dict, or ``None``.
+        """
+        conversation = result.get("conversation")
+        slug = topic_slug or _topic_slug_from_conversation(conversation)
+        materials = _extract_gathered_materials(conversation)
+        if not slug or not materials:
+            return None
+
+        user_message = (
+            f"Topic slug: {slug}\nOriginal request: {query}\n\n"
+            f"Gathered material:\n{materials}\n\n"
+            "Now output ONLY the digest JSON object described in the system "
+            "prompt."
+        )
+        try:
+            response = self.chat.send_messages(
+                [{"role": "user", "content": user_message}],
+                system_prompt=COMPOSE_SYSTEM_PROMPT,
+            )
+        except Exception as exc:  # noqa: BLE001 - fallback must never raise
+            log(
+                "error",
+                "publish",
+                f"corrective compose call failed: {exc!r}",
+                topic_slug=slug,
+            )
+            return None
+
+        digest = _parse_digest_text(getattr(response, "text", response))
+        summary = digest.get("summary") if isinstance(digest, dict) else None
+        items = digest.get("items") if isinstance(digest, dict) else None
+        if not (summary and items):
+            log(
+                "error",
+                "publish",
+                "corrective compose pass produced no usable digest",
+                topic_slug=slug,
+            )
+            return None
+
+        log(
+            "info",
+            "publish",
+            "recovered digest via corrective compose pass",
+            topic_slug=slug,
+        )
+        # token_count should reflect the whole topic effort: the primary run's
+        # output tokens plus this compose call's (get_stats reports the last
+        # call). Best-effort — a stats hiccup must not block the publish.
+        compose_tokens = 0
+        try:
+            compose_tokens = int(
+                (self.chat.get_stats() or {}).get("output_tokens", 0) or 0
+            )
+        except Exception:  # noqa: BLE001 - stats are advisory, never fatal
+            compose_tokens = 0
+        return push_to_supabase(
+            slug,
+            summary=summary,
+            items=items,
+            sources_used=(digest.get("sources_used") or []),
+            token_count=result.get("output_tokens", 0) + compose_tokens,
+        )
+
+    def _parse_llm_response(self, response: str) -> dict[str, Any]:
+        """Repair malformed JSON before GAIA's parser sees it.
+
+        GAIA drives tools and final answers through a JSON-in-content protocol.
+        The heavy local model intermittently emits JSON with unquoted keys or
+        unquoted string values (a non-deterministic sampling artifact — see
+        _repair_json_text); GAIA's own repair only handles trailing commas and
+        control characters, so such a turn is misread as a plain-text answer and
+        the run dies as a parse_error. Here we detect a malformed JSON object,
+        repair it, and — only when the repair is actionable (a real tool call,
+        answer, plan, or digest) — hand the cleaned JSON to the base parser. A
+        repaired null-tool response is left to GAIA's own fallback to avoid the
+        assistant-message loop (see _is_actionable_response).
+        """
+        stripped = (response or "").strip()
+        if stripped.startswith("{"):
+            try:
+                json.loads(stripped)
+            except (ValueError, TypeError):
+                repaired = _repair_json_text(stripped)
+                if repaired is not None and _is_actionable_response(repaired):
+                    response = json.dumps(repaired)
+        return super()._parse_llm_response(response)
 
     def _get_system_prompt(self) -> str:
         return SYSTEM_PROMPT

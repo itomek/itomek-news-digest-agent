@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "news-digest-agent"
-version = "0.1.0"
+version = "0.2.0"
 description = "A GAIA-based agent that produces personalized news digests from curated sources using local LLM inference."
 readme = "README.md"
 license = "MIT"

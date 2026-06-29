@@ -120,7 +120,7 @@ export interface SourceCandidate {
   decided_at: string | null;
 }
 
-/** One row from v_source_success_rate or mv_source_health. */
+/** One row from mv_source_health (also covers v_source_success_rate's subset). */
 export interface SourceHealth {
   source_url: string;
   success_7d: number;
@@ -131,6 +131,9 @@ export interface SourceHealth {
   last_error_at: string | null;
   last_fetch_at: string | null;
   last_error: string | null;
+  /** Most lenient configured cadence in hours (24 or 168); null if unknown.
+   *  Drives the cadence-aware staleness rule (see lib/staleness.ts). */
+  cadence_hours: number | null;
 }
 
 /** One row from v_run_duration. */

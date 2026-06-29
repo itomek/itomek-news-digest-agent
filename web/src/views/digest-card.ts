@@ -45,8 +45,16 @@ export function registerItemFlagMounter(fn: MountItemFlags): void {
  * Returns the URL string unchanged when it starts with http:// or https://.
  * Returns null for javascript:, data:, or any other scheme — these must never
  * appear as an href value (LLM-generated source URLs could carry injected schemes).
+ *
+ * Also returns null for non-string input (null/undefined) and empty strings:
+ * malformed digests (e.g. garbled JSON from the heavy model) can yield a source
+ * whose `url` is missing, and a bad source must never throw — issue #121. The
+ * http(s) scheme allow-list above is unchanged; this only adds a type guard.
  */
-function safeHref(url: string): string | null {
+export function safeHref(url: string | null | undefined): string | null {
+  if (typeof url !== "string" || url === "") {
+    return null;
+  }
   if (url.startsWith("https://") || url.startsWith("http://")) {
     return url;
   }
@@ -146,12 +154,20 @@ function renderItem(item: DigestItem): HTMLElement {
   }
 
   // Source links — only http(s) URLs are emitted as anchors.
-  const sources = item.metadata?.sources ?? [];
+  // Malformed digests (issue #121) can yield a source that is not a well-formed
+  // { url, title } object: a non-object entry, or a missing/non-string url.
+  // Such entries are skipped rather than throwing — one bad source must never
+  // blank the item (or the whole list above it).
+  const sources = Array.isArray(item.metadata?.sources) ? item.metadata.sources : [];
   if (sources.length > 0) {
     const sourcesList = document.createElement("ul");
     sourcesList.className = "item-sources";
     for (const src of sources) {
+      if (src === null || typeof src !== "object") {
+        continue; // non-object source entry — nothing to render
+      }
       const href = safeHref(src.url);
+      const title = typeof src.title === "string" ? src.title : null;
       const li = document.createElement("li");
       if (href !== null) {
         const a = document.createElement("a");
@@ -159,11 +175,14 @@ function renderItem(item: DigestItem): HTMLElement {
         a.href = href;
         a.target = "_blank";
         a.rel = "noopener noreferrer";
-        a.textContent = src.title;
+        a.textContent = title ?? href;
         li.appendChild(a);
+      } else if (title !== null) {
+        // Non-http(s) URL but a usable title: render as plain text to avoid
+        // dropping the source name. A url-less/title-less entry is skipped.
+        li.textContent = title;
       } else {
-        // Non-http(s) URL: render as plain text to avoid dropping the source name.
-        li.textContent = src.title;
+        continue; // no usable href and no title — skip entirely
       }
       sourcesList.appendChild(li);
     }

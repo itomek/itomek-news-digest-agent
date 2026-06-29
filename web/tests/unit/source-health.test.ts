@@ -4,14 +4,18 @@ import {
   formatPct,
   formatRelativeTime,
   formatRelevance,
-  isSourceStale,
   partitionByHealth,
+} from "../../src/pages/source-health";
+import {
+  isSourceStale,
   STALE_LAST_SUCCESS_HOURS,
   STALE_SUCCESS_PCT_THRESHOLD,
-} from "../../src/pages/source-health";
+} from "../../src/lib/staleness";
 import type { SourceCandidate, SourceHealth } from "../../src/lib/types";
 
-function makeRow(overrides: Partial<SourceHealth> = {}): SourceHealth {
+function makeRow(
+  overrides: Partial<SourceHealth & { cadence_hours: number | null }> = {},
+): SourceHealth & { cadence_hours: number | null } {
   return {
     source_url: "https://example.com/feed",
     success_7d: 10,
@@ -22,6 +26,7 @@ function makeRow(overrides: Partial<SourceHealth> = {}): SourceHealth {
     last_error_at: null,
     last_fetch_at: new Date().toISOString(),
     last_error: null,
+    cadence_hours: null,
     ...overrides,
   };
 }
@@ -33,59 +38,75 @@ describe("isSourceStale", () => {
     expect(isSourceStale(makeRow())).toBe(false);
   });
 
-  it("returns true when success_pct_7d is below threshold", () => {
-    const row = makeRow({ success_pct_7d: STALE_SUCCESS_PCT_THRESHOLD - 1 });
-    expect(isSourceStale(row)).toBe(true);
-  });
-
-  it("returns false at exactly the threshold", () => {
-    const row = makeRow({ success_pct_7d: STALE_SUCCESS_PCT_THRESHOLD });
-    // threshold is strictly < 50, so 50 is NOT stale (assuming recent success)
+  // cadence_hours:168 (7d feed) @ 80h → NOT stale (80 < 168+48=216)
+  it("7d-cadence source with last success 80h ago is NOT stale", () => {
+    const row = makeRow({
+      cadence_hours: 168,
+      last_success_at: new Date(Date.now() - 80 * 3_600_000).toISOString(),
+    });
     expect(isSourceStale(row)).toBe(false);
   });
 
+  // cadence_hours:24 (24h feed) @ 80h → stale (80 > 24+48=72)
+  it("24h-cadence source with last success 80h ago IS stale", () => {
+    const row = makeRow({
+      cadence_hours: 24,
+      last_success_at: new Date(Date.now() - 80 * 3_600_000).toISOString(),
+    });
+    expect(isSourceStale(row)).toBe(true);
+  });
+
+  // 24h-cadence @ 70h → NOT stale (70 < 72) — preserves the 72h boundary
+  it("24h-cadence source with last success 70h ago is NOT stale", () => {
+    const row = makeRow({
+      cadence_hours: 24,
+      last_success_at: new Date(Date.now() - 70 * 3_600_000).toISOString(),
+    });
+    expect(isSourceStale(row)).toBe(false);
+  });
+
+  // success_pct_7d:49 → stale regardless of cadence
+  it("returns true when success_pct_7d is below 50 (regardless of cadence)", () => {
+    const row = makeRow({ cadence_hours: 168, success_pct_7d: 49 });
+    expect(isSourceStale(row)).toBe(true);
+  });
+
+  // last_success_at:null → stale
   it("returns true when last_success_at is null", () => {
     const row = makeRow({ last_success_at: null });
     expect(isSourceStale(row)).toBe(true);
   });
 
-  it("returns true when last_success_at is older than 72h", () => {
-    const oldDate = new Date(
-      Date.now() - (STALE_LAST_SUCCESS_HOURS + 1) * 3_600_000,
-    ).toISOString();
-    const row = makeRow({ last_success_at: oldDate });
+  // cadence_hours:null @ 80h → stale (falls back to 24h → 72h boundary; 80 > 72)
+  it("cadence_hours:null with last success 80h ago IS stale (falls back to 24h/72h)", () => {
+    const row = makeRow({
+      cadence_hours: null,
+      last_success_at: new Date(Date.now() - 80 * 3_600_000).toISOString(),
+    });
     expect(isSourceStale(row)).toBe(true);
   });
 
-  it("returns false when last_success_at is within 72h", () => {
-    const recentDate = new Date(
-      Date.now() - (STALE_LAST_SUCCESS_HOURS - 1) * 3_600_000,
-    ).toISOString();
-    const row = makeRow({ last_success_at: recentDate });
+  // cadence_hours:null @ 70h → NOT stale (falls back to 72h)
+  it("cadence_hours:null with last success 70h ago is NOT stale (fallback 72h)", () => {
+    const row = makeRow({
+      cadence_hours: null,
+      last_success_at: new Date(Date.now() - 70 * 3_600_000).toISOString(),
+    });
     expect(isSourceStale(row)).toBe(false);
   });
 
-  it("returns true when success_pct is null (treated as stale)", () => {
-    // null success_pct_7d does not trigger lowRate, but a null last_success_at
-    // triggers noRecentSuccess — test both together
-    const row = makeRow({ success_pct_7d: null, last_success_at: null });
-    expect(isSourceStale(row)).toBe(true);
+  // merge-safety: different cadence_hours → different results at same 80h age
+  it("MERGE-SAFETY: 168h-cadence and 24h-cadence return different staleness at 80h age", () => {
+    const t80 = new Date(Date.now() - 80 * 3_600_000).toISOString();
+    const row7d = makeRow({ cadence_hours: 168, last_success_at: t80 });
+    const row24h = makeRow({ cadence_hours: 24, last_success_at: t80 });
+    expect(isSourceStale(row7d)).toBe(false);
+    expect(isSourceStale(row24h)).toBe(true);
   });
 
-  it("is stale if either condition holds", () => {
-    // Low rate but recent success
-    const lowRate = makeRow({
-      success_pct_7d: 10,
-      last_success_at: new Date().toISOString(),
-    });
-    expect(isSourceStale(lowRate)).toBe(true);
-
-    // Good rate but old success
-    const oldSuccess = makeRow({
-      success_pct_7d: 100,
-      last_success_at: new Date(Date.now() - 100 * 3_600_000).toISOString(),
-    });
-    expect(isSourceStale(oldSuccess)).toBe(true);
+  it("returns true when success_pct_7d is null and last_success_at is null", () => {
+    const row = makeRow({ success_pct_7d: null, last_success_at: null });
+    expect(isSourceStale(row)).toBe(true);
   });
 });
 
@@ -163,7 +184,7 @@ describe("staleness thresholds", () => {
     expect(STALE_SUCCESS_PCT_THRESHOLD).toBe(50);
   });
 
-  it("STALE_LAST_SUCCESS_HOURS is 72", () => {
+  it("STALE_LAST_SUCCESS_HOURS is 72 (24h cadence baseline)", () => {
     expect(STALE_LAST_SUCCESS_HOURS).toBe(72);
   });
 });

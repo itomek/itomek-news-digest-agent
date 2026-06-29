@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   formatAvgDuration,
   formatSuccessPct,
-  isSourceStale,
   parseLogsState,
   serializeLogsState,
   type LogsState,
 } from "../../src/pages/logs";
+import { isSourceStale } from "../../src/lib/staleness";
 import {
   defaultLogsFilterExtended,
   escapeIlike,
@@ -15,7 +15,9 @@ import {
 } from "../../src/lib/query";
 import type { SourceHealth } from "../../src/lib/types";
 
-function makeHealthRow(overrides: Partial<SourceHealth> = {}): SourceHealth {
+function makeHealthRow(
+  overrides: Partial<SourceHealth & { cadence_hours: number | null }> = {},
+): SourceHealth & { cadence_hours: number | null } {
   return {
     source_url: "https://example.com/feed",
     success_7d: 10,
@@ -26,6 +28,7 @@ function makeHealthRow(overrides: Partial<SourceHealth> = {}): SourceHealth {
     last_error_at: null,
     last_fetch_at: new Date().toISOString(),
     last_error: null,
+    cadence_hours: null,
     ...overrides,
   };
 }

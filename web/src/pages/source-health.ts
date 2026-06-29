@@ -7,28 +7,15 @@ import {
   rejectSourceCandidate,
 } from "../lib/supabase";
 import type { SourceCandidate, SourceHealth } from "../lib/types";
+import { isSourceStale } from "../lib/staleness";
 import { renderAuthGate } from "../views/auth-gate";
 
 // Issue #20 — Source health page at `#/source-health`.
 // Reads from mv_source_health (materialized view, refreshed hourly via pg_cron).
-// Stale = <50% success over 7 days OR >72h since last successful fetch → red.
+// Stale = <50% success over 7 days OR no success within the source's cadence
+// (cadence_hours) plus a grace window — see lib/staleness.ts (issue #123).
 
 // --- Pure, DOM-free helpers (unit-tested) ------------------------------------
-
-/** Staleness thresholds (mirrors the migration's design intent). */
-export const STALE_SUCCESS_PCT_THRESHOLD = 50;   // percent — below this = stale
-export const STALE_LAST_SUCCESS_HOURS = 72;       // hours since last success = stale
-
-/** Return true when a source is considered stale per the staleness rules. */
-export function isSourceStale(row: SourceHealth): boolean {
-  const lowRate =
-    row.success_pct_7d !== null && row.success_pct_7d < STALE_SUCCESS_PCT_THRESHOLD;
-  const noRecentSuccess =
-    row.last_success_at === null ||
-    Date.now() - new Date(row.last_success_at).getTime() >
-      STALE_LAST_SUCCESS_HOURS * 3_600_000;
-  return lowRate || noRecentSuccess;
-}
 
 /** Format a nullable success-rate percentage. */
 export function formatPct(pct: number | null): string {
@@ -343,7 +330,7 @@ export async function renderSourceHealthPage(
     const staleNote = document.createElement("p");
     staleNote.className = "agg-note";
     staleNote.textContent =
-      "Stale = <50% success rate in the last 7 days, OR >72 hours since last successful fetch.";
+      "Stale = <50% success rate in the last 7 days, OR no successful fetch within the source's cadence plus a 48-hour grace (≈72h for daily feeds, ≈9 days for weekly feeds).";
     staleSection.appendChild(staleNote);
 
     if (stale.length > 0) {

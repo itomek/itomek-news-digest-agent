@@ -173,7 +173,7 @@ export async function fetchSourceHealth(
   const { data, error } = await client
     .from("mv_source_health")
     .select(
-      "source_url, success_7d, failure_7d, total_7d, success_pct_7d, last_success_at, last_error_at, last_fetch_at, last_error",
+      "source_url, success_7d, failure_7d, total_7d, success_pct_7d, last_success_at, last_error_at, last_fetch_at, last_error, cadence_hours",
     )
     .order("source_url", { ascending: true });
   if (error) throw error;

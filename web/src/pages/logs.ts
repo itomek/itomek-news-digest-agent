@@ -9,6 +9,7 @@ import {
   fetchTopics,
 } from "../lib/supabase";
 import type { ErrorsPerDay, RunDuration, SourceHealth, SystemLog, Topic } from "../lib/types";
+import { isSourceStale } from "../lib/staleness";
 import { renderAuthGate } from "../views/auth-gate";
 
 // Issue #27 — Log view UI at `#/logs`.
@@ -119,16 +120,6 @@ export function prettyMetadata(metadata: unknown): string {
   } catch {
     return String(metadata);
   }
-}
-
-/** Source health staleness: true when <50% success rate OR >72h since last success. */
-export function isSourceStale(row: SourceHealth): boolean {
-  const lowSuccessRate =
-    row.success_pct_7d !== null && row.success_pct_7d < 50;
-  const staleLastSuccess =
-    row.last_success_at === null ||
-    Date.now() - new Date(row.last_success_at).getTime() > 72 * 3_600_000;
-  return lowSuccessRate || staleLastSuccess;
 }
 
 /** Format a success rate percentage, or "N/A" when null. */

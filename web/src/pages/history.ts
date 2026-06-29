@@ -1,9 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isAuthenticatedAtRequiredLevel, signOut } from "../lib/auth";
+import { isAuthenticatedAtRequiredLevel } from "../lib/auth";
 import { appToday } from "../lib/dates";
 import { groupDigestsByDateAndTopic } from "../lib/group";
 import { fetchAllDigests, fetchTopics } from "../lib/supabase";
 import type { Digest, Topic } from "../lib/types";
+import { buildAppNav } from "../views/app-nav";
 import { renderAuthGate } from "../views/auth-gate";
 import { renderDigestCard } from "../views/digest-card";
 import { formatDate } from "../views/digest-list";
@@ -363,37 +364,7 @@ export async function renderHistory(root: HTMLElement, client: SupabaseClient): 
   title.textContent = "History";
   header.appendChild(title);
 
-  const nav = document.createElement("nav");
-  nav.className = "app-nav";
-  const homeLink = document.createElement("a");
-  homeLink.href = "#/";
-  homeLink.textContent = "Today";
-  nav.appendChild(homeLink);
-  const logsLink = document.createElement("a");
-  logsLink.href = "#/logs";
-  logsLink.textContent = "Logs";
-  nav.appendChild(logsLink);
-  const sourceHealthLink = document.createElement("a");
-  sourceHealthLink.href = "#/source-health";
-  sourceHealthLink.textContent = "Source Health";
-  nav.appendChild(sourceHealthLink);
-  const tokenUsageLink = document.createElement("a");
-  tokenUsageLink.href = "#/token-usage";
-  tokenUsageLink.textContent = "Token Usage";
-  nav.appendChild(tokenUsageLink);
-  const out = document.createElement("button");
-  out.type = "button";
-  out.className = "sign-out";
-  out.textContent = "Sign out";
-  out.addEventListener("click", () => {
-    void (async () => {
-      await signOut(client);
-      window.location.hash = "#/";
-      window.location.reload();
-    })();
-  });
-  nav.appendChild(out);
-  header.appendChild(nav);
+  header.appendChild(buildAppNav(client, "#/history"));
   root.appendChild(header);
 
   const main = document.createElement("main");

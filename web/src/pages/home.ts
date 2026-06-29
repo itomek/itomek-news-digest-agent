@@ -2,12 +2,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   changePassword,
   isAuthenticatedAtRequiredLevel,
-  signOut,
   validatePassword,
 } from "../lib/auth";
 import { isToday } from "../lib/dates";
 import { fetchDigests, fetchMissedDigests, fetchTopics } from "../lib/supabase";
 import type { Digest, MissedDigest } from "../lib/types";
+import { buildAppNav } from "../views/app-nav";
 import { renderAuthGate } from "../views/auth-gate";
 import { renderDigestList } from "../views/digest-list";
 
@@ -126,38 +126,7 @@ export async function renderHome(root: HTMLElement, client: SupabaseClient): Pro
   title.textContent = "News Digest";
   header.appendChild(title);
 
-  const nav = document.createElement("nav");
-  nav.className = "app-nav";
-  const historyLink = document.createElement("a");
-  historyLink.href = "#/history";
-  historyLink.textContent = "History";
-  nav.appendChild(historyLink);
-  const logsLink = document.createElement("a");
-  logsLink.href = "#/logs";
-  logsLink.textContent = "Logs";
-  nav.appendChild(logsLink);
-  const sourceHealthLink = document.createElement("a");
-  sourceHealthLink.href = "#/source-health";
-  sourceHealthLink.textContent = "Source Health";
-  nav.appendChild(sourceHealthLink);
-  const tokenUsageLink = document.createElement("a");
-  tokenUsageLink.href = "#/token-usage";
-  tokenUsageLink.textContent = "Token Usage";
-  nav.appendChild(tokenUsageLink);
-
-  const out = document.createElement("button");
-  out.type = "button";
-  out.className = "sign-out";
-  out.textContent = "Sign out";
-  out.addEventListener("click", () => {
-    void (async () => {
-      await signOut(client);
-      window.location.hash = "#/";
-      window.location.reload();
-    })();
-  });
-  nav.appendChild(out);
-  header.appendChild(nav);
+  header.appendChild(buildAppNav(client, "#/"));
   root.appendChild(header);
 
   const main = document.createElement("main");

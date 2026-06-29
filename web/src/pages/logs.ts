@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isAuthenticatedAtRequiredLevel, signOut } from "../lib/auth";
+import { isAuthenticatedAtRequiredLevel } from "../lib/auth";
 import { defaultLogsFilter, LOG_PAGE_SIZE, type LogLevel } from "../lib/query";
 import {
   fetchErrorsPerDay,
@@ -9,6 +9,7 @@ import {
   fetchTopics,
 } from "../lib/supabase";
 import type { ErrorsPerDay, RunDuration, SourceHealth, SystemLog, Topic } from "../lib/types";
+import { buildAppNav } from "../views/app-nav";
 import { renderAuthGate } from "../views/auth-gate";
 
 // Issue #27 — Log view UI at `#/logs`.
@@ -671,37 +672,7 @@ export async function renderLogs(root: HTMLElement, client: SupabaseClient): Pro
   title.textContent = "Logs";
   header.appendChild(title);
 
-  const nav = document.createElement("nav");
-  nav.className = "app-nav";
-  const homeLink = document.createElement("a");
-  homeLink.href = "#/";
-  homeLink.textContent = "Today";
-  nav.appendChild(homeLink);
-  const historyLink = document.createElement("a");
-  historyLink.href = "#/history";
-  historyLink.textContent = "History";
-  nav.appendChild(historyLink);
-  const sourceHealthLink = document.createElement("a");
-  sourceHealthLink.href = "#/source-health";
-  sourceHealthLink.textContent = "Source Health";
-  nav.appendChild(sourceHealthLink);
-  const tokenUsageLink = document.createElement("a");
-  tokenUsageLink.href = "#/token-usage";
-  tokenUsageLink.textContent = "Token Usage";
-  nav.appendChild(tokenUsageLink);
-  const out = document.createElement("button");
-  out.type = "button";
-  out.className = "sign-out";
-  out.textContent = "Sign out";
-  out.addEventListener("click", () => {
-    void (async () => {
-      await signOut(client);
-      window.location.hash = "#/";
-      window.location.reload();
-    })();
-  });
-  nav.appendChild(out);
-  header.appendChild(nav);
+  header.appendChild(buildAppNav(client, "#/logs"));
   root.appendChild(header);
 
   const main = document.createElement("main");

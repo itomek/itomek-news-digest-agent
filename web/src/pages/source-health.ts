@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isAuthenticatedAtRequiredLevel, signOut } from "../lib/auth";
+import { isAuthenticatedAtRequiredLevel } from "../lib/auth";
 import {
   approveSourceCandidate,
   fetchSourceCandidates,
@@ -7,6 +7,7 @@ import {
   rejectSourceCandidate,
 } from "../lib/supabase";
 import type { SourceCandidate, SourceHealth } from "../lib/types";
+import { buildAppNav } from "../views/app-nav";
 import { renderAuthGate } from "../views/auth-gate";
 
 // Issue #20 — Source health page at `#/source-health`.
@@ -253,38 +254,6 @@ function renderCandidatesTable(
   return wrap;
 }
 
-function buildNav(client: SupabaseClient): HTMLElement {
-  const nav = document.createElement("nav");
-  nav.className = "app-nav";
-
-  const links: Array<[string, string]> = [
-    ["#/", "Today"],
-    ["#/history", "History"],
-    ["#/logs", "Logs"],
-    ["#/token-usage", "Token Usage"],
-  ];
-  for (const [href, text] of links) {
-    const a = document.createElement("a");
-    a.href = href;
-    a.textContent = text;
-    nav.appendChild(a);
-  }
-
-  const out = document.createElement("button");
-  out.type = "button";
-  out.className = "sign-out";
-  out.textContent = "Sign out";
-  out.addEventListener("click", () => {
-    void (async () => {
-      await signOut(client);
-      window.location.hash = "#/";
-      window.location.reload();
-    })();
-  });
-  nav.appendChild(out);
-  return nav;
-}
-
 export async function renderSourceHealthPage(
   root: HTMLElement,
   client: SupabaseClient,
@@ -301,7 +270,7 @@ export async function renderSourceHealthPage(
   const title = document.createElement("h1");
   title.textContent = "Source Health";
   header.appendChild(title);
-  header.appendChild(buildNav(client));
+  header.appendChild(buildAppNav(client, "#/source-health"));
   root.appendChild(header);
 
   const main = document.createElement("main");

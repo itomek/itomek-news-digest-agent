@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isAuthenticatedAtRequiredLevel, signOut } from "../lib/auth";
+import { isAuthenticatedAtRequiredLevel } from "../lib/auth";
 import { fetchTokenUsage } from "../lib/supabase";
 import type { TokenUsageDay } from "../lib/types";
+import { buildAppNav } from "../views/app-nav";
 import { renderAuthGate } from "../views/auth-gate";
 
 // Issue #20 — Token usage dashboard at `#/token-usage`.
@@ -74,38 +75,6 @@ export function primaryMetricLabel(useTokens: boolean): string {
 }
 
 // --- DOM rendering -----------------------------------------------------------
-
-function buildNav(client: SupabaseClient): HTMLElement {
-  const nav = document.createElement("nav");
-  nav.className = "app-nav";
-
-  const links: Array<[string, string]> = [
-    ["#/", "Today"],
-    ["#/history", "History"],
-    ["#/logs", "Logs"],
-    ["#/source-health", "Source Health"],
-  ];
-  for (const [href, text] of links) {
-    const a = document.createElement("a");
-    a.href = href;
-    a.textContent = text;
-    nav.appendChild(a);
-  }
-
-  const out = document.createElement("button");
-  out.type = "button";
-  out.className = "sign-out";
-  out.textContent = "Sign out";
-  out.addEventListener("click", () => {
-    void (async () => {
-      await signOut(client);
-      window.location.hash = "#/";
-      window.location.reload();
-    })();
-  });
-  nav.appendChild(out);
-  return nav;
-}
 
 /** Render a single day group as a card with per-row bars. */
 function renderDayCard(group: DayGroup, maxMetric: number, useTokens: boolean): HTMLElement {
@@ -185,7 +154,7 @@ export async function renderTokenUsagePage(
   const title = document.createElement("h1");
   title.textContent = "Token Usage";
   header.appendChild(title);
-  header.appendChild(buildNav(client));
+  header.appendChild(buildAppNav(client, "#/token-usage"));
   root.appendChild(header);
 
   const main = document.createElement("main");

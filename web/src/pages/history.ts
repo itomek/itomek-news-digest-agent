@@ -269,9 +269,21 @@ function renderList(
       section.appendChild(topicHeading);
 
       for (const digest of topicBucket.digests) {
-        const card = renderDigestCard(digest);
-        card.appendChild(metaLine(digestMeta(digest, topics)));
-        section.appendChild(card);
+        // Defense in depth (issue #121): a single structurally broken digest
+        // (e.g. garbled metadata.sources from the heavy model) must never blank
+        // the whole list. Wrap each card so a render failure degrades to a small
+        // inline note and the rest of the list still renders.
+        try {
+          const card = renderDigestCard(digest);
+          card.appendChild(metaLine(digestMeta(digest, topics)));
+          section.appendChild(card);
+        } catch {
+          const fallback = document.createElement("p");
+          fallback.className = "digest-error";
+          fallback.setAttribute("data-digest-id", digest.id);
+          fallback.textContent = "This digest could not be displayed.";
+          section.appendChild(fallback);
+        }
       }
     }
     container.appendChild(section);

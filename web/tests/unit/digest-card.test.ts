@@ -374,6 +374,73 @@ describe("renderDigestCard — sentiment badge (issue #19)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Issue #121 — renderItem resilience: malformed sources must not throw (AC3)
+// ---------------------------------------------------------------------------
+
+describe("renderDigestCard — malformed-source resilience (AC3)", () => {
+  it("does not throw when a source entry has no url property", () => {
+    const itemMissingUrl: DigestItem = {
+      headline: "Article with broken source",
+      blurb: "Something interesting happened.",
+      detail: "Full details here.",
+      metadata: {
+        sources: [
+          { title: "Good Source", url: "https://example.com/good" },
+          // url is intentionally missing — cast to exercise the runtime path
+          { title: "Broken Source" } as unknown as { title: string; url: string },
+        ],
+      },
+    };
+    const digest = makeDigest({ summary: "S.", items: [itemMissingUrl] });
+    expect(() => renderDigestCard(digest)).not.toThrow();
+  });
+
+  it("still renders the <details class=digest-item> element when a source url is missing", () => {
+    const itemMissingUrl: DigestItem = {
+      headline: "Article with broken source",
+      blurb: "Blurb text.",
+      detail: "Detail text.",
+      metadata: {
+        sources: [{ title: "No URL" } as unknown as { title: string; url: string }],
+      },
+    };
+    const digest = makeDigest({ summary: "S.", items: [itemMissingUrl] });
+    const card = renderDigestCard(digest);
+    document.body.appendChild(card);
+    expect(card.querySelector("details.digest-item")).not.toBeNull();
+  });
+
+  it("does not produce an <a class=source-link> anchor when source url is undefined", () => {
+    const itemUndefinedUrl: DigestItem = {
+      headline: "Article with undefined url source",
+      blurb: "Blurb.",
+      detail: "Detail.",
+      metadata: {
+        sources: [{ title: "No URL" } as unknown as { title: string; url: string }],
+      },
+    };
+    const digest = makeDigest({ summary: "S.", items: [itemUndefinedUrl] });
+    const card = renderDigestCard(digest);
+    document.body.appendChild(card);
+    const links = card.querySelectorAll("a.source-link");
+    expect(links.length).toBe(0);
+  });
+
+  it("does not throw when a source entry is null (non-object)", () => {
+    const itemNullSource: DigestItem = {
+      headline: "Article with null source",
+      blurb: "Blurb.",
+      detail: "Detail.",
+      metadata: {
+        sources: [null as unknown as { title: string; url: string }],
+      },
+    };
+    const digest = makeDigest({ summary: "S.", items: [itemNullSource] });
+    expect(() => renderDigestCard(digest)).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // TTS playback slot preserved in both modes (issue #11 contract)
 // ---------------------------------------------------------------------------
 

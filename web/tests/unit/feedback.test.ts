@@ -7,6 +7,11 @@ import {
   buildItemFlagRow,
   extractSourceUrls,
   submitFeedback,
+  fetchFlaggedState,
+  removeSourceFlag,
+  removeItemFlag,
+  toggleSourceFlag,
+  toggleItemFlag,
 } from "../../src/lib/feedback";
 import { renderDigestCard, registerFeedbackSlotMounter, registerItemFlagMounter } from "../../src/views/digest-card";
 import type { Digest, DigestItem } from "../../src/lib/types";
@@ -274,5 +279,317 @@ describe("renderDigestCard — feedback slot (issue #22)", () => {
     const card = renderDigestCard(makeDigest({ items: null }));
     document.body.appendChild(card);
     expect(card.querySelector(".feedback-slot")).not.toBeNull();
+  });
+});
+
+// ─── fetchFlaggedState ────────────────────────────────────────────────────────
+
+describe("fetchFlaggedState", () => {
+  it("returns flaggedSources containing URL from an existing source_flag row", async () => {
+    const sourceUrl = "https://bad.example.com/feed";
+    const rows = [
+      {
+        category: "feedback",
+        level: "info",
+        metadata: {
+          feedback_type: "source_flag",
+          digest_id: "d-abc123",
+          source_url: sourceUrl,
+        },
+      },
+    ];
+    const selectChain = {
+      eq: () => selectChain,
+      filter: () => selectChain,
+      in: async () => ({ data: rows, error: null }),
+    };
+    const client = {
+      from: () => ({ select: () => selectChain }),
+    } as never;
+
+    const result = await fetchFlaggedState(client, "d-abc123");
+    expect(result.flaggedSources).toContain(sourceUrl);
+    expect(result.flaggedItems).toEqual([]);
+  });
+
+  it("returns flaggedItems containing index from an existing item_flag row", async () => {
+    const rows = [
+      {
+        category: "feedback",
+        level: "info",
+        metadata: {
+          feedback_type: "item_flag",
+          digest_id: "d-abc123",
+          item_index: 2,
+        },
+      },
+    ];
+    const selectChain = {
+      eq: () => selectChain,
+      filter: () => selectChain,
+      in: async () => ({ data: rows, error: null }),
+    };
+    const client = {
+      from: () => ({ select: () => selectChain }),
+    } as never;
+
+    const result = await fetchFlaggedState(client, "d-abc123");
+    expect(result.flaggedItems).toContain(2);
+    expect(result.flaggedSources).toEqual([]);
+  });
+
+  it("returns empty arrays when no flag rows exist", async () => {
+    const selectChain = {
+      eq: () => selectChain,
+      filter: () => selectChain,
+      in: async () => ({ data: [], error: null }),
+    };
+    const client = {
+      from: () => ({ select: () => selectChain }),
+    } as never;
+
+    const result = await fetchFlaggedState(client, "d-abc123");
+    expect(result.flaggedSources).toEqual([]);
+    expect(result.flaggedItems).toEqual([]);
+  });
+});
+
+// ─── delete mock chain helper ─────────────────────────────────────────────────
+//
+// The real implementation's delete chain is:
+//   .from("system_logs").delete().eq("category","feedback")
+//     .filter(x).filter(y).filter(z)   ← 1 eq + 3 chained filters
+//
+// Returns spies so callers can assert on arguments.
+
+function makeDeleteChain(finalResult: { error: { message: string } | null } | { error: null }) {
+  const filter3Fn = vi.fn().mockResolvedValue(finalResult);
+  const filter2Fn = vi.fn().mockReturnValue({ filter: filter3Fn });
+  const filter1Fn = vi.fn().mockReturnValue({ filter: filter2Fn });
+  const eqFn = vi.fn().mockReturnValue({ filter: filter1Fn });
+  const deleteFn = vi.fn().mockReturnValue({ eq: eqFn });
+  return { deleteFn, eqFn, filter1Fn, filter2Fn, filter3Fn };
+}
+
+// ─── removeSourceFlag ─────────────────────────────────────────────────────────
+
+describe("removeSourceFlag", () => {
+  it("calls delete with category, digest_id, source_url, and feedback_type filters", async () => {
+    const { deleteFn, eqFn, filter1Fn, filter2Fn, filter3Fn } = makeDeleteChain({ error: null });
+    const client = { from: () => ({ delete: deleteFn }) } as never;
+
+    await removeSourceFlag(client, "d-abc123", "https://bad.example.com/feed");
+
+    expect(deleteFn).toHaveBeenCalled();
+    const allCalls = [
+      ...eqFn.mock.calls,
+      ...filter1Fn.mock.calls,
+      ...filter2Fn.mock.calls,
+      ...filter3Fn.mock.calls,
+    ];
+    const callStrings = allCalls.map((c) => JSON.stringify(c));
+    expect(callStrings.some((s) => s.includes("feedback"))).toBe(true);
+    expect(callStrings.some((s) => s.includes("d-abc123"))).toBe(true);
+    expect(callStrings.some((s) => s.includes("bad.example.com"))).toBe(true);
+    expect(callStrings.some((s) => s.includes("source_flag"))).toBe(true);
+  });
+
+  it("returns null on successful delete", async () => {
+    const { deleteFn } = makeDeleteChain({ error: null });
+    const client = { from: () => ({ delete: deleteFn }) } as never;
+
+    const result = await removeSourceFlag(client, "d-abc123", "https://bad.example.com");
+    expect(result).toBeNull();
+  });
+
+  it("returns error string when delete fails", async () => {
+    const { deleteFn } = makeDeleteChain({ error: { message: "RLS violation" } });
+    const client = { from: () => ({ delete: deleteFn }) } as never;
+
+    const result = await removeSourceFlag(client, "d-abc123", "https://bad.example.com");
+    expect(result).toBe("RLS violation");
+  });
+});
+
+// ─── removeItemFlag ───────────────────────────────────────────────────────────
+
+describe("removeItemFlag", () => {
+  it("calls delete with digest_id, item_index, and feedback_type filters", async () => {
+    const { deleteFn, eqFn, filter1Fn, filter2Fn, filter3Fn } = makeDeleteChain({ error: null });
+    const client = { from: () => ({ delete: deleteFn }) } as never;
+
+    await removeItemFlag(client, "d-abc123", 3);
+
+    expect(deleteFn).toHaveBeenCalled();
+    const allCalls = [
+      ...eqFn.mock.calls,
+      ...filter1Fn.mock.calls,
+      ...filter2Fn.mock.calls,
+      ...filter3Fn.mock.calls,
+    ];
+    const callStrings = allCalls.map((c) => JSON.stringify(c));
+    expect(callStrings.some((s) => s.includes("d-abc123"))).toBe(true);
+    // item_index is passed as a string to the JSONB ->> operator
+    expect(callStrings.some((s) => s.includes("3"))).toBe(true);
+    expect(callStrings.some((s) => s.includes("item_flag"))).toBe(true);
+  });
+
+  it("deletes both duplicate item_index rows via single filter call", async () => {
+    // Two duplicate rows exist; a single delete-with-filter removes them both.
+    // The mock resolves with two rows to simulate DB returning affected rows.
+    const { deleteFn } = makeDeleteChain({ error: null });
+    const client = { from: () => ({ delete: deleteFn }) } as never;
+
+    const result = await removeItemFlag(client, "d-abc123", 0);
+    expect(deleteFn).toHaveBeenCalledOnce();
+    expect(result).toBeNull();
+  });
+
+  it("returns null on success", async () => {
+    const { deleteFn } = makeDeleteChain({ error: null });
+    const client = { from: () => ({ delete: deleteFn }) } as never;
+
+    const result = await removeItemFlag(client, "d-abc123", 1);
+    expect(result).toBeNull();
+  });
+});
+
+// ─── toggleSourceFlag ─────────────────────────────────────────────────────────
+
+describe("toggleSourceFlag", () => {
+  it("calls insert when isCurrentlyFlagged is false", async () => {
+    const insertFn = vi.fn().mockResolvedValue({ error: null });
+    const client = { from: () => ({ insert: insertFn }) } as never;
+
+    await toggleSourceFlag(client, makeDigest(), "https://example.com/feed", false);
+
+    expect(insertFn).toHaveBeenCalled();
+  });
+
+  it("does NOT call insert when isCurrentlyFlagged is true", async () => {
+    const insertFn = vi.fn().mockResolvedValue({ error: null });
+    const { deleteFn } = makeDeleteChain({ error: null });
+    const client = {
+      from: () => ({ delete: deleteFn, insert: insertFn }),
+    } as never;
+
+    await toggleSourceFlag(client, makeDigest(), "https://example.com/feed", true);
+
+    expect(insertFn).not.toHaveBeenCalled();
+  });
+
+  it("calls delete when isCurrentlyFlagged is true", async () => {
+    const { deleteFn } = makeDeleteChain({ error: null });
+    const client = { from: () => ({ delete: deleteFn }) } as never;
+
+    await toggleSourceFlag(client, makeDigest(), "https://example.com/feed", true);
+
+    expect(deleteFn).toHaveBeenCalled();
+  });
+
+  it("returns null on success when inserting", async () => {
+    const client = {
+      from: () => ({ insert: async () => ({ error: null }) }),
+    } as never;
+
+    const result = await toggleSourceFlag(
+      client,
+      makeDigest(),
+      "https://example.com/feed",
+      false,
+    );
+    expect(result).toBeNull();
+  });
+
+  it("returns null on success when deleting", async () => {
+    const { deleteFn } = makeDeleteChain({ error: null });
+    const client = { from: () => ({ delete: deleteFn }) } as never;
+
+    const result = await toggleSourceFlag(
+      client,
+      makeDigest(),
+      "https://example.com/feed",
+      true,
+    );
+    expect(result).toBeNull();
+  });
+});
+
+// ─── toggleItemFlag ───────────────────────────────────────────────────────────
+
+describe("toggleItemFlag", () => {
+  it("calls insert when isCurrentlyFlagged is false", async () => {
+    const insertFn = vi.fn().mockResolvedValue({ error: null });
+    const client = { from: () => ({ insert: insertFn }) } as never;
+
+    await toggleItemFlag(client, makeDigest(), 0, false);
+
+    expect(insertFn).toHaveBeenCalled();
+  });
+
+  it("does NOT call insert when isCurrentlyFlagged is true", async () => {
+    const insertFn = vi.fn().mockResolvedValue({ error: null });
+    const { deleteFn } = makeDeleteChain({ error: null });
+    const client = {
+      from: () => ({ delete: deleteFn, insert: insertFn }),
+    } as never;
+
+    await toggleItemFlag(client, makeDigest(), 0, true);
+
+    expect(insertFn).not.toHaveBeenCalled();
+  });
+
+  it("calls delete when isCurrentlyFlagged is true", async () => {
+    const { deleteFn } = makeDeleteChain({ error: null });
+    const client = { from: () => ({ delete: deleteFn }) } as never;
+
+    await toggleItemFlag(client, makeDigest(), 1, true);
+
+    expect(deleteFn).toHaveBeenCalled();
+  });
+
+  it("returns null on success when inserting", async () => {
+    const client = {
+      from: () => ({ insert: async () => ({ error: null }) }),
+    } as never;
+
+    const result = await toggleItemFlag(client, makeDigest(), 0, false);
+    expect(result).toBeNull();
+  });
+
+  it("returns null on success when deleting", async () => {
+    const { deleteFn } = makeDeleteChain({ error: null });
+    const client = { from: () => ({ delete: deleteFn }) } as never;
+
+    const result = await toggleItemFlag(client, makeDigest(), 1, true);
+    expect(result).toBeNull();
+  });
+});
+
+// ─── flag → unflag → state round-trip ────────────────────────────────────────
+
+describe("flag/unflag/fetchFlaggedState round-trip", () => {
+  it("toggleSourceFlag insert then delete yields empty flaggedSources", async () => {
+    // Step 1: toggleSourceFlag(_, _, url, false) → insert
+    const insertFn = vi.fn().mockResolvedValue({ error: null });
+    const insertClient = { from: () => ({ insert: insertFn }) } as never;
+    await toggleSourceFlag(insertClient, makeDigest(), "https://example.com/feed", false);
+    expect(insertFn).toHaveBeenCalled();
+
+    // Step 2: toggleSourceFlag(_, _, url, true) → delete
+    const { deleteFn } = makeDeleteChain({ error: null });
+    const deleteClient = { from: () => ({ delete: deleteFn }) } as never;
+    await toggleSourceFlag(deleteClient, makeDigest(), "https://example.com/feed", true);
+    expect(deleteFn).toHaveBeenCalled();
+
+    // Step 3: fetchFlaggedState returns empty (row was deleted)
+    const selectChain = {
+      eq: () => selectChain,
+      filter: () => selectChain,
+      in: async () => ({ data: [], error: null }),
+    };
+    const fetchClient = { from: () => ({ select: () => selectChain }) } as never;
+    const state = await fetchFlaggedState(fetchClient, "d-abc123");
+    expect(state.flaggedSources).toEqual([]);
   });
 });

@@ -144,6 +144,13 @@ h1 {
   border-bottom-color: var(--accent);
 }
 
+.app-nav a[aria-current="page"],
+.app-nav a.nav-active {
+  border-bottom-color: var(--accent);
+  font-weight: 700;
+  color: var(--fg);
+}
+
 /* ── Buttons ──────────────────────────────────────────────────────────────── */
 
 button {

@@ -15,11 +15,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Digest } from "../lib/types";
 import {
   buildCommentRow,
-  buildItemFlagRow,
   buildSignalRow,
-  buildSourceFlagRow,
   extractSourceUrls,
+  fetchFlaggedState,
   submitFeedback,
+  toggleItemFlag,
+  toggleSourceFlag,
 } from "../lib/feedback";
 
 // ─── status helper ──────────────────────────────────────────────────────────
@@ -32,7 +33,9 @@ function showStatus(el: HTMLElement, text: string, isError = false): void {
 // ─── per-item flag button ───────────────────────────────────────────────────
 
 /**
- * Append a flag button to each .digest-item <details> element inside the card.
+ * Append a toggle flag button to each .digest-item <details> element inside
+ * the card. Reflects persisted flag state on mount, and re-enables the button
+ * after each flag/unflag action so it can be toggled again.
  * Called once after the card is rendered.
  */
 export function mountItemFlagButtons(
@@ -41,46 +44,65 @@ export function mountItemFlagButtons(
   client: SupabaseClient,
 ): void {
   const items = card.querySelectorAll<HTMLElement>("details.digest-item");
-  items.forEach((detailsEl, index) => {
-    const headlineEl = detailsEl.querySelector(".item-headline");
-    const headline = headlineEl?.textContent?.trim() ?? "";
 
-    const flagBtn = document.createElement("button");
-    flagBtn.type = "button";
-    flagBtn.className = "item-flag-btn";
-    flagBtn.setAttribute("aria-label", `Flag item: ${headline || `item ${index + 1}`}`);
-    flagBtn.setAttribute("data-item-index", String(index));
-    flagBtn.textContent = "Flag item";
+  void (async () => {
+    // Fetch current flag state once for all items on this card.
+    const { flaggedItems } = await fetchFlaggedState(client, digest.id);
 
-    const itemStatus = document.createElement("span");
-    itemStatus.className = "feedback-status";
-    itemStatus.setAttribute("role", "status");
-    itemStatus.setAttribute("aria-live", "polite");
+    items.forEach((detailsEl, index) => {
+      const headlineEl = detailsEl.querySelector(".item-headline");
+      const headline = headlineEl?.textContent?.trim() ?? "";
 
-    const wrapper = document.createElement("div");
-    wrapper.className = "item-flag-row";
-    wrapper.appendChild(flagBtn);
-    wrapper.appendChild(itemStatus);
+      let isFlagged = flaggedItems.includes(index);
 
-    flagBtn.addEventListener("click", () => {
-      flagBtn.disabled = true;
-      showStatus(itemStatus, "Flagging…");
-      void (async () => {
-        const row = buildItemFlagRow(digest, index, headline);
-        const err = await submitFeedback(client, row);
-        flagBtn.disabled = false;
-        if (err) {
-          showStatus(itemStatus, `Could not flag: ${err}`, true);
-        } else {
-          flagBtn.textContent = "Flagged";
-          flagBtn.disabled = true;
-          showStatus(itemStatus, "Flagged.");
-        }
-      })();
+      const flagBtn = document.createElement("button");
+      flagBtn.type = "button";
+      flagBtn.className = "item-flag-btn";
+      flagBtn.setAttribute("data-item-index", String(index));
+
+      const itemStatus = document.createElement("span");
+      itemStatus.className = "feedback-status";
+      itemStatus.setAttribute("role", "status");
+      itemStatus.setAttribute("aria-live", "polite");
+
+      function applyFlagState(flagged: boolean): void {
+        isFlagged = flagged;
+        flagBtn.textContent = flagged ? "Flagged ✓" : "Flag item";
+        flagBtn.setAttribute("aria-pressed", String(flagged));
+        flagBtn.setAttribute(
+          "aria-label",
+          flagged
+            ? `Unflag item: ${headline || `item ${index + 1}`}`
+            : `Flag item: ${headline || `item ${index + 1}`}`,
+        );
+      }
+
+      applyFlagState(isFlagged);
+
+      flagBtn.addEventListener("click", () => {
+        flagBtn.disabled = true;
+        showStatus(itemStatus, isFlagged ? "Unflagging…" : "Flagging…");
+        void (async () => {
+          const wasFlag = isFlagged;
+          const err = await toggleItemFlag(client, digest, index, isFlagged, headline);
+          flagBtn.disabled = false;
+          if (err) {
+            showStatus(itemStatus, `Could not ${wasFlag ? "unflag" : "flag"}: ${err}`, true);
+          } else {
+            applyFlagState(!wasFlag);
+            showStatus(itemStatus, wasFlag ? "Unflagged." : "Flagged.");
+          }
+        })();
+      });
+
+      const wrapper = document.createElement("div");
+      wrapper.className = "item-flag-row";
+      wrapper.appendChild(flagBtn);
+      wrapper.appendChild(itemStatus);
+
+      detailsEl.appendChild(wrapper);
     });
-
-    detailsEl.appendChild(wrapper);
-  });
+  })();
 }
 
 // ─── digest-level feedback panel ───────────────────────────────────────────
@@ -244,26 +266,49 @@ export function mountFeedbackControls(
     sourceStatus.setAttribute("role", "status");
     sourceStatus.setAttribute("aria-live", "polite");
 
+    // Track which sources are currently flagged; populated after mount.
+    const flaggedSourceSet = new Set<string>();
+
+    function updateSourceFlagBtn(url: string): void {
+      const flagged = url !== "" && flaggedSourceSet.has(url);
+      sourceFlagBtn.textContent = flagged ? "Unflag source" : "Flag source";
+      sourceFlagBtn.setAttribute("aria-pressed", String(flagged));
+    }
+
+    // Keep button label in sync as the user changes the dropdown.
+    select.addEventListener("change", () => updateSourceFlagBtn(select.value));
+
     sourceFlagBtn.addEventListener("click", () => {
       const url = select.value;
       if (!url) {
         showStatus(sourceStatus, "Please select a source.", true);
         return;
       }
+      const isFlagged = flaggedSourceSet.has(url);
       sourceFlagBtn.disabled = true;
-      showStatus(sourceStatus, "Flagging…");
+      showStatus(sourceStatus, isFlagged ? "Unflagging…" : "Flagging…");
       void (async () => {
-        const row = buildSourceFlagRow(digest, url);
-        const err = await submitFeedback(client, row);
+        const err = await toggleSourceFlag(client, digest, url, isFlagged);
         sourceFlagBtn.disabled = false;
         if (err) {
-          showStatus(sourceStatus, `Could not flag: ${err}`, true);
+          showStatus(sourceStatus, `Could not ${isFlagged ? "unflag" : "flag"}: ${err}`, true);
         } else {
-          showStatus(sourceStatus, "Source flagged. Thank you.");
-          select.value = "";
-          sourceDetails.open = false;
+          if (isFlagged) {
+            flaggedSourceSet.delete(url);
+            showStatus(sourceStatus, "Source unflagged.");
+          } else {
+            flaggedSourceSet.add(url);
+            showStatus(sourceStatus, "Source flagged. Thank you.");
+          }
+          updateSourceFlagBtn(url);
         }
       })();
+    });
+
+    // Populate initial flag state asynchronously.
+    void fetchFlaggedState(client, digest.id).then(({ flaggedSources }) => {
+      for (const src of flaggedSources) flaggedSourceSet.add(src);
+      updateSourceFlagBtn(select.value);
     });
 
     sourceRow.appendChild(select);

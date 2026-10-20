@@ -1,0 +1,9 @@
+{
+  "max_articles": 20,
+  "sources": [
+    {"id": "hacker-news", "type": "hn", "limit": 5},
+    {"id": "lemonade", "type": "html", "url": "https://lemonade-server.ai/", "limit": 1},
+    {"id": "rocm-blog", "type": "rss", "url": "https://rocm.blogs.amd.com/blog/atom.xml", "limit": 5},
+    {"id": "local-llama", "type": "reddit", "url": "https://www.reddit.com/r/LocalLLaMA/new/", "limit": 5}
+  ]
+}

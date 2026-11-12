@@ -13,9 +13,12 @@ class TimerTests(unittest.TestCase):
   calls=[]
   def send(url,headers):calls.append((url,headers));return 200
   env={'WARPCORE_TIMER_ENABLED':'true','WARPCORE_GATEWAY_ANON_JWT':'a'*64,'WARPCORE_COLLECT_TOKEN':'b'*32,'WARPCORE_PUBLISH_TOKEN':'c'*32}
-  self.assertEqual(m.run(env,send),'completed');self.assertEqual(len(calls),2)
+  self.assertEqual(m.run(env,send),'completed');self.assertEqual(len(calls),3)
   self.assertEqual(calls[0][0],'https://eedfyviypptfpghyffip.supabase.co/functions/v1/news-collect')
+  self.assertEqual(calls[1][0],m.BASE+'news-curate')
+  self.assertEqual(calls[2][0],m.BASE+'news-publish')
   self.assertEqual(calls[1][1]['x-warpcore-token'],'c'*32)
+  self.assertEqual(calls[2][1]['x-warpcore-token'],'c'*32)
  def test_failure_stops_without_retry_or_publish(self):
   calls=[]
   def fail(*args):calls.append(args);raise TimeoutError()
@@ -26,9 +29,9 @@ class TimerTests(unittest.TestCase):
   with self.assertRaises(RuntimeError):m.NoRedirect().redirect_request(None,None,302,'redirect',{},'https://evil.example')
  def test_publisher_rate_limit_is_not_retried(self):
   calls=[]
-  def sender(*args):calls.append(args);return 200 if len(calls)==1 else 429
+  def sender(*args):calls.append(args);return 200 if len(calls)<3 else 429
   env={'WARPCORE_TIMER_ENABLED':'true','WARPCORE_GATEWAY_ANON_JWT':'a'*64,'WARPCORE_COLLECT_TOKEN':'b'*32,'WARPCORE_PUBLISH_TOKEN':'c'*32}
-  self.assertEqual(m.run(env,sender),'publisher_hour_already_reserved');self.assertEqual(len(calls),2)
+  self.assertEqual(m.run(env,sender),'publisher_hour_already_reserved');self.assertEqual(len(calls),3)
  def test_shared_tokens_rejected_before_requests(self):
   env={'WARPCORE_TIMER_ENABLED':'true','WARPCORE_GATEWAY_ANON_JWT':'a'*64,'WARPCORE_COLLECT_TOKEN':'b'*32,'WARPCORE_PUBLISH_TOKEN':'b'*32}
   with self.assertRaises(ValueError):m.run(env,lambda *args:self.fail('network'))
@@ -39,7 +42,14 @@ class TimerTests(unittest.TestCase):
    self.assertEqual(m.send(m.BASE+'news-collect',{}),200)
    self.assertEqual(opener.open.call_count,1)
    self.assertEqual(opener.open.call_args.kwargs['timeout'],120)
- def test_workflow_has_five_minute_bound_and_no_schedule(self):
+ def test_workflow_has_seven_minute_bound_and_no_schedule(self):
   text=(Path(__file__).parents[1]/'.github/workflows/warpcore-timer.yml').read_text()
-  self.assertIn('timeout-minutes: 5',text)
+  self.assertIn('timeout-minutes: 7',text)
   self.assertNotIn('schedule:',text)
+
+ def test_curator_failure_never_publishes(self):
+  calls=[]
+  def sender(*args):calls.append(args);return 200 if len(calls)==1 else 502
+  env={'WARPCORE_TIMER_ENABLED':'true','WARPCORE_GATEWAY_ANON_JWT':'a'*64,'WARPCORE_COLLECT_TOKEN':'b'*32,'WARPCORE_PUBLISH_TOKEN':'c'*32}
+  with self.assertRaises(RuntimeError):m.run(env,sender)
+  self.assertEqual(len(calls),2)

@@ -4,10 +4,11 @@
 function stable(value){if(Array.isArray(value))return '['+value.map(stable).join(',')+']';if(value&&typeof value==='object')return '{'+Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+stable(value[k])).join(',')+'}';return JSON.stringify(value);}
 export async function reconcile(job,db,remote){
  try {
+  await db.checked(job);
   const found=await remote.get(job.accountDid,job.recordKey);
-  if(!found || stable(found.record)!==stable(job.record))return {state:'manual_review'};
+  if(!found || stable(found.record)!==stable(job.record)){await db.manualReview(job);return {state:'manual_review'};}
   const uri=`at://${job.accountDid}/app.bsky.feed.post/${job.recordKey}`;
-  if(found.uri!==uri)return {state:'manual_review'};
+  if(found.uri!==uri){await db.manualReview(job);return {state:'manual_review'};}
   if(await db.published(job,uri)!==true)return {state:'manual_review'};
   return {state:'published',uri};
  }catch{return {state:'uncertain'};}

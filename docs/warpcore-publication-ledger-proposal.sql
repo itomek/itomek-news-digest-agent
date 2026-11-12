@@ -5,8 +5,9 @@ create table public.warpcore_publications (
  story_key text not null references public.warpcore_stories(story_key),
  record_key text not null,
  content_hash text not null,
- state text not null default 'prepared' check(state in ('prepared','sending','uncertain','published','rejected')),
+ state text not null default 'prepared' check(state in ('prepared','sending','uncertain','published','rejected','manual_review')),
  approved_at timestamptz, -- exact persisted record approval, never source-provided
+ last_checked_at timestamptz,
  prepared_at timestamptz not null default now(),
  remote_uri text,
  primary key(account_did,story_key),
@@ -79,3 +80,34 @@ end;
 $fn$;
 revoke all on function public.warpcore_prepare_publication(text,text,text,jsonb,text) from public,anon,authenticated;
 grant execute on function public.warpcore_prepare_publication(text,text,text,jsonb,text) to service_role;
+
+create function public.warpcore_immutable_record() returns trigger
+language plpgsql security invoker set search_path='' as $fn$
+begin
+ if new.record_payload is distinct from old.record_payload or new.content_hash is distinct from old.content_hash
+ or new.record_key is distinct from old.record_key or new.account_did is distinct from old.account_did
+ or new.story_key is distinct from old.story_key then raise exception 'Prepared publication identity/content is immutable'; end if;
+ return new;
+end;
+$fn$;
+create trigger warpcore_immutable_record before update on public.warpcore_publications
+for each row execute function public.warpcore_immutable_record();
+revoke all on function public.warpcore_immutable_record() from public,anon,authenticated;
+create function public.warpcore_mark_checked(p_account text,p_story text,p_hash text,p_record jsonb)
+returns boolean language plpgsql security invoker set search_path='' as $fn$
+begin
+ update public.warpcore_publications set last_checked_at=now()
+ where account_did=p_account and story_key=p_story and content_hash=p_hash and record_payload=p_record and state in ('sending','uncertain');
+ return found;
+end;
+$fn$;
+create function public.warpcore_mark_manual_review(p_account text,p_story text,p_hash text,p_record jsonb)
+returns boolean language plpgsql security invoker set search_path='' as $fn$
+begin
+ update public.warpcore_publications set state='manual_review'
+ where account_did=p_account and story_key=p_story and content_hash=p_hash and record_payload=p_record and state in ('sending','uncertain');
+ return found;
+end;
+$fn$;
+revoke all on function public.warpcore_mark_checked(text,text,text,jsonb),public.warpcore_mark_manual_review(text,text,text,jsonb) from public,anon,authenticated;
+grant execute on function public.warpcore_mark_checked(text,text,text,jsonb),public.warpcore_mark_manual_review(text,text,text,jsonb) to service_role;

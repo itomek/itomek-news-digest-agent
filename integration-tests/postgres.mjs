@@ -19,6 +19,7 @@ await db.query('select warpcore_ingest($1::jsonb)',[JSON.stringify(evidence)]);
 await db.query('select warpcore_ingest($1::jsonb)',[JSON.stringify(evidence)]);
 assert.equal((await db.query('select count(*)::int as n from warpcore_candidates')).rows[0].n,2);
 assert.equal((await db.query('select status from warpcore_stories where story_key=$1',[key])).rows[0].status,'approved');
+await assert.rejects(()=>db.query("update warpcore_publications set record_payload='{}'::jsonb where story_key=$1",[key]));
 await db.exec('set role anon');
 await assert.rejects(()=>db.query('select * from warpcore_publications'));
 await db.exec('reset role');

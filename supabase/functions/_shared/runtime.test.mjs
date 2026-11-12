@@ -13,6 +13,7 @@ test('composed workflow persists exact record then claims and sends once',async(
  if(u.includes('getSession'))return Response.json({did});
  if(u.includes('prepare_publication')){stored=b;return Response.json(true);}
  if(u.includes('claim_publication'))return Response.json([{account_did:did,story_key:stored.p_story,content_hash:stored.p_hash,record_key:stored.p_key,record_payload:stored.p_record}]);
+ if(u.includes('mark_checked'))return Response.json(true);
  if(u.includes('mark_uncertain'))return Response.json(true);
  if(u.includes('putRecord')){puts++;assert.deepEqual(b.record,stored.p_record);assert.equal(b.swapRecord,null);return Response.json({uri:`at://${did}/app.bsky.feed.post/${stored.p_key}`});}
  if(u.includes('getRecord'))return Response.json({value:stored.p_record,uri:`at://${did}/app.bsky.feed.post/${stored.p_key}`});
@@ -20,5 +21,5 @@ test('composed workflow persists exact record then claims and sends once',async(
  throw Error('Unexpected request');
  });
  const result=await runtime.prepareAndSend({storyKey:'a'.repeat(64),summary:'A release.',whyItMatters:'Useful capability.',links:['https://example.com/news'],verified:true,approved:true},'2026-11-12T12:00:00Z');
- assert.equal(result.state,'published');assert.equal(puts,1);assert.equal(calls.length,8);
+ assert.equal(result.state,'published');assert.equal(puts,1);assert.equal(calls.length,9);
 });

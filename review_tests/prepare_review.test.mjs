@@ -1,0 +1,17 @@
+import test from 'node:test';import assert from 'node:assert/strict';import * as tool from '../tools/prepare_review.mjs';
+const source={id:'fixture:1',url:'https://example.com/release',sourceLinks:['https://example.com/release'],sourceType:'rss',visibility:'public',text:'Vendor announced new capability.'};
+const input={storyKey:'a'.repeat(64),evidence:[source],editorial:{summary:'A release expands access.',whyItMatters:'More users can run it.',change:'New availability',evidenceIds:['fixture:1'],political:false},attributionChecks:[{evidenceId:'fixture:1',checked:true}]};
+test('creates unapproved local review packet with attribution and no credentials',async()=>{assert.equal(typeof tool.prepareLocalReview,'function');const out=await tool.prepareLocalReview(input);assert.equal(out.mode,'local_review_only');assert.equal(out.publishable,false);assert.equal(out.packet.approved,false);assert.equal(out.packet.status,'awaiting_review');assert.equal(out.packet.evidence[0].url,source.url);assert.equal(out.attributionVerification,'operator_attested_not_independently_verified');});
+test('requires explicit selected attribution checks and rejects private evidence',async()=>{await assert.rejects(()=>tool.prepareLocalReview({...input,attributionChecks:[]}));await assert.rejects(()=>tool.prepareLocalReview({...input,evidence:[{...source,visibility:'private'}]}));});
+test('rejects credentials and approval flags rather than copying them',async()=>{await assert.rejects(()=>tool.prepareLocalReview({...input,accessToken:'never-output'}));await assert.rejects(()=>tool.prepareLocalReview({...input,approved:true}));});
+test('length checks full preview including attribution without truncation',async()=>{await assert.rejects(()=>tool.prepareLocalReview({...input,editorial:{...input.editorial,summary:'a'.repeat(300)}}));});
+test('does not call networking or change approval state',async()=>{const previous=globalThis.fetch;globalThis.fetch=()=>{throw Error('network forbidden');};try{const out=await tool.prepareLocalReview(input);assert.equal(out.packet.approved,false);assert.equal(out.postPreview.includes(source.url),true);}finally{globalThis.fetch=previous;}});
+export {input};
+test('CLI saves private output and refuses overwrites',async()=>{
+ const {mkdtemp,writeFile,readFile,stat,rm}=await import('node:fs/promises');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+ const dir=await mkdtemp(join(tmpdir(),'warpcore-review-'));try{const source=join(dir,'input.json'),out=join(dir,'review.json');await writeFile(source,JSON.stringify(input));await tool.runCLI(['--input',source,'--output',out]);assert.equal(JSON.parse(await readFile(out,'utf8')).packet.approved,false);assert.equal((await stat(out)).mode&0o777,0o600);await assert.rejects(()=>tool.runCLI(['--input',source,'--output',out]));}finally{await rm(dir,{recursive:true,force:true});}
+});
+test('CLI rejects oversized input before output creation',async()=>{
+ const {mkdtemp,writeFile,stat,rm}=await import('node:fs/promises');const {tmpdir}=await import('node:os');const {join}=await import('node:path');const dir=await mkdtemp(join(tmpdir(),'warpcore-review-'));
+ try{const source=join(dir,'large.json'),out=join(dir,'out.json');await writeFile(source,' '.repeat(524289));await assert.rejects(()=>tool.runCLI(['--input',source,'--output',out]));await assert.rejects(()=>stat(out));}finally{await rm(dir,{recursive:true,force:true});}
+});

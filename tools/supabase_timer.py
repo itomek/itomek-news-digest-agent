@@ -17,7 +17,7 @@ def send(url, headers):
     request = urllib.request.Request(url, data=b'{}', method='POST', headers=headers)
     opener = urllib.request.build_opener(NoRedirect())
     try:
-        with opener.open(request, timeout=60) as response:
+        with opener.open(request, timeout=120) as response:
             return response.status
     except urllib.error.HTTPError as error:
         status = error.code

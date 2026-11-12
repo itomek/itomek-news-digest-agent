@@ -1,6 +1,7 @@
 # Supabase processing, GitHub timer only
 
-Prepared, inactive, not authorized to create credentials or start hourly runs.
+Prepared and inactive. Credential setup was separately authorized and completed;
+this document does not enable hourly runs.
 All news collection, editorial review and publication remain in Supabase. This
 workflow only makes two authenticated fixed-endpoint HTTPS POSTs. The Bluesky app
 password and Supabase server key NEVER go to GitHub. No news is collected by Actions.
@@ -17,10 +18,10 @@ https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-t
 
 Only workflow_dispatch exists, with no parameters and no schedule. The job also
 requires the default main branch and `WARPCORE_TIMER_ENABLED=true` repository
-variable, which has NOT been set. No GitHub secrets were created. Missing config
+variable, which has NOT been set. Narrow trigger secrets are configured. Missing config
 fails before any request. Production function locks still apply independently.
 
-After explicit authorization, store only narrow trigger credentials in repository
+The authorized setup stores only narrow trigger credentials in repository
 Actions Secrets: `WARPCORE_GATEWAY_ANON_JWT` (existing public anon JWT),
 `WARPCORE_COLLECT_TOKEN` and `WARPCORE_PUBLISH_TOKEN` (different random values,
 at least 32 characters). The latter two must match Supabase Edge secrets
@@ -33,7 +34,19 @@ and enable the variable. The old Supabase cron jobs must stay inactive so there
 is a single scheduler. Publishing processes already-approved records, not raw
 collector output. Scheduler responses don't prove a new story was published.
 
-Requests have a 60-second timeout, no redirects, no retries, and no body logging.
+Requests have a 120-second socket timeout, no redirects, no retries, and no body
+logging. This accommodates the bounded collector's approximately 80-second
+source-request budget (one HN adapter up to 40 seconds plus five RSS sources up
+to 8 seconds each), leaving headroom for validation and database writes. The
+120-second wait stays below Supabase's documented 150-second free-plan worker
+wall-clock limit; it does not extend the worker's own limits:
+https://supabase.com/docs/guides/functions/limits
+
+The workflow has a five-minute hard job limit for the two sequential invocations
+(up to 240 seconds of socket waits plus startup/checkout overhead). urllib's
+socket timeout is not an absolute end-to-end deadline; the job limit is the
+outer bound. Neither timeout causes an automatic retry. Slow or failed collection
+still prevents publisher invocation, and any timeout remains uncertain execution.
 Failure stops the run; publisher 429 means the UTC-hour reservation was already
 consumed. No workflow retry loops. The publisher reconciles uncertain writes.
 

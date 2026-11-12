@@ -29,3 +29,23 @@ test('fetches only configured HTTPS feed with timeout and redirects denied',asyn
 });
 
 test('rejects unapproved DNS destinations before fetching',async()=>{let calls=0;await assert.rejects(()=>rss.collectRSS({url:'https://internal.company.example/rss',label:'x'},async()=>{calls++;return new Response(xml);}));assert.equal(calls,0);});
+
+const motorsport='https://www.motorsport.com/rss/f1/news/';
+const amd='https://ir.amd.com/news-events/press-releases/rss';
+const titled=(title,body='Useful change.')=>xml.replace('New release',title).replace('Useful change.',body);
+test('approved AMD feed retains announcements as evidence, never approved drafts',async()=>{
+ const rows=await rss.collectRSS({url:amd,label:'AMD'},async url=>{assert.equal(url,amd);return new Response(xml,{headers:{'content-type':'application/rss+xml'}});},now);
+ assert.equal(rows.length,1);assert.equal(rows[0].approved,undefined);assert.equal(rows[0].author,'AMD');
+});
+test('Motorsport feed retains only explicit selected team titles, not drivers or body mentions',async()=>{
+ for(const title of ['Haas announces technical partnership','Cadillac confirms team leadership','Mercedes unveils car upgrade']){
+ const rows=await rss.collectRSS({url:motorsport,label:'Motorsport F1'},async()=>new Response(titled(title),{headers:{'content-type':'application/rss+xml'}}),now);assert.equal(rows.length,1,title);assert.equal(rows[0].approved,undefined);
+ }
+ for(const title of ['Ferrari announces upgrade','Russell signs contract','Antonelli scores points','Ocon tests new car','Bearman leads practice','SuperHaas speculation'])assert.equal(rss.parseFeed(titled(title,'Mercedes, Cadillac and Haas are also mentioned.'),{url:motorsport,label:'F1'},now).length,0,title);
+});
+test('selected F1 teams do not admit merchandise or lifestyle headlines',()=>{
+ for(const title of ['Mercedes launches new merchandise','Haas team shirts now on sale','Buy Cadillac team caps','Mercedes fashion collection revealed','Haas driver wedding photos','Cadillac launches lifestyle range'])assert.equal(rss.parseFeed(titled(title),{url:motorsport},now).length,0,title);
+});
+test('selected team financial and acquisition news is not mistaken for merchandise',()=>{
+ for(const title of ['Mercedes responds to cost cap ruling','Haas team sale confirmed','Cadillac to buy technical supplier'])assert.equal(rss.parseFeed(titled(title),{url:motorsport},now).length,1,title);
+});

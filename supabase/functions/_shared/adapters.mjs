@@ -37,7 +37,7 @@ export function blueskyAdapter(config,fetcher=fetch){
  function check(account,key){if(account!==config.accountDid||typeof key!=='string'||!/^[a-zA-Z0-9._~:-]{1,512}$/.test(key))throw Error('Account/key mismatch');}
  const request=async(url,method,body)=>readJson(await fetcher(url,{method,redirect:'error',signal:AbortSignal.timeout(10000),headers:{Authorization:`Bearer ${config.accessToken}`,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})}));
  return {
-  put:async(account,key,record,options)=>{check(account,key);if(options?.swapRecord!==null)throw Error('Create-only required');return request(`${pds.origin}/xrpc/com.atproto.repo.putRecord`,'POST',{repo:account,collection:'app.bsky.feed.post',rkey:key,record,swapRecord:null,validate:true});},
+  put:async(account,key,record,options)=>{check(account,key);if(!/^[234567abcdefghij][234567abcdefghijklmnopqrstuvwxyz]{12}$/.test(key))throw Error('Post record key must be a TID');if(options?.swapRecord!==null)throw Error('Create-only required');return request(`${pds.origin}/xrpc/com.atproto.repo.putRecord`,'POST',{repo:account,collection:'app.bsky.feed.post',rkey:key,record,swapRecord:null,validate:true});},
   get:async(account,key)=>{check(account,key);const query=new URLSearchParams({repo:account,collection:'app.bsky.feed.post',rkey:key});const result=await request(`${pds.origin}/xrpc/com.atproto.repo.getRecord?${query}`,'GET');return {record:result.value,uri:result.uri,cid:result.cid};},
  };
 }

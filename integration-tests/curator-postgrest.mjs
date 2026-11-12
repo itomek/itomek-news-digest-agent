@@ -8,7 +8,7 @@ const enc=x=>Buffer.from(JSON.stringify(x)).toString('base64url');const p=enc({a
 const client=new Client({connectionString:dbUrl.toString()}),base='http://127.0.0.1:3000';
 const localFetch=(url,opts)=>{assert.equal(url.hostname,'example.supabase.co');return fetch(base+url.pathname.replace(/^\/rest\/v1/,'')+url.search,opts);};
 try{
- await client.connect();await client.query(await fs.readFile(new URL('../supabase/migrations/20261112175929_warpcore_curator_inbox.sql',import.meta.url),'utf8'));await client.query("notify pgrst, 'reload schema'");
+ await client.connect();await client.query(await fs.readFile(new URL('../supabase/migrations/20261112175929_warpcore_curator_inbox.sql',import.meta.url),'utf8'));await client.query(await fs.readFile(new URL('../supabase/migrations/20261112192659_warpcore_tid_record_keys.sql',import.meta.url),'utf8'));await client.query("notify pgrst, 'reload schema'");
  let ready=false;for(let i=0;i<40;i++){const r=await fetch(base+'/rpc/warpcore_curator_snapshot',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({p_story:'f'.repeat(64)})});if(r.ok){ready=true;break;}await new Promise(r=>setTimeout(r,500));}assert.ok(ready);
  const story='7'.repeat(64),uri='fixture:curator-api',url='https://example.com/new-release',dot='test-dot',run='00000000-0000-4000-8000-000000000077';
  await client.query('select warpcore_ingest($1::jsonb)',[JSON.stringify([{uri,story_key:story,source_type:'rss',source_id:'fixture',actor:'fixture',text:'A new release adds useful support.',source_created_at:new Date().toISOString(),source_url:url,source_links:[url]}])]);

@@ -2,9 +2,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node postgres.mjs && node provenance.mjs",
+    "test": "node postgres.mjs && node provenance.mjs && node publication-hour.mjs && node curator.mjs",
     "test:concurrency": "node concurrency.mjs",
-    "test:postgrest": "node postgrest.mjs"
+    "test:postgrest": "node postgrest.mjs",
+    "test:hour-concurrency": "node publication-hour-concurrency.mjs",
+    "test:curator-postgrest": "node curator-postgrest.mjs",
+    "test:curator-concurrency": "node curator-concurrency.mjs"
   },
   "dependencies": {
     "@electric-sql/pglite": "0.5.16",

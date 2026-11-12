@@ -3,7 +3,7 @@
 Prepared and inactive. Credential setup was separately authorized and completed;
 this document does not enable hourly runs.
 All news collection, editorial review and publication remain in Supabase. This
-workflow only makes two authenticated fixed-endpoint HTTPS POSTs. The Bluesky app
+workflow only makes three authenticated fixed-endpoint HTTPS POSTs. The Bluesky app
 password and Supabase server key NEVER go to GitHub. No news is collected by Actions.
 
 Public standard GitHub-hosted runners are free under current official pricing:
@@ -31,7 +31,7 @@ key. No credential should be pasted into chat, workflow source, logs or artifact
 Only after content scope, account, curation, hourly guard PR #139, and live
 connection checks are complete: review adding `schedule: [{cron: '17 * * * *'}]`
 and enable the variable. The old Supabase cron jobs must stay inactive so there
-is a single scheduler. Publishing processes already-approved records, not raw
+is a single scheduler. The sequence is collect, validate dot-curator inbox, then publish. Curator validation does not perform editorial reasoning. A scheduled dot run submits decisions separately; absent decisions mean no new approved publication. Publishing processes already-approved records, not raw
 collector output. Scheduler responses don't prove a new story was published.
 
 Requests have a 120-second socket timeout, no redirects, no retries, and no body
@@ -42,8 +42,8 @@ to 8 seconds each), leaving headroom for validation and database writes. The
 wall-clock limit; it does not extend the worker's own limits:
 https://supabase.com/docs/guides/functions/limits
 
-The workflow has a five-minute hard job limit for the two sequential invocations
-(up to 240 seconds of socket waits plus startup/checkout overhead). urllib's
+The workflow has a seven-minute hard job limit for the three sequential invocations
+(up to 360 seconds of socket waits plus startup/checkout overhead). urllib's
 socket timeout is not an absolute end-to-end deadline; the job limit is the
 outer bound. Neither timeout causes an automatic retry. Slow or failed collection
 still prevents publisher invocation, and any timeout remains uncertain execution.

@@ -33,7 +33,7 @@ def run(env, sender=send):
         raise ValueError('Required timer authentication is missing')
     if env[keys[1]] == env[keys[2]]:
         raise ValueError('Collector and publisher tokens must be distinct')
-    for endpoint, token in [('news-collect', keys[1]), ('news-publish', keys[2])]:
+    for endpoint, token in [('news-collect', keys[1]), ('news-curate', keys[2]), ('news-publish', keys[2])]:
         status = sender(BASE + endpoint, {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer ' + env[keys[0]],

@@ -14,9 +14,17 @@ export async function runAdapters(selections, registry) {
         if (item.visibility !== 'public' || typeof item.id !== 'string' || !item.id || item.id.length>2048 || typeof item.text !== 'string' || !item.text.trim() || item.text.length>20000 || !Number.isFinite(Date.parse(item.publishedAt))) throw new Error('Invalid public evidence');
         const url=new URL(item.url);
         if(url.protocol!=='https:' || url.username || url.password) throw new Error('Invalid evidence URL');
+        let nativeUrl=null;
+        if(item.nativeUrl!==undefined){
+          const native=new URL(item.nativeUrl);
+          if(native.protocol!=='https:'||native.username||native.password)throw new Error('Invalid native provenance URL');
+          nativeUrl=native.toString();
+        }
+        if(item.nativeUri!==undefined&&(typeof item.nativeUri!=='string'||!item.nativeUri||item.nativeUri.length>2048))throw new Error('Invalid native provenance identity');
         return {uri:`urn:warpcore:${selection.adapter}:${selection.id}:${encodeURIComponent(item.id)}`,
           source_type:selection.adapter,source_id:selection.id,actor:item.author || selection.id,
-          text:item.text,created_at:new Date(item.publishedAt).toISOString(),links:[url.toString()],
+          text:item.text,created_at:new Date(item.publishedAt).toISOString(),links:[...new Set([url.toString(),nativeUrl].filter(Boolean))],
+          native_uri:item.nativeUri ?? null,native_url:nativeUrl,
           status:'unverified_review_required'};
       });
       candidates.push(...batch); sources.push({id:selection.id,status:'ok',count:batch.length});

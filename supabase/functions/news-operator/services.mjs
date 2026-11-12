@@ -15,12 +15,12 @@ export function operatorServices(config,fetcher=fetch){
  };
  return {
   identify:async token=>readJson(await fetcher(new URL('/auth/v1/user',project()),{method:'GET',redirect:'error',signal:AbortSignal.timeout(10000),headers:{apikey:config.serviceKey,Authorization:`Bearer ${token}`}})),
-  list:async()=>({stories:await request('/rest/v1/warpcore_stories',{select:'story_key,status,collected_at',status:'eq.unverified_review_required',order:'collected_at.desc',limit:'20'}),reviews:await request('/rest/v1/warpcore_reviews',{select:'id,content_hash,revision,state,packet,job,created_at',state:'eq.pending',order:'created_at.desc',limit:'20'})}),
+  list:async()=>({stories:await request('/rest/v1/warpcore_stories',{select:'story_key,status,collected_at,warpcore_candidates(uri,source_url,source_links,native_uri,native_url,source_type)',status:'eq.unverified_review_required','warpcore_candidates.limit':'20',order:'collected_at.desc',limit:'20'}),reviews:await request('/rest/v1/warpcore_reviews',{select:'id,content_hash,revision,state,packet,job,created_at',state:'eq.pending',order:'created_at.desc',limit:'20'})}),
   preview:async body=>{
    if(!/^[a-f0-9]{64}$/.test(body.storyKey))throw Error('Invalid story');
-   const rows=await request('/rest/v1/warpcore_candidates',{select:'uri,source_url,text,source_type',story_key:'eq.'+body.storyKey,limit:'20'});
+   const rows=await request('/rest/v1/warpcore_candidates',{select:'uri,source_url,text,source_type,source_links,native_uri,native_url',story_key:'eq.'+body.storyKey,limit:'20'});
    // This table's ingestion contract rejects private input; only public article evidence belongs here.
-   const packet=await createReviewPacket({storyKey:body.storyKey,editorial:body.editorial,evidence:rows.map(r=>({id:r.uri,url:r.source_url,text:r.text,sourceType:r.source_type,visibility:'public'}))});
+   const packet=await createReviewPacket({storyKey:body.storyKey,editorial:body.editorial,evidence:rows.map(r=>({id:r.uri,url:r.source_url,text:r.text,sourceType:r.source_type,visibility:'public',sourceLinks:r.source_links??[],nativeUri:r.native_uri??null,nativeUrl:r.native_url??null}))});
    // These flags enable record formatting only. SQL approval remains absent until decide_review.
    const prepared=await prepareTransport({...packet.recordDraft,verified:true,approved:true},config.accountDid,new Date().toISOString());
    const job={...prepared,storyKey:body.storyKey};

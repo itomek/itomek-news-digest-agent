@@ -7,3 +7,16 @@ test('raw repost and unsupported significance do not pass preparation',async()=>
 test('changed packet cannot reuse approval hash',async()=>{const p=await c.createReviewPacket(input);p.recordDraft.summary='Changed';await assert.rejects(()=>c.approveReview(p,{contentHash:p.contentHash,factsVerified:true,meaningfulChange:true,scopeApproved:true}));});
 test('rejects private evidence and missing typed provenance',async()=>{await assert.rejects(()=>c.createReviewPacket({...input,evidence:[{...input.evidence[0],visibility:'private'}]}));await assert.rejects(()=>c.createReviewPacket({...input,evidence:[{...input.evidence[0],id:undefined}],editorial:{...input.editorial,evidenceIds:[undefined]}}));});
 test('JSONB key reordering preserves exact review hash',async()=>{const p=await c.createReviewPacket(input);const reorder=v=>Array.isArray(v)?v.map(reorder):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().reverse().map(k=>[k,reorder(v[k])])):v;const restored=reorder(p);assert.equal((await c.approveReview(restored,{contentHash:p.contentHash,factsVerified:true,meaningfulChange:true,scopeApproved:true})).approved,true);});
+test('review binds native source provenance and includes clickable attribution links',async()=>{
+ const native='https://bsky.app/profile/example.com/post/abc';
+ const p=await c.createReviewPacket({...input,evidence:[{...input.evidence[0],nativeUri:'at://example.com/app.bsky.feed.post/abc',nativeUrl:native,sourceLinks:['https://example.com/release',native]}]});
+ assert.equal(p.evidence[0].nativeUrl,native);assert.equal(p.evidence[0].nativeUri,'at://example.com/app.bsky.feed.post/abc');
+ assert.deepEqual(p.recordDraft.links,['https://example.com/release',native]);
+ p.evidence[0].nativeUrl='https://example.com/changed';await assert.rejects(()=>c.approveReview(p,{contentHash:p.contentHash,factsVerified:true,meaningfulChange:true,scopeApproved:true}));
+});
+test('invalid provenance URLs are rejected rather than included in review',async()=>{
+ await assert.rejects(()=>c.createReviewPacket({...input,evidence:[{...input.evidence[0],nativeUrl:'javascript:alert(1)'}]}));
+});
+test('too many attribution links fail rather than silently dropping sources',async()=>{
+ await assert.rejects(()=>c.createReviewPacket({...input,evidence:[{...input.evidence[0],sourceLinks:['https://example.com/one','https://example.com/two','https://example.com/three','https://example.com/four']}]}));
+});

@@ -2,7 +2,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node postgres.mjs",
+    "test": "node postgres.mjs && node provenance.mjs",
     "test:concurrency": "node concurrency.mjs",
     "test:postgrest": "node postgrest.mjs"
   },

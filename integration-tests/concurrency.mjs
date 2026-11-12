@@ -11,6 +11,7 @@ try{
  assert.equal((await a.query("select count(*)::int n from information_schema.tables where table_schema='public'")).rows[0].n,0,'Test DB must be empty');
  await a.query('create role anon;create role authenticated;create role service_role bypassrls;');
  for(const p of ['warpcore-schema-proposal.sql','warpcore-publication-ledger-proposal.sql','warpcore-operator-proposal.sql','warpcore-rate-guard.sql'])await a.query(await fs.readFile(new URL('../docs/'+p,import.meta.url),'utf8'));
+ await a.query(await fs.readFile(new URL('../supabase/migrations/20261112164434_warpcore_source_provenance.sql',import.meta.url),'utf8'));
  const key='b'.repeat(64),did='did:plc:abcdefghijklmnopqrstuvwx',record=JSON.stringify({text:'synthetic',createdAt:'2026-11-12T12:00:00Z'}),args=[did,key,'hash',record];
  await a.query("insert into warpcore_stories(story_key,status) values ($1,'approved')",[key]);
  await a.query('select warpcore_prepare_publication($1,$2,$3,$4::jsonb,$5)',[...args,'story-test']);

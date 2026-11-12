@@ -6,13 +6,18 @@ const canonical=v=>Array.isArray(v)?v.map(canonical):v&&typeof v==='object'?Obje
 const equal=(a,b)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
 function validateConfig(config){if(!/^did:plc:[a-z2-7]{24}$/.test(config.accountDid)||typeof config.dotId!=='string'||!config.dotId.trim()||config.dotId.length>128)throw Error('Pinned account and truthful dot identity required');}
 // Trusted connector submissions only. Source text cannot provide its own attestations.
-// Batch one; no model, token login, public post, or owner impersonation here.
-export async function drainOne(config,db,now=Date.now()){
+// Sequential bounded DB-only drain; no model, login or public transport.
+export async function drainOne(config,db,now){return drain(config,db,1,now);}
+export async function drainBatch(config,db,now){return drain(config,db,5,now);}
+async function drain(config,db,limit,now){
  validateConfig(config);
- const rows=await db.claim(1);
- if(!Array.isArray(rows)||rows.length>1)throw Error('Invalid bounded inbox claim');
- if(!rows.length)return [];
- const row=rows[0];
+ const rows=await db.claim(limit);
+ if(!Array.isArray(rows)||rows.length>limit)throw Error('Invalid bounded inbox claim');
+ const results=[];
+ for(const row of rows)results.push(...await processRow(config,db,row,now??Date.now()));
+ return results;
+}
+async function processRow(config,db,row,now){
  if(!row||!uuid(row.id)||!uuid(row.lease_token))throw Error('Invalid lease identity');
  const reject=async reason=>{try{return [{state:await db.fail(row,reason)===true?'rejected':'conflict'}];}catch{return [{state:'failure_recording_uncertain'}];}};
  if(row.actor_kind!=='dot'||row.dot_id!==config.dotId||!uuid(row.run_id)||!Number.isFinite(Date.parse(row.lease_expires_at))||Date.parse(row.lease_expires_at)<=now||!Number.isFinite(Date.parse(row.created_at))||Date.parse(row.created_at)>now+300000||!/^([a-f0-9]{64})$/.test(row.story_key)||!/^[a-f0-9]{64}$/.test(row.evidence_hash))return reject('invalid_submission');
@@ -58,5 +63,5 @@ export function createCuratorService(config,fetcher=fetch){
   finalize:(row,packet,job)=>rpc('finalize',{p_id:row.id,p_lease_token:row.lease_token,p_packet:packet,p_job:job}),
   fail:(row,reason)=>rpc('fail',{p_id:row.id,p_lease_token:row.lease_token,p_reason:reason}),
  };
- return {drain:()=>drainOne(config,db)};
+ return {drain:()=>drainBatch(config,db)};
 }

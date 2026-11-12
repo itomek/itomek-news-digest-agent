@@ -32,3 +32,14 @@ class TimerTests(unittest.TestCase):
  def test_shared_tokens_rejected_before_requests(self):
   env={'WARPCORE_TIMER_ENABLED':'true','WARPCORE_GATEWAY_ANON_JWT':'a'*64,'WARPCORE_COLLECT_TOKEN':'b'*32,'WARPCORE_PUBLISH_TOKEN':'b'*32}
   with self.assertRaises(ValueError):m.run(env,lambda *args:self.fail('network'))
+ def test_send_uses_120_second_socket_timeout_once(self):
+  with patch.object(m.urllib.request,'build_opener') as build:
+   opener=build.return_value
+   opener.open.return_value.__enter__.return_value.status=200
+   self.assertEqual(m.send(m.BASE+'news-collect',{}),200)
+   self.assertEqual(opener.open.call_count,1)
+   self.assertEqual(opener.open.call_args.kwargs['timeout'],120)
+ def test_workflow_has_five_minute_bound_and_no_schedule(self):
+  text=(Path(__file__).parents[1]/'.github/workflows/warpcore-timer.yml').read_text()
+  self.assertIn('timeout-minutes: 5',text)
+  self.assertNotIn('schedule:',text)

@@ -1,0 +1,19 @@
+{
+  "storyKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "evidence": [{
+    "id": "fixture:release-1",
+    "url": "https://example.com/release",
+    "sourceType": "rss",
+    "visibility": "public",
+    "text": "Synthetic example: a vendor announced a newly available capability.",
+    "sourceLinks": ["https://example.com/release"]
+  }],
+  "editorial": {
+    "summary": "A release expands access.",
+    "whyItMatters": "More users can try the capability.",
+    "change": "New availability, rather than a repeated announcement.",
+    "evidenceIds": ["fixture:release-1"],
+    "political": false
+  },
+  "attributionChecks": [{"evidenceId": "fixture:release-1", "checked": true}]
+}

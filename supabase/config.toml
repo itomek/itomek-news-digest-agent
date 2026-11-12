@@ -1,0 +1,16 @@
+project_id = "itomek-news-digest-agent"
+
+[functions.news-collect]
+verify_jwt = true
+
+[functions.news-publish]
+verify_jwt = true
+
+[functions.bluesky-collect]
+verify_jwt = true
+
+[functions.warpcore-smoke]
+verify_jwt = true
+
+[functions.news-operator]
+verify_jwt = true

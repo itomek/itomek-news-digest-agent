@@ -1,0 +1,5 @@
+import test from 'node:test';import assert from 'node:assert/strict';import * as p from './handler.mjs';
+const token='x'.repeat(32),request=()=>new Request('https://example.test',{method:'POST',headers:{'x-warpcore-token':token},body:'{"enabled":true}'});
+test('authenticated scheduler remains idle unless server enabled',async()=>{assert.equal(typeof p.handlePublish,'function');const res=await p.handlePublish(request(),{WARPCORE_PUBLISH_CRON_TOKEN:token},()=>{throw Error('network');});assert.equal(res.status,200);assert.equal((await res.json()).mode,'disabled');});
+test('missing authentication fails before initialization',async()=>{assert.equal((await p.handlePublish(request(),{},()=>{throw Error();})).status,401);});
+test('scheduler only processes server queue and reconciles uncertain entries',async()=>{const calls=[];const res=await p.handlePublish(request(),{WARPCORE_PUBLISH_CRON_TOKEN:token,WARPCORE_PUBLISH_ENABLED:'true'},async()=>({runPending:async()=>{calls.push('queue');return [{state:'published'},{state:'uncertain'}];}}));assert.equal(res.status,200);assert.deepEqual(calls,['queue']);assert.equal((await res.json()).processed,2);});

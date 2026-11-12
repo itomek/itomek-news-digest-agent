@@ -4,6 +4,9 @@ on:
     paths:
       - 'supabase/**'
       - 'integration-tests/**'
+      - 'timer_tests/**'
+      - 'tools/supabase_timer.py'
+      - '.github/workflows/warpcore-timer.yml'
       - 'docs/warpcore-*.sql'
       - '.github/workflows/warpcore-validation.yml'
 permissions:
@@ -45,6 +48,8 @@ jobs:
         run: npm ci --prefix integration-tests --ignore-scripts --no-audit --no-fund
       - name: Unit and mock transport tests (no external API calls)
         run: node --test supabase/functions/{_shared,news-collect,news-publish,news-operator,bluesky-collect}/*.test.mjs
+      - name: Credential-free timer tests
+        run: python3 -m unittest discover -s timer_tests -v
       - name: Embedded SQL integration
         run: npm test --prefix integration-tests
       - name: Real PostgreSQL overlapping transactions

@@ -56,3 +56,10 @@ https://supabase.com/kb/troubleshooting/revoking-access-to-pg_net-objects-has-no
 
 A timer-only external trigger avoids storing trigger credentials in pg_net's
 broadly DB-readable request queue. This document does not authorize activation.
+
+Security review: checkout is pinned to verified official commit
+`11d5960a326750d5838078e36cf38b85af677262`. Repository/workflow write access is part
+of the trigger-secret trust boundary. A timeout is uncertain invocation, not proof
+of non-execution. The initial scaffold deliberately stops if collection fails;
+independent publishing/reconciliation during collector outages can be reviewed
+before activation, without treating raw collection as publication approval.

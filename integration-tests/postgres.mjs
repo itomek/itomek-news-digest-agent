@@ -2,6 +2,7 @@ import {PGlite} from '@electric-sql/pglite';import fs from 'node:fs/promises';im
 const db=new PGlite();
 await db.exec('create role anon;create role authenticated;create role service_role;');
 for(const path of ['warpcore-schema-proposal.sql','warpcore-publication-ledger-proposal.sql','warpcore-operator-proposal.sql'])await db.exec(await fs.readFile(new URL('../docs/'+path,import.meta.url),'utf8'));
+await db.exec(await fs.readFile(new URL('../docs/warpcore-rate-guard.sql',import.meta.url),'utf8'));
 const key='a'.repeat(64),account='did:plc:abcdefghijklmnopqrstuvwx',record={text:'test',$type:'app.bsky.feed.post',createdAt:'2026-11-12T12:00:00Z'};
 await db.query("insert into warpcore_stories(story_key,status) values ($1,'approved')",[key]);
 const args=[account,key,'hash',JSON.stringify(record)];
@@ -23,5 +24,12 @@ assert.equal((await db.query('select status from warpcore_stories where story_ke
 await assert.rejects(()=>db.query("update warpcore_publications set record_payload='{}'::jsonb where story_key=$1",[key]));
 await db.exec('set role anon');
 await assert.rejects(()=>db.query('select * from warpcore_publications'));
+await db.exec('reset role');
+assert.equal((await db.query('select warpcore_reserve_login($1) as ok',[account])).rows[0].ok,true);
+assert.equal((await db.query('select warpcore_reserve_login($1) as ok',[account])).rows[0].ok,false);
+await db.query('update warpcore_login_slots set hour_slot=hour_slot-1');
+assert.equal((await db.query('select warpcore_reserve_login($1) as ok',[account])).rows[0].ok,true);
+await db.exec('set role anon');
+await assert.rejects(()=>db.query('select warpcore_reserve_login($1)',[account]));
 await db.exec('reset role');
 await db.close();console.log('PASS: fresh SQL schema, exact approval, claim once, uncertainty and receipt guards');

@@ -80,3 +80,23 @@ Installation receipt: Supabase jobs 3 (`warpcore-news-collect-hourly`, `17 * * *
 and 4 (`warpcore-news-publish-hourly`, `27 * * * *`) registered on 2026-11-12 and
 read back `active=false`. Existing jobs 1 and 2 remained unchanged and active.
 No network request, extension, Vault secret or function secret was created.
+
+## Durable hourly gate follow-up
+
+The publisher now reserves one attempt per account per UTC clock-hour in
+Postgres BEFORE public identity lookup, login or queue processing. Concurrent
+calls compete on one atomic INSERT/UPDATE; failure, timeout and uncertain login
+consume the reservation. Database failure stops the run. Static-token mode is
+also gated. This caps attempts, not posts; the approved queue still has a maximum
+of five records per run. Hour boundaries can be close together, but there can be
+at most one attempt in each UTC hour. No automatic release/retry/reset endpoint.
+
+Read-only production audit: pg_net is absent, Vault blocks anon/authenticated
+reads, and cron.job has owner-only RLS. Cron command text contains secret NAMES,
+not values. Installing pg_net expands database outbound-network capability and
+requires action-time confirmation. After approved installation, run
+`supabase/schedules/audit-network-access.sql`: the new net schema's queue/response
+tables must not be readable/writable by anon/authenticated, and network functions
+must not be executable by them. Audit service_role too, and grant only what the
+postgres-owned jobs actually require. Inspect before touching any existing grants.
+No outbound extension or permissions were changed by this follow-up.

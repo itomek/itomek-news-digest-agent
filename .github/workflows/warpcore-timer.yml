@@ -1,0 +1,25 @@
+name: Warpcore Supabase timer (inactive)
+# No schedule until owner approves timer activation and secret setup.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: warpcore-supabase-timer
+  cancel-in-progress: false
+jobs:
+  trigger:
+    if: vars.WARPCORE_TIMER_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Invoke fixed Supabase workers without retries
+        env:
+          WARPCORE_TIMER_ENABLED: ${{ vars.WARPCORE_TIMER_ENABLED }}
+          WARPCORE_GATEWAY_ANON_JWT: ${{ secrets.WARPCORE_GATEWAY_ANON_JWT }}
+          WARPCORE_COLLECT_TOKEN: ${{ secrets.WARPCORE_COLLECT_TOKEN }}
+          WARPCORE_PUBLISH_TOKEN: ${{ secrets.WARPCORE_PUBLISH_TOKEN }}
+        run: python3 tools/supabase_timer.py

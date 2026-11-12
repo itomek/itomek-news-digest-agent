@@ -14,7 +14,7 @@ begin
  if length(gateway)<32 or length(token)<32 then raise exception 'Warpcore authentication not configured';end if;
  perform net.http_post(url:='https://eedfyviypptfpghyffip.supabase.co/functions/v1/news-collect',
  headers:=jsonb_build_object('Content-Type','application/json','Authorization','Bearer '||gateway,'x-warpcore-token',token),
- body:='{}'::jsonb,timeout_milliseconds:=10000);
+ body:='{}'::jsonb,timeout_milliseconds:=60000);
 end;$invoke$;$command$);
 select cron.alter_job((select jobid from cron.job where jobname='warpcore-news-collect-hourly'),active:=false);
 select cron.schedule('warpcore-news-publish-hourly','27 * * * *',$command$do $invoke$
@@ -26,7 +26,7 @@ begin
  if length(gateway)<32 or length(token)<32 then raise exception 'Warpcore authentication not configured';end if;
  perform net.http_post(url:='https://eedfyviypptfpghyffip.supabase.co/functions/v1/news-publish',
  headers:=jsonb_build_object('Content-Type','application/json','Authorization','Bearer '||gateway,'x-warpcore-token',token),
- body:='{}'::jsonb,timeout_milliseconds:=10000);
+ body:='{}'::jsonb,timeout_milliseconds:=60000);
 end;$invoke$;$command$);
 select cron.alter_job((select jobid from cron.job where jobname='warpcore-news-publish-hourly'),active:=false);
 commit;

@@ -69,3 +69,14 @@ not remove the content and activation gates.
 
 References verified: https://supabase.com/docs/guides/functions/schedule-functions
 and https://bsky.network/docs/rate-limits/ .
+
+Security review follow-up: add a durable hourly invocation-rate guard before
+activation (the SQL schedule alone is not a rate limiter). Verify pg_net request
+queue and response-table access before adding authentication headers. Requests
+use a 60-second timeout; timeout is an uncertain outcome, never a reason for an
+automatic retry or a fresh public post.
+
+Installation receipt: Supabase jobs 3 (`warpcore-news-collect-hourly`, `17 * * * *`)
+and 4 (`warpcore-news-publish-hourly`, `27 * * * *`) registered on 2026-11-12 and
+read back `active=false`. Existing jobs 1 and 2 remained unchanged and active.
+No network request, extension, Vault secret or function secret was created.

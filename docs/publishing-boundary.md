@@ -9,3 +9,6 @@ Output is always `dry_run`, `publishable:false`. There is no sender, password, n
 The accompanying publication-ledger SQL proposal adds account-scoped durable uniqueness and content hashes. It is not applied or integration-tested. Atomic publication claims, remote read/write verification, content facets/link cards, account DID pinning and transport are future work. These boundaries deliberately prevent this draft from becoming an accidental repost bot.
 
 No real stories are selected or generated. Use synthetic fixtures for tests. Existing audio remains unchanged.
+
+## Transport preview and claim proposal
+A credential-free transport preview now builds a deterministic-key Bluesky record with UTF-8 link facets and a supplied persisted timestamp. It returns request:null and has no send API. Pinning a DID requires separate real account verification; syntactic validation alone is not verification. The ledger proposal now includes an atomic prepared-to-sending SQL compare-and-set, guarded by matching hash and approved story. It is not applied or database-tested. Deno, PostgreSQL and Docker binaries are unavailable in this runtime; Node tests cover pure modules only. No hosted changes were made merely to claim integration coverage.

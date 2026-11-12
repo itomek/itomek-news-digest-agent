@@ -1,4 +1,6 @@
 import {XMLParser,XMLValidator} from 'fast-xml-parser';
+// Reviewed public publisher destinations only; no arbitrary DNS names or redirects.
+const FEEDS=new Set(['https://blogs.nvidia.com/feed/','https://supabase.com/rss.xml','https://firebase.blog/rss.xml','https://github.blog/feed/','https://newsroom.arm.com/feed','https://www.apple.com/newsroom/rss-feed.rss','https://www.pensburgh.com/rss/index.xml','https://www.formula1.com/en/latest/all.xml']);
 const array=v=>v===undefined?[]:Array.isArray(v)?v:[v];
 const plain=v=>String(typeof v==='object'?v?.['#text']??'':v??'').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();
 function safe(raw){try{const u=new URL(raw);if(u.protocol!=='https:'||u.username||u.password||u.port||!u.hostname.includes('.')||/^\d|localhost|\.local$/.test(u.hostname)||u.hostname.startsWith('['))return null;return u.toString();}catch{return null;}}
@@ -21,7 +23,7 @@ export function parseFeed(xml,config={},now=Date.now()){
  return out;
 }
 export async function collectRSS(config,fetcher=fetch,now=Date.now()){
- const url=safe(config?.url);if(!url||typeof config.label!=='string'||!config.label.trim())throw Error('Trusted labeled feed required');
+ const url=safe(config?.url);if(!url||!FEEDS.has(url)||typeof config.label!=='string'||!config.label.trim())throw Error('Trusted labeled feed required');
  const r=await fetcher(url,{method:'GET',redirect:'error',signal:AbortSignal.timeout(8000),headers:{Accept:'application/rss+xml, application/atom+xml, application/xml, text/xml'}});
  if(!r.ok||!/(xml|rss|atom)/i.test(r.headers.get('content-type')||''))throw Error('Invalid feed response');
  const reader=r.body.getReader(),chunks=[];let size=0;

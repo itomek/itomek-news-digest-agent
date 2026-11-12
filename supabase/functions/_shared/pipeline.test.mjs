@@ -31,3 +31,5 @@ test('rejects unsafe native provenance URLs',async()=>{
  const result=await pipeline.runAdapters([{id:'source',adapter:'fixture'}],{fixture:{collect:async()=>[{id:'1',nativeUrl:'javascript:alert(1)',text:'News',url:'https://example.com/story',publishedAt:'2026-11-12',visibility:'public'}]}});
  assert.equal(result.candidates.length,0);assert.equal(result.sources[0].status,'error');
 });
+
+test("rejects multiple expensive HN selections before adapter calls",async()=>{let calls=0;await assert.rejects(()=>pipeline.runAdapters([{id:"a",adapter:"hn"},{id:"b",adapter:"hn"}],{hn:{collect:async()=>{calls++;return [];}}}));assert.equal(calls,0);});

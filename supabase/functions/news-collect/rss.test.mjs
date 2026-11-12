@@ -23,7 +23,9 @@ test('parses Atom and holds stale or future entries',()=>{
  assert.equal(rss.parseFeed(atom.replace('2026-11-12','2026-12-12'),{},now).length,0);
 });
 test('fetches only configured HTTPS feed with timeout and redirects denied',async()=>{
- const rows=await rss.collectRSS({url:'https://example.com/rss',label:'Vendor'},async(url,opts)=>{assert.equal(url,'https://example.com/rss');assert.equal(opts.redirect,'error');assert.ok(opts.signal);return new Response(xml,{headers:{'content-type':'application/rss+xml'}});},now);assert.equal(rows.length,1);
+ const rows=await rss.collectRSS({url:'https://blogs.nvidia.com/feed/',label:'Vendor'},async(url,opts)=>{assert.equal(url,'https://blogs.nvidia.com/feed/');assert.equal(opts.redirect,'error');assert.ok(opts.signal);return new Response(xml,{headers:{'content-type':'application/rss+xml'}});},now);assert.equal(rows.length,1);
  await assert.rejects(()=>rss.collectRSS({url:'http://localhost/rss',label:'x'}));
  await assert.rejects(()=>rss.collectRSS({url:'https://example.com/rss',label:'x'},async()=>new Response('html',{headers:{'content-type':'text/html'}})));
 });
+
+test('rejects unapproved DNS destinations before fetching',async()=>{let calls=0;await assert.rejects(()=>rss.collectRSS({url:'https://internal.company.example/rss',label:'x'},async()=>{calls++;return new Response(xml);}));assert.equal(calls,0);});

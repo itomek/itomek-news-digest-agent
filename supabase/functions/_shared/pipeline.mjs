@@ -2,6 +2,7 @@
 // supplied in an HTTP request. No publishing or model calls occur in this module.
 export async function runAdapters(selections, registry) {
   if (!Array.isArray(selections) || selections.length > 10) throw new Error('Invalid source selection');
+  if(selections.filter(s=>s?.adapter==='hn').length>1)throw new Error('One HN discovery selection per run');
   const candidates=[], sources=[];
   for (const selection of selections) {
     try {

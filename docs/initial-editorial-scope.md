@@ -22,3 +22,5 @@ Runtime fetch + XML parsing confirmed current items for Nvidia, Supabase, Fireba
 2. Review-only collection, persistence and provenance checks.
 3. Trusted curation/review mechanism; source text cannot approve itself.
 4. Verified preview then publishing activation. Scheduler and publisher remain disabled until this is met.
+
+`news-collect/initial-sources.json` is a **dormant candidate roster**, not wired into the deployed endpoint. It currently covers only the verified subset above plus HN. All source items require editorial scope/significance/fact checking; Nvidia gaming promos and Penguins lifestyle items must not automatically become posts. Selecting this subset does not imply complete topic coverage. The RSS transport accepts only a reviewed exact-URL allowlist, refuses redirects and never fetches item-linked pages; new source URLs require code review.

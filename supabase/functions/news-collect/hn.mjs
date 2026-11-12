@@ -21,18 +21,26 @@ export async function collectHN(config={},fetcher=fetch,now=Date.now()){
  const ids=await readJSON('topstories.json',fetcher);
  if(!Array.isArray(ids)||ids.some(id=>!Number.isSafeInteger(id)||id<=0))throw new Error('Invalid HN top IDs');
  const rows=[];const lowered=terms.map(t=>t.trim().toLowerCase());
- // Sequential: at most 21 requests, each capped to 5 seconds and 1 MB.
- for(const id of [...new Set(ids.slice(0,maxItems))]){
-  const item=await readJSON(`item/${id}.json`,fetcher);
+ // Seven batches of at most three plus index: <=40 seconds of request time.
+ const selected=[...new Set(ids.slice(0,maxItems))];
+ for(let start=0;start<selected.length;start+=3){
+  const batch=selected.slice(start,start+3);
+  // allSettled drains each batch before reporting errors; no orphan requests.
+  const results=await Promise.allSettled(batch.map(id=>readJSON(`item/${id}.json`,fetcher)));
+  const failed=results.find(result=>result.status==='rejected');
+  if(failed)throw failed.reason;
+  for(let index=0;index<batch.length;index++){
+  const id=batch[index],item=results[index].value;
   if(!item||item.id!==id||item.type!=='story'||item.deleted||item.dead||typeof item.title!=='string'||!item.title.trim()||
    !Number.isFinite(item.time)||item.time*1000>now||now-item.time*1000>maxAgeHours*3600000||
    !Number.isFinite(item.score)||item.score<minScore||!Number.isFinite(item.descendants)||item.descendants<minComments||
    !lowered.some(term=>item.title.toLowerCase().includes(term)))continue;
   const discussion=`https://news.ycombinator.com/item?id=${id}`;
   let url=discussion;
-  try{const parsed=new URL(item.url);if(['http:','https:'].includes(parsed.protocol)&&!parsed.username&&!parsed.password)url=parsed.href;}catch{/* Self posts use HN discussion. */}
+  try{const parsed=new URL(item.url);if(parsed.protocol==='https:'&&!parsed.username&&!parsed.password)url=parsed.href;}catch{/* Self posts use HN discussion. */}
   rows.push({id:`hn:${id}`,text:item.title,author:'Hacker News community',publishedAt:new Date(item.time*1000).toISOString(),visibility:'public',url,discussion_url:discussion,
    signal:'community_snapshot',status:'unverified_review_required',score:item.score,comments:item.descendants,observedAt:new Date(now).toISOString()});
+  }
  }
  return rows;
 }

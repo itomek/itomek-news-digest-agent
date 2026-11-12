@@ -46,6 +46,8 @@ jobs:
           node-version: '22'
       - name: Install pinned isolated test dependencies
         run: npm ci --prefix integration-tests --ignore-scripts --no-audit --no-fund
+      - name: Install pinned feed parser
+        run: npm ci --prefix supabase/functions --ignore-scripts --no-audit --no-fund
       - name: Unit and mock transport tests (no external API calls)
         run: node --test supabase/functions/{_shared,news-collect,news-publish,news-operator,bluesky-collect}/*.test.mjs
       - name: Credential-free timer tests

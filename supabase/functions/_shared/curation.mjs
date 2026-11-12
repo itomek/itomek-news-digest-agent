@@ -13,10 +13,17 @@ export async function createReviewPacket({storyKey,evidence,editorial}){
  const selected=evidence.filter(e=>editorial.evidenceIds.includes(e.id)).map(e=>{
   const url=new URL(e.url);if(url.protocol!=='https:'||url.username||url.password||typeof e.text!=='string'||!e.text.trim()||e.text.length>20000)throw Error('Public evidence required');
   if(editorial.summary.trim()===e.text.trim())throw Error('Raw repost is not editorial summary');
-  return {id:e.id,url:url.toString(),text:e.text,sourceType:e.sourceType,visibility:e.visibility};
+  const safeLink=raw=>{const u=new URL(raw);if(u.protocol!=='https:'||u.username||u.password)throw Error('Invalid attribution URL');return u.toString();};
+  if(e.sourceLinks!==undefined&&(!Array.isArray(e.sourceLinks)||e.sourceLinks.length>20))throw Error('Invalid attribution links');
+  if(e.nativeUri!=null&&(typeof e.nativeUri!=='string'||!e.nativeUri||e.nativeUri.length>2048))throw Error('Invalid native identity');
+  const nativeUrl=e.nativeUrl == null ? null : safeLink(e.nativeUrl);
+  const sourceLinks=[...new Set([url.toString(),...(e.sourceLinks??[]).map(safeLink),...(nativeUrl?[nativeUrl]:[])])];
+  return {id:e.id,url:url.toString(),text:e.text,sourceType:e.sourceType,visibility:e.visibility,nativeUri:e.nativeUri??null,nativeUrl,sourceLinks};
  });
+ const attributionLinks=[...new Set(selected.flatMap(e=>e.sourceLinks))];
+ if(attributionLinks.length>3)throw Error('Too many attribution links; narrow evidence rather than silently dropping credit');
  const packet={status:'awaiting_review',approved:false,change:editorial.change.trim(),evidence:selected,
- recordDraft:{storyKey,summary:editorial.summary.trim(),whyItMatters:editorial.whyItMatters.trim(),links:[...new Set(selected.map(e=>e.url))].slice(0,3)}};
+ recordDraft:{storyKey,summary:editorial.summary.trim(),whyItMatters:editorial.whyItMatters.trim(),links:attributionLinks}};
  return {...packet,contentHash:await digest(reviewMaterial(packet))};
 }
 export async function approveReview(packet,review){

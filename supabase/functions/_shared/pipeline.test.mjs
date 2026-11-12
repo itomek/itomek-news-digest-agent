@@ -20,3 +20,16 @@ test('rejects private or malformed evidence and isolates adapter failure',async(
  assert.deepEqual(result.sources.map(s=>s.status),['error','error']);
 });
 test('malformed source entry is reported without crashing',async()=>{const result=await pipeline.runAdapters([null],{});assert.equal(result.sources[0].status,'error');});
+test('retains native provenance alongside article link without changing primary dedup link',async()=>{
+ const nativeUri='at://did:plc:abcdefghijklmnopqrstuvwx/app.bsky.feed.post/abc';
+ const nativeUrl='https://bsky.app/profile/did%3Aplc%3Aabcdefghijklmnopqrstuvwx/post/abc';
+ const result=await pipeline.runAdapters([{id:'source',adapter:'bluesky'}],{bluesky:{collect:async()=>[{id:nativeUri,nativeUri,nativeUrl,text:'News',url:'https://example.com/story',publishedAt:'2026-11-12',visibility:'public'}]}});
+ assert.equal(result.candidates[0].native_uri,nativeUri);assert.equal(result.candidates[0].native_url,nativeUrl);
+ assert.deepEqual(result.candidates[0].links,['https://example.com/story',nativeUrl]);
+});
+test('rejects unsafe native provenance URLs',async()=>{
+ const result=await pipeline.runAdapters([{id:'source',adapter:'fixture'}],{fixture:{collect:async()=>[{id:'1',nativeUrl:'javascript:alert(1)',text:'News',url:'https://example.com/story',publishedAt:'2026-11-12',visibility:'public'}]}});
+ assert.equal(result.candidates.length,0);assert.equal(result.sources[0].status,'error');
+});
+
+test("rejects multiple expensive HN selections before adapter calls",async()=>{let calls=0;await assert.rejects(()=>pipeline.runAdapters([{id:"a",adapter:"hn"},{id:"b",adapter:"hn"}],{hn:{collect:async()=>{calls++;return [];}}}));assert.equal(calls,0);});

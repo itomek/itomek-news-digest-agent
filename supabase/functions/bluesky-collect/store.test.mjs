@@ -11,3 +11,13 @@ test('preserves multiple sources for one story with provenance',async()=>{
  let rows;await persist([candidate,{...candidate,uri:'rss:1',source_type:'rss',source_id:'feed-a'}],{projectUrl:'https://example.supabase.co',serviceKey:'test'},async(u,o)=>{rows=JSON.parse(o.body).items;return new Response('');});
  assert.equal(rows.length,2);assert.equal(rows[1].source_type,'rss');assert.equal(rows[1].source_id,'feed-a');assert.equal(rows[0].story_key,rows[1].story_key);
 });
+test('persistence retains canonical source links and native identity without changing story key',async()=>{
+ const native='https://bsky.app/profile/example.com/post/abc';
+ const original=await candidateRow(candidate);
+ const row=await candidateRow({...candidate,links:[...candidate.links,native,'javascript:alert(1)'],native_uri:'at://example.com/app.bsky.feed.post/abc',native_url:native});
+ assert.equal(row.story_key,original.story_key);assert.deepEqual(row.source_links,['https://example.com/story',native]);
+ assert.equal(row.native_uri,'at://example.com/app.bsky.feed.post/abc');assert.equal(row.native_url,native);
+});
+test('invalid native links are not persisted as safe provenance',async()=>{
+ await assert.rejects(()=>candidateRow({...candidate,native_url:'https://user:pass@example.com'}));
+});

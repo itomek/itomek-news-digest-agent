@@ -1,0 +1,8 @@
+[
+ {"id":"nvidia_blog","adapter":"rss","config":{"url":"https://blogs.nvidia.com/feed/","label":"NVIDIA Blog"}},
+ {"id":"supabase_blog","adapter":"rss","config":{"url":"https://supabase.com/rss.xml","label":"Supabase Blog"}},
+ {"id":"firebase_blog","adapter":"rss","config":{"url":"https://firebase.blog/rss.xml","label":"Firebase Blog"}},
+ {"id":"apple_newsroom","adapter":"rss","config":{"url":"https://www.apple.com/newsroom/rss-feed.rss","label":"Apple Newsroom"}},
+ {"id":"pensburgh","adapter":"rss","config":{"url":"https://www.pensburgh.com/rss/index.xml","label":"PensBurgh (independent Penguins coverage)"}},
+ {"id":"hn_discovery","adapter":"hn","config":{"terms":["agent","LLM","AI model","inference","AMD","Nvidia","Intel","Arm chip","Supabase","Firebase","Omarchy"],"minScore":100,"minComments":30,"maxItems":20,"maxAgeHours":48}}
+]

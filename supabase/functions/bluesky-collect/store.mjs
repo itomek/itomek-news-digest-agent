@@ -10,12 +10,17 @@ export function canonicalLink(raw) {
   } catch { return null; }
 }
 export async function candidateRow(candidate) {
-  const firstLink = (candidate.links ?? []).map(canonicalLink).find(Boolean);
+  const nativeUrl=candidate.native_url == null ? null : canonicalLink(candidate.native_url);
+  if(candidate.native_url != null && !nativeUrl)throw Error('Invalid native provenance URL');
+  if(candidate.native_uri != null && (typeof candidate.native_uri!=='string'||!candidate.native_uri||candidate.native_uri.length>2048))throw Error('Invalid native provenance identity');
+  const sourceLinks=[...new Set([...(candidate.links ?? []).map(canonicalLink).filter(Boolean),...(nativeUrl?[nativeUrl]:[])])];
+  if(sourceLinks.length>20)throw Error('Too many source links');
+  const firstLink=sourceLinks[0];
   const key = firstLink || candidate.uri;
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key));
   return {uri:candidate.uri,story_key:[...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join(''),
     source_type:candidate.source_type ?? 'bluesky',source_id:candidate.source_id ?? candidate.actor,actor:candidate.actor,text:candidate.text,source_created_at:candidate.created_at,
-    source_url:firstLink ?? null,status:'unverified_review_required'};
+    source_url:firstLink ?? null,source_links:sourceLinks,native_uri:candidate.native_uri ?? null,native_url:nativeUrl,status:'unverified_review_required'};
 }
 export async function persist(candidates, config, fetcher=fetch) {
   const url = new URL(config.projectUrl);

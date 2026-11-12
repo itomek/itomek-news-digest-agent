@@ -1,6 +1,6 @@
 # Scheduled dot-curation drain (locked off)
 
-This worker drains at most one audited dot submission from the server-owned inbox.
+This worker drains at most five audited dot submissions from the server-owned inbox.
 It has no model API, source fetches, Bluesky password/session or public posting
 transport. It does not impersonate an owner review or require owner approval per
 story: decisions are the authorized dot's facts/meaningful-change/scope attestations.
@@ -14,7 +14,8 @@ dot identity and `BLUESKY_ACCOUNT_DID` to the pinned posting account. Database U
 and server key are built-in Edge runtime configuration, not credentials to collect
 from the owner. No IDs or secrets are created by this module.
 
-The worker claims one five-minute lease, validates dot/run identity and explicit
+The worker claims up to five five-minute leases and processes them sequentially.
+For each it validates dot/run identity and explicit
 attestations, obtains the current SQL evidence snapshot, compares its opaque SQL
 hash and canonical JSON evidence, then uses the existing curation and transport
 formatters. The saved submission timestamp makes the record stable on retries.

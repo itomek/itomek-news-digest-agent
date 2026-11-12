@@ -78,3 +78,7 @@ jobs:
         env:
           WARPCORE_TEST_DATABASE_URL: postgres://postgres:disposable-ci-only@127.0.0.1:5432/warpcore_test
         run: npm run test:curator-concurrency --prefix integration-tests
+      - name: Bounded multi-story publication contention
+        env:
+          WARPCORE_TEST_DATABASE_URL: postgres://postgres:disposable-ci-only@127.0.0.1:5432/warpcore_test
+        run: npm run test:batch-concurrency --prefix integration-tests

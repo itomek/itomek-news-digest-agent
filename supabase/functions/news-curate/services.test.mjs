@@ -15,7 +15,7 @@ test('database adapter calls only fixed RPCs with bounded claim and no publisher
  const live={...row,created_at:new Date(Date.now()-1000).toISOString(),lease_expires_at:new Date(Date.now()+60000).toISOString()};const calls=[];
  const service=s.createCuratorService({...config,projectUrl:'https://example.supabase.co',serviceKey:'fixture'},async(url,o)=>{
  assert.equal(url.origin,'https://example.supabase.co');assert.equal(o.redirect,'error');assert.equal(o.method,'POST');assert.equal(o.headers.Authorization,'Bearer fixture');assert.equal(o.headers.apikey,'fixture');calls.push(url.pathname);const body=JSON.parse(o.body);
- if(url.pathname.endsWith('_claim')){assert.deepEqual(body,{p_limit:1});return Response.json([live]);}
+ if(url.pathname.endsWith('_claim')){assert.deepEqual(body,{p_limit:5});return Response.json([live]);}
  if(url.pathname.endsWith('_snapshot')){assert.deepEqual(body,{p_story:row.story_key});return Response.json({story_key:row.story_key,evidence_hash:row.evidence_hash,evidence:row.evidence});}
  assert.equal(url.pathname,'/rest/v1/rpc/warpcore_curator_finalize');assert.equal(body.p_id,row.id);assert.equal(body.p_lease_token,row.lease_token);assert.equal(body.p_packet.approved,false);assert.equal(body.p_job.storyKey,row.story_key);return Response.json(true);
  });
@@ -27,4 +27,14 @@ test('noncanonical persisted URLs are terminally rejected before record formatti
   db.fail=async(r,x)=>{reason=x;return true;};db.finalize=async()=>{throw Error('must not finalize');};
   assert.deepEqual(await s.drainOne(config,db,now),[{state:'rejected'}]);assert.equal(reason,'noncanonical_evidence');
  }
+});
+test('batch leases at most five and finalizes separate records sequentially',async()=>{
+ const rows=Array.from({length:5},(_,i)=>({...structuredClone(row),id:`11111111-1111-4111-8111-11111111111${i}`,story_key:String(i).repeat(64)}));
+ let active=0,max=0;const completed=[];const db={claim:async n=>{assert.equal(n,5);return rows;},snapshot:async key=>{const item=rows.find(r=>r.story_key===key);return {story_key:key,evidence_hash:item.evidence_hash,evidence:item.evidence};},finalize:async(r,p,j)=>{active++;max=Math.max(max,active);await new Promise(resolve=>setTimeout(resolve,1));completed.push(j.storyKey);active--;return true;},fail:async()=>{throw Error('unexpected');}};
+ assert.deepEqual(await s.drainBatch(config,db,now),Array(5).fill({state:'approved'}));assert.equal(max,1);assert.deepEqual(completed,rows.map(r=>r.story_key));
+ db.claim=async()=>[...rows,row];await assert.rejects(()=>s.drainBatch(config,db,now),/bounded/);
+});
+test('batch never retries uncertain finalization and continues independent stories',async()=>{
+ const rows=[row,{...structuredClone(row),id:'44444444-4444-4444-8444-444444444444',story_key:'c'.repeat(64)}];const calls=[];const db=dbFor();db.claim=async()=>rows;db.snapshot=async key=>({story_key:key,evidence_hash:row.evidence_hash,evidence:row.evidence});db.finalize=async r=>{calls.push(r.id);if(r===row)throw Error('uncertain');return true;};
+ assert.deepEqual(await s.drainBatch(config,db,now),[{state:'finalization_uncertain'},{state:'approved'}]);assert.deepEqual(calls,rows.map(r=>r.id));
 });

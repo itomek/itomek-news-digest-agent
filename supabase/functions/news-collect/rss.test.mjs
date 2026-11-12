@@ -49,3 +49,18 @@ test('selected F1 teams do not admit merchandise or lifestyle headlines',()=>{
 test('selected team financial and acquisition news is not mistaken for merchandise',()=>{
  for(const title of ['Mercedes responds to cost cap ruling','Haas team sale confirmed','Cadillac to buy technical supplier'])assert.equal(rss.parseFeed(titled(title),{url:motorsport},now).length,1,title);
 });
+const milford='https://milfordtownship.org/feed/';
+const library='https://buckslib.org/feed/';
+test('local feeds are allowlisted and request timeout is bounded to six seconds',async()=>{
+ const original=AbortSignal.timeout;const times=[];AbortSignal.timeout=ms=>{times.push(ms);return original(ms);};
+ try{for(const url of [milford,library])await rss.collectRSS({url,label:'Local'},async()=>new Response(titled('Quakertown branch closed for repairs'),{headers:{'content-type':'application/rss+xml'}}),now);}finally{AbortSignal.timeout=original;}
+ assert.deepEqual(times,[6000,6000]);
+});
+test('Milford retains practical local notices but excludes routine meetings and politics',()=>{
+ for(const title of ['Road closure on Route 663','Township recycling schedule changes'])assert.equal(rss.parseFeed(titled(title),{url:milford},now).length,1,title);
+ for(const title of ['Board meeting agenda','Supervisors meeting minutes','Candidate endorsement announced','Election results','Political campaign rally'])assert.equal(rss.parseFeed(titled(title),{url:milford},now).length,0,title);
+});
+test('library retains geographically relevant practical notices, not generic event filler',()=>{
+ for(const [title,body] of [['Quakertown branch closed for repairs',''],['New opening hours','Upper Bucks branches will open later.'],['All branches closed Monday',''],['Library system launches new borrowing service','']])assert.equal(rss.parseFeed(titled(title,body),{url:library},now).length,1,title);
+ for(const [title,body] of [['Doylestown branch renovation',''],['Summer reading celebration',''],['Quakertown storytime Saturday',''],['Author visit in Upper Bucks',''],['All branches host craft events','']])assert.equal(rss.parseFeed(titled(title,body),{url:library},now).length,0,title);
+});

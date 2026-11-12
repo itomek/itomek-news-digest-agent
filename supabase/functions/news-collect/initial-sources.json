@@ -1,4 +1,6 @@
 [
+ {"id":"milford_township","adapter":"rss","config":{"url":"https://milfordtownship.org/feed/","label":"Milford Township official notices"}},
+ {"id":"bucks_library_local","adapter":"rss","config":{"url":"https://buckslib.org/feed/","label":"Bucks County Free Library practical local notices"}},
  {"id":"amd_press_releases","adapter":"rss","config":{"url":"https://ir.amd.com/news-events/press-releases/rss","label":"AMD News Releases"}},
  {"id":"motorsport_f1_selected_teams","adapter":"rss","config":{"url":"https://www.motorsport.com/rss/f1/news/","label":"Motorsport F1 (Haas, Cadillac, Mercedes discovery)"}},
  {"id":"nvidia_blog","adapter":"rss","config":{"url":"https://blogs.nvidia.com/feed/","label":"NVIDIA Blog"}},

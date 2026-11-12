@@ -11,3 +11,6 @@ verify_jwt = true
 
 [functions.warpcore-smoke]
 verify_jwt = true
+
+[functions.news-operator]
+verify_jwt = true

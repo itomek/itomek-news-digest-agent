@@ -100,3 +100,8 @@ tables must not be readable/writable by anon/authenticated, and network function
 must not be executable by them. Audit service_role too, and grant only what the
 postgres-owned jobs actually require. Inspect before touching any existing grants.
 No outbound extension or permissions were changed by this follow-up.
+
+Hosted verification: migration `20261112153023_warpcore_login_guard` applied;
+RLS enabled, anon/authenticated table reads and RPC execution denied. Transactional
+synthetic reservation test accepted first attempt and rejected second, then rolled
+back (zero persisted login rows). Publisher v3 deployed with hard disable intact.

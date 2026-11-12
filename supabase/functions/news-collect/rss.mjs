@@ -1,6 +1,7 @@
 import {XMLParser,XMLValidator} from 'fast-xml-parser';
 // Reviewed public publisher destinations only; no arbitrary DNS names or redirects.
-const FEEDS=new Set(['https://blogs.nvidia.com/feed/','https://supabase.com/rss.xml','https://firebase.blog/rss.xml','https://github.blog/feed/','https://newsroom.arm.com/feed','https://www.apple.com/newsroom/rss-feed.rss','https://www.pensburgh.com/rss/index.xml','https://www.formula1.com/en/latest/all.xml']);
+const MOTORSPORT_F1='https://www.motorsport.com/rss/f1/news/';
+const FEEDS=new Set(['https://ir.amd.com/news-events/press-releases/rss',MOTORSPORT_F1,'https://blogs.nvidia.com/feed/','https://supabase.com/rss.xml','https://firebase.blog/rss.xml','https://github.blog/feed/','https://newsroom.arm.com/feed','https://www.apple.com/newsroom/rss-feed.rss','https://www.pensburgh.com/rss/index.xml','https://www.formula1.com/en/latest/all.xml']);
 const array=v=>v===undefined?[]:Array.isArray(v)?v:[v];
 const plain=v=>String(typeof v==='object'?v?.['#text']??'':v??'').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();
 function safe(raw){try{const u=new URL(raw);if(u.protocol!=='https:'||u.username||u.password||u.port||!u.hostname.includes('.')||/^\d|localhost|\.local$/.test(u.hostname)||u.hostname.startsWith('['))return null;return u.toString();}catch{return null;}}
@@ -15,6 +16,9 @@ export function parseFeed(xml,config={},now=Date.now()){
  const link=typeof e.link==='string'?e.link:array(e.link).find(x=>!x['@_rel']||x['@_rel']==='alternate')?.['@_href'];
  const url=safe(link),published=Date.parse(e.pubDate??e.published??e.updated),title=plain(e.title);
  if(!url||!title||!Number.isFinite(published)||published>now+300000||published<now-7*86400000)continue;
+ // Discovery filter only, never editorial verification or approval. Team names
+ // must occur in the title; body mentions and driver-only stories are insufficient.
+ if(config.url===MOTORSPORT_F1&&(!/\b(?:Haas|Cadillac|Mercedes)\b/i.test(title)||/\b(?:merchandise|merch|shirts?|t-shirts?|(?:team|baseball)\s+caps?|hoodies?|fashion|lifestyle|weddings?|girlfriends?|boyfriends?|vacations?|holidays?|shopping|discounts?)\b/i.test(title)))continue;
  const detail=plain(e.description??e.summary??e.content??e['content:encoded']);
  const text=[title,detail].filter(Boolean).join('\n').slice(0,18000);
  out.push({id:plain(e.guid??e.id)||url,url,text,author:config.label||'RSS source',publishedAt:new Date(published).toISOString(),visibility:'public'});

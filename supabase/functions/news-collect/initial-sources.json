@@ -1,4 +1,6 @@
 [
+ {"id":"amd_press_releases","adapter":"rss","config":{"url":"https://ir.amd.com/news-events/press-releases/rss","label":"AMD News Releases"}},
+ {"id":"motorsport_f1_selected_teams","adapter":"rss","config":{"url":"https://www.motorsport.com/rss/f1/news/","label":"Motorsport F1 (Haas, Cadillac, Mercedes discovery)"}},
  {"id":"nvidia_blog","adapter":"rss","config":{"url":"https://blogs.nvidia.com/feed/","label":"NVIDIA Blog"}},
  {"id":"supabase_blog","adapter":"rss","config":{"url":"https://supabase.com/rss.xml","label":"Supabase Blog"}},
  {"id":"firebase_blog","adapter":"rss","config":{"url":"https://firebase.blog/rss.xml","label":"Firebase Blog"}},

@@ -34,3 +34,30 @@ Before a separately reviewed recovery:
 The first trial's publisher returned `uncertain`; its generic error handling did
 not retain the original remote error. The invalid TID is a verified defect, not a
 captured server-error attribution. No automatic retry is introduced by this fix.
+
+## Audited one-time repair artifact
+
+`tools/recovery/firebase-tid-recovery.sql` is a manual, explicitly authorized
+repair template, not a migration or scheduler action. It requires fresh exact
+old/new-key `RecordNotFound` observations and an exact pre-inspected row snapshot.
+It holds an exclusive publication lock, preserves the prior publication/inbox
+in a private append-only audit, disables only the immutable-record trigger within
+the transaction, changes only key/state, and restores the trigger before commit.
+Any failure rolls back the trigger, row and audit together. The template cannot
+be reused after the row is repaired. Do not commit live row snapshots or claim
+SQL independently verified the supplied remote observations.
+
+The companion audit-schema migration grants no public or service-role access.
+The regression test injects a failure after trigger disable and verifies rollback,
+then checks successful exact recovery, unchanged slots, and restored service-role
+immutability.
+
+Hosted connector migration versions differ from repository filenames:
+- TID key correction: hosted `20261112194008`, repo `20261112192659`.
+- Private recovery audit: hosted `20261112195037`, repo `20261112193554`.
+- The approved data repair is separately audited under hosted `20261112195050`;
+  it is not a replayable repository migration.
+
+Do not run blind `db push`, reset, or repair against that migration history.
+Reconcile the full existing history and schema first; these mappings alone are
+not sufficient to repair earlier legacy migration drift.

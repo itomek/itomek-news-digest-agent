@@ -1,0 +1,45 @@
+name: Warpcore isolated validation
+on:
+  pull_request:
+    paths:
+      - 'supabase/**'
+      - 'integration-tests/**'
+      - 'docs/warpcore-*.sql'
+      - '.github/workflows/warpcore-validation.yml'
+permissions:
+  contents: read
+jobs:
+  postgres-concurrency:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_DB: warpcore_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: disposable-ci-only
+        ports:
+          - '127.0.0.1:5432:5432'
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned isolated test dependencies
+        run: npm ci --prefix integration-tests --ignore-scripts --no-audit --no-fund
+      - name: Unit and mock transport tests (no external API calls)
+        run: node --test supabase/functions/{_shared,news-collect,news-publish,bluesky-collect}/*.test.mjs
+      - name: Embedded SQL integration
+        run: npm test --prefix integration-tests
+      - name: Real PostgreSQL overlapping transactions
+        env:
+          WARPCORE_TEST_DATABASE_URL: postgres://postgres:disposable-ci-only@127.0.0.1:5432/warpcore_test
+        run: npm run test:concurrency --prefix integration-tests

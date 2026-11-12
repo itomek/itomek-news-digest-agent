@@ -111,3 +111,24 @@ end;
 $fn$;
 revoke all on function public.warpcore_mark_checked(text,text,text,jsonb),public.warpcore_mark_manual_review(text,text,text,jsonb) from public,anon,authenticated;
 grant execute on function public.warpcore_mark_checked(text,text,text,jsonb),public.warpcore_mark_manual_review(text,text,text,jsonb) to service_role;
+
+-- Trusted editorial review only. Never called by the scheduler or source adapters.
+create function public.warpcore_review_publication(p_account text,p_story text,p_hash text,p_record jsonb,p_approve boolean)
+returns boolean language plpgsql security invoker set search_path='' as $fn$
+declare matched boolean;
+begin
+ if p_approve is null then return false; end if;
+ update public.warpcore_publications
+ set approved_at=case when p_approve then now() else null end,
+ state=case when p_approve then 'prepared' else 'rejected' end
+ where account_did=p_account and story_key=p_story and content_hash=p_hash
+ and record_payload=p_record and state='prepared';
+ matched := found;
+ if matched and p_approve then
+  update public.warpcore_stories set status='approved' where story_key=p_story;
+ end if;
+ return matched;
+end;
+$fn$;
+revoke all on function public.warpcore_review_publication(text,text,text,jsonb,boolean) from public,anon,authenticated;
+grant execute on function public.warpcore_review_publication(text,text,text,jsonb,boolean) to service_role;

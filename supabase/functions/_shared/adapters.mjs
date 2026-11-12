@@ -22,6 +22,7 @@ export function databaseAdapter(config,fetcher=fetch){
    return rows.map(r=>({accountDid:r.account_did,storyKey:r.story_key,contentHash:r.content_hash,recordKey:r.record_key,record:r.record_payload,state:r.state}));},
   checked:async j=>{if(await rpc('warpcore_mark_checked',params(j))!==true)throw Error('Check transition failed');},
   manualReview:async j=>{if(await rpc('warpcore_mark_manual_review',params(j))!==true)throw Error('Review transition failed');},
+  review:async(j,approve)=>{if(typeof approve!=='boolean')throw Error('Explicit review decision required');return await rpc('warpcore_review_publication',{...params(j),p_approve:approve})===true;},
   prepare:async j=>{if(await rpc('warpcore_prepare_publication',{...params(j),p_key:j.recordKey})!==true)throw Error('Preparation conflict');return true;},
   claim:async j=>{const rows=await rpc('warpcore_claim_publication',params(j));if(!Array.isArray(rows))throw Error('Invalid claim response');if(!rows.length)return null;if(rows.length!==1)throw Error('Ambiguous claim');const r=rows[0];return {accountDid:r.account_did,storyKey:r.story_key,contentHash:r.content_hash,recordKey:r.record_key,record:r.record_payload};},
   uncertain:async j=>{if(await rpc('warpcore_mark_uncertain',params(j))!==true)throw Error('Durable transition failed');},

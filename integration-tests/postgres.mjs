@@ -7,7 +7,8 @@ await db.query("insert into warpcore_stories(story_key,status) values ($1,'appro
 const args=[account,key,'hash',JSON.stringify(record)];
 assert.equal((await db.query('select warpcore_prepare_publication($1,$2,$3,$4::jsonb,$5) as ok',[...args,'story-key'])).rows[0].ok,true);
 assert.equal((await db.query('select * from warpcore_claim_publication($1,$2,$3,$4::jsonb)',args)).rows.length,0,'exact draft approval required');
-await db.query('update warpcore_publications set approved_at=now() where story_key=$1',[key]);
+assert.equal((await db.query('select warpcore_review_publication($1,$2,$3,$4::jsonb,true) as ok',[account,key,'wrong-hash',JSON.stringify(record)])).rows[0].ok,false);
+assert.equal((await db.query('select warpcore_review_publication($1,$2,$3,$4::jsonb,true) as ok',args)).rows[0].ok,true);
 assert.equal((await db.query('select * from warpcore_claim_publication($1,$2,$3,$4::jsonb)',args)).rows.length,1);
 assert.equal((await db.query('select * from warpcore_claim_publication($1,$2,$3,$4::jsonb)',args)).rows.length,0,'second claim denied');
 assert.equal((await db.query('select warpcore_mark_uncertain($1,$2,$3,$4::jsonb) as ok',args)).rows[0].ok,true);

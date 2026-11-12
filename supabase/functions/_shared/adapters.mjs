@@ -14,6 +14,7 @@ export function databaseAdapter(config,fetcher=fetch){
  const rpc=async(name,body)=>{const url=new URL(`/rest/v1/rpc/${name}`,base);return readJson(await fetcher(url,{method:'POST',redirect:'error',signal:AbortSignal.timeout(10000),headers:{apikey:config.serviceKey,Authorization:`Bearer ${config.serviceKey}`,'Content-Type':'application/json'},body:JSON.stringify(body)}));};
  const params=j=>({p_account:j.accountDid,p_story:j.storyKey,p_hash:j.contentHash,p_record:j.record});
  return {
+  reserveLogin:async account=>await rpc('warpcore_reserve_login',{p_account:account})===true,
   pending:async account=>{if(!/^did:plc:[a-z2-7]{24}$/.test(account))throw Error('Pinned DID required');
    const url=new URL('/rest/v1/warpcore_publications',base);
    url.search=new URLSearchParams({select:'*,warpcore_stories!inner(status)',account_did:'eq.'+account,approved_at:'not.is.null','warpcore_stories.status':'eq.approved',state:'in.(prepared,sending,uncertain)',order:'last_checked_at.asc.nullsfirst,prepared_at.asc',limit:'5'});

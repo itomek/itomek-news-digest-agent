@@ -7,6 +7,7 @@ export async function reconcile(job,db,remote){
   const found=await remote.get(job.accountDid,job.recordKey);
   if(!found || stable(found.record)!==stable(job.record))return {state:'manual_review'};
   const uri=`at://${job.accountDid}/app.bsky.feed.post/${job.recordKey}`;
+  if(found.uri!==uri)return {state:'manual_review'};
   if(await db.published(job,uri)!==true)return {state:'manual_review'};
   return {state:'published',uri};
  }catch{return {state:'uncertain'};}

@@ -42,3 +42,39 @@ grant execute on function public.warpcore_claim_publication(text,text,text,jsonb
 -- Concurrent UPDATE lock recheck allows only one caller to change prepared->sending.
 -- This SQL is not a grant of publishing authorization. Integration/concurrency tests
 -- must pass before use; caller must separately enforce current scope/account approval.
+
+create function public.warpcore_mark_uncertain(p_account text,p_story text,p_hash text,p_record jsonb)
+returns boolean language plpgsql security invoker set search_path='' as $fn$
+begin
+ update public.warpcore_publications set state='uncertain'
+ where account_did=p_account and story_key=p_story and content_hash=p_hash
+ and record_payload=p_record and state='sending';
+ return found;
+end;
+$fn$;
+create function public.warpcore_mark_published(p_account text,p_story text,p_hash text,p_record jsonb,p_uri text)
+returns boolean language plpgsql security invoker set search_path='' as $fn$
+begin
+ update public.warpcore_publications set state='published',remote_uri=p_uri
+ where account_did=p_account and story_key=p_story and content_hash=p_hash
+ and record_payload=p_record and state in ('sending','uncertain')
+ and p_uri='at://' || account_did || '/app.bsky.feed.post/' || record_key;
+ return found;
+end;
+$fn$;
+revoke all on function public.warpcore_mark_uncertain(text,text,text,jsonb),public.warpcore_mark_published(text,text,text,jsonb,text) from public,anon,authenticated;
+grant execute on function public.warpcore_mark_uncertain(text,text,text,jsonb),public.warpcore_mark_published(text,text,text,jsonb,text) to service_role;
+
+create function public.warpcore_prepare_publication(p_account text,p_story text,p_hash text,p_record jsonb,p_key text)
+returns boolean language plpgsql security invoker set search_path='' as $fn$
+begin
+ insert into public.warpcore_publications(account_did,story_key,content_hash,record_payload,record_key)
+ values(p_account,p_story,p_hash,p_record,p_key)
+ on conflict do nothing;
+ return exists(select 1 from public.warpcore_publications
+ where account_did=p_account and story_key=p_story and content_hash=p_hash
+ and record_payload=p_record and record_key=p_key and state='prepared');
+end;
+$fn$;
+revoke all on function public.warpcore_prepare_publication(text,text,text,jsonb,text) from public,anon,authenticated;
+grant execute on function public.warpcore_prepare_publication(text,text,text,jsonb,text) to service_role;

@@ -10,11 +10,25 @@ export function preview(draft) {
  if(graphemes>300 || new TextEncoder().encode(text).length>3000)throw new Error('Post exceeds Bluesky limits; edit, do not truncate evidence');
  return {mode:'dry_run',publishable:false,text,links,graphemes};
 }
-export async function previewRecord(draft) {
+// app.bsky.feed.post requires a TID, not merely generic record-key syntax.
+// Use the persisted record timestamp, never a fresh wall clock on a retry.
+export function deterministicTid(storyKey,preparedAt) {
+ if(typeof storyKey!=='string'||!/^[a-f0-9]{64}$/.test(storyKey)||typeof preparedAt!=='string')throw Error('Persisted story and timestamp required');
+ const milliseconds=Date.parse(preparedAt);
+ if(!Number.isSafeInteger(milliseconds))throw Error('Invalid timestamp');
+ const micros=BigInt(milliseconds)*1000n;
+ if(micros<0n||micros>=(1n<<53n))throw Error('Timestamp outside TID range');
+ const clock=BigInt('0x'+storyKey.slice(0,3))>>2n;
+ let value=(micros<<10n)|clock, key='';
+ const alphabet='234567abcdefghijklmnopqrstuvwxyz';
+ for(let i=0;i<13;i++){key=alphabet[Number(value&31n)]+key;value>>=5n;}
+ return key;
+}
+export async function previewRecord(draft,preparedAt) {
  const result=preview(draft);
  const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(result.text));
- // Stable per story, so a changed summary cannot silently create a second post.
- return {...result,recordKey:`story-${draft.storyKey}`,contentHash:[...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,'0')).join('')};
+ // Stable for a persisted story+timestamp; database account/story PK prevents repreparation.
+ return {...result,recordKey:deterministicTid(draft.storyKey,preparedAt),contentHash:[...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,'0')).join('')};
 }
 export function nextAction(state, remote) {
  if(state==='published')return 'skip';

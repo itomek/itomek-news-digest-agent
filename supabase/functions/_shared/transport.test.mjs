@@ -3,3 +3,7 @@ const draft={storyKey:'a'.repeat(64),summary:'Release adds useful capabilities.'
 test('transport builds deterministic record but cannot send',async()=>{assert.equal(typeof t.prepareTransport,'function');const r=await t.prepareTransport(draft,'did:plc:abcdefghijklmnopqrstuvwx','2026-11-12T12:00:00Z');assert.equal(r.dryRun,true);assert.equal(r.request,null);assert.equal(r.record.$type,'app.bsky.feed.post');assert.equal(r.record.facets.length,1);});
 test('rejects handle in place of pinned DID and invalid time',async()=>{await assert.rejects(()=>t.prepareTransport(draft,'warp-core.bsky.social','2026-11-12'));await assert.rejects(()=>t.prepareTransport(draft,'did:plc:abcdefghijklmnopqrstuvwx','invalid'));});
 test('facets use UTF8 byte offsets after unicode text',async()=>{const r=await t.prepareTransport({...draft,summary:'新 release'},'did:plc:abcdefghijklmnopqrstuvwx','2026-11-12T12:00:00Z');const f=r.record.facets[0];assert.equal(new TextDecoder().decode(new TextEncoder().encode(r.record.text).slice(f.index.byteStart,f.index.byteEnd)),'https://example.com/release');});
+test('normalized persisted createdAt is the sole timestamp used in post TID',async()=>{
+ const r=await t.prepareTransport(draft,'did:plc:abcdefghijklmnopqrstuvwx','2026-11-12T12:00:00.000999Z');
+ assert.equal(r.record.createdAt,'2026-11-12T12:00:00.000Z');assert.equal(r.recordKey,'3n24gaky622pe');
+});

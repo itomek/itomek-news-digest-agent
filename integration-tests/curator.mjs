@@ -13,6 +13,7 @@ try{
  await load('../supabase/migrations/20261112145946_warpcore_review_base.sql');
  await load('../supabase/migrations/20261112164434_warpcore_source_provenance.sql');
  await load('../supabase/migrations/20261112175929_warpcore_curator_inbox.sql');
+ await load('../supabase/migrations/20261112192659_warpcore_tid_record_keys.sql');
  const key=await seed(1),s=await snapshot(key),ed=editorial(s),id=await submit(key,s,ed);assert.match(s.evidence_hash,/^[a-f0-9]{64}$/);assert.equal(await submit(key,s,ed),id);
  await assert.rejects(()=>submit(key,s,{...editorial(s),summary:'Changed'}),/Immutable/);
  await assert.rejects(()=>q('update warpcore_curator_inbox set editorial=$1 where id=$2',[{},id]),/immutable/);
@@ -23,6 +24,7 @@ try{
  const finalize=async(token=lease.lease_token,p=packet,j=job)=>(await q('select warpcore_curator_finalize($1,$2,$3,$4) as ok',[id,token,p,j]))[0].ok;
  assert.equal(await finalize('00000000-0000-4000-8000-000000000099'),false);
  await assert.rejects(()=>finalize(lease.lease_token,{...packet,change:'forged'}),/Invalid/);
+ await assert.rejects(()=>finalize(lease.lease_token,packet,{...job,recordKey:'story-'+key}),/transport/);
  await assert.rejects(()=>finalize(lease.lease_token,packet,{...job,record:{...job.record,text:'forged'}}),/transport/);
  await assert.rejects(()=>finalize(lease.lease_token,{...packet,evidence:[{...packet.evidence[0],sourceLinks:['https://evil.example/']}]}),/frozen/);
  await db.exec('set role service_role');assert.equal(await finalize(),true);assert.equal(await finalize(),false);await db.exec('reset role');

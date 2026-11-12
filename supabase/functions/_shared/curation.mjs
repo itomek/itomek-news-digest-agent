@@ -7,11 +7,12 @@ export async function createReviewPacket({storyKey,evidence,editorial}){
  if(editorial?.political!==false)throw Error('Political or unclassified items held until explicit scope');
  for(const key of ['summary','whyItMatters','change'])if(typeof editorial[key]!=='string'||!editorial[key].trim()||editorial[key].length>3000)throw Error('Original summary, significance and meaningful change required');
  if(!Array.isArray(editorial.evidenceIds)||!editorial.evidenceIds.length)throw Error('Citations required');
+ if(evidence.some(e=>typeof e.id!=='string'||!e.id.trim()||e.id.length>2048||typeof e.sourceType!=='string'||!e.sourceType.trim()||e.visibility!=='public')||editorial.evidenceIds.some(id=>typeof id!=='string'||!id.trim()))throw Error('Typed public evidence provenance required');
  const ids=new Set(evidence.map(e=>e.id));if(ids.size!==evidence.length||editorial.evidenceIds.some(id=>!ids.has(id)))throw Error('Invalid evidence reference');
  const selected=evidence.filter(e=>editorial.evidenceIds.includes(e.id)).map(e=>{
   const url=new URL(e.url);if(url.protocol!=='https:'||url.username||url.password||typeof e.text!=='string'||!e.text.trim()||e.text.length>20000)throw Error('Public evidence required');
   if(editorial.summary.trim()===e.text.trim())throw Error('Raw repost is not editorial summary');
-  return {id:e.id,url:url.toString(),text:e.text,sourceType:e.sourceType};
+  return {id:e.id,url:url.toString(),text:e.text,sourceType:e.sourceType,visibility:e.visibility};
  });
  const packet={status:'awaiting_review',approved:false,change:editorial.change.trim(),evidence:selected,
  recordDraft:{storyKey,summary:editorial.summary.trim(),whyItMatters:editorial.whyItMatters.trim(),links:[...new Set(selected.map(e=>e.url))].slice(0,3)}};

@@ -19,3 +19,4 @@ test('rejects private or malformed evidence and isolates adapter failure',async(
  assert.equal(result.candidates.length,0);
  assert.deepEqual(result.sources.map(s=>s.status),['error','error']);
 });
+test('malformed source entry is reported without crashing',async()=>{const result=await pipeline.runAdapters([null],{});assert.equal(result.sources[0].status,'error');});

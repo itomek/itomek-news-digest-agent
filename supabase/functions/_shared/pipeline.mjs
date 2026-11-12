@@ -20,7 +20,7 @@ export async function runAdapters(selections, registry) {
           status:'unverified_review_required'};
       });
       candidates.push(...batch); sources.push({id:selection.id,status:'ok',count:batch.length});
-    } catch { sources.push({id:selection.id,status:'error'}); }
+    } catch { sources.push({id:selection?.id ?? 'invalid',status:'error'}); }
   }
   return {candidates,sources,publishing_enabled:false};
 }

@@ -7,7 +7,7 @@
 -- Function deployment must retain verify_jwt=true AND enforce x-warpcore-token.
 select cron.schedule('warpcore-hourly-collect','17 * * * *',$job$
   select net.http_post(
-    url := (select decrypted_secret from vault.decrypted_secrets where name='warpcore_project_url') || '/functions/v1/bluesky-collect',
+    url := (select decrypted_secret from vault.decrypted_secrets where name='warpcore_project_url') || '/functions/v1/news-collect',
     headers := jsonb_build_object(
       'Content-Type','application/json',
       'Authorization','Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name='warpcore_anon_jwt'),

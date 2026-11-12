@@ -1,7 +1,7 @@
 import {PGlite} from '@electric-sql/pglite';import fs from 'node:fs/promises';import assert from 'node:assert/strict';
 const db=new PGlite();
 await db.exec('create role anon;create role authenticated;create role service_role;');
-for(const path of ['warpcore-schema-proposal.sql','warpcore-publication-ledger-proposal.sql'])await db.exec(await fs.readFile(new URL('../docs/'+path,import.meta.url),'utf8'));
+for(const path of ['warpcore-schema-proposal.sql','warpcore-publication-ledger-proposal.sql','warpcore-operator-proposal.sql'])await db.exec(await fs.readFile(new URL('../docs/'+path,import.meta.url),'utf8'));
 const key='a'.repeat(64),account='did:plc:abcdefghijklmnopqrstuvwx',record={text:'test',$type:'app.bsky.feed.post',createdAt:'2026-11-12T12:00:00Z'};
 await db.query("insert into warpcore_stories(story_key,status) values ($1,'approved')",[key]);
 const args=[account,key,'hash',JSON.stringify(record)];

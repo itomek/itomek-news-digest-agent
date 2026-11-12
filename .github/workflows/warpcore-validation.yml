@@ -44,7 +44,7 @@ jobs:
       - name: Install pinned isolated test dependencies
         run: npm ci --prefix integration-tests --ignore-scripts --no-audit --no-fund
       - name: Unit and mock transport tests (no external API calls)
-        run: node --test supabase/functions/{_shared,news-collect,news-publish,bluesky-collect}/*.test.mjs
+        run: node --test supabase/functions/{_shared,news-collect,news-publish,news-operator,bluesky-collect}/*.test.mjs
       - name: Embedded SQL integration
         run: npm test --prefix integration-tests
       - name: Real PostgreSQL overlapping transactions

@@ -1,0 +1,6 @@
+import test from 'node:test';import assert from 'node:assert/strict';import * as op from './handler.mjs';
+const req=body=>new Request('https://example.test/operator',{method:'POST',headers:{Authorization:'Bearer mock'},body:JSON.stringify(body)});
+test('operator disabled by empty trusted allowlist without requests',async()=>{assert.equal(typeof op.handleOperator,'function');const r=await op.handleOperator(req({action:'list'}),{operatorIds:[]},{});assert.equal(r.status,403);});
+test('verified identity must match explicit operator allowlist',async()=>{const r=await op.handleOperator(req({action:'list'}),{operatorIds:['owner']},{identify:async()=>({id:'stranger'}),list:async()=>{throw Error('must not read');}});assert.equal(r.status,403);});
+test('authenticated operator can list bounded server-owned evidence',async()=>{const r=await op.handleOperator(req({action:'list'}),{operatorIds:['owner']},{identify:async()=>({id:'owner'}),list:async()=>[{story_key:'a'}]});assert.equal(r.status,200);assert.deepEqual((await r.json()).stories,[{story_key:'a'}]);});
+test('operator cannot publish or supply custom configuration',async()=>{const r=await op.handleOperator(req({action:'publish',enabled:true}),{operatorIds:['owner']},{identify:async()=>({id:'owner'})});assert.equal(r.status,400);});

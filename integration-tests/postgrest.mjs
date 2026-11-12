@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';import {createHmac} from 'node:crypto';import {Client} from 'pg';
+import {operatorServices} from '../supabase/functions/news-operator/services.mjs';
 import {databaseAdapter} from '../supabase/functions/_shared/adapters.mjs';
 const dbUrl=new URL(process.env.WARPCORE_TEST_DATABASE_URL ?? '');
 if(dbUrl.hostname!=='127.0.0.1'||dbUrl.pathname!=='/warpcore_test')throw Error('Dedicated loopback test DB required');
@@ -28,5 +29,20 @@ try{
  const denied=await fetch(base+'/warpcore_publications');assert.ok([401,403].includes(denied.status),'anonymous ledger read denied');
  const deniedRpc=await fetch(base+'/rpc/warpcore_review_publication',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({p_account:did,p_story:key,p_hash:job.contentHash,p_record:job.record,p_approve:true})});
  assert.ok([401,403,404].includes(deniedRpc.status),'anonymous approval denied');
+ const op=operatorServices({projectUrl:'https://example.supabase.co',serviceKey:token,accountDid:did},localFetch);
+ const opKey='d'.repeat(64);
+ await client.query("insert into warpcore_stories(story_key) values($1)",[opKey]);
+ await client.query("insert into warpcore_candidates(uri,story_key,source_type,source_id,actor,text,source_created_at,source_url) values('fixture:review',$1,'rss','fixture','fixture','Raw source evidence',now(),'https://example.com/release')",[opKey]);
+ const preview=await op.preview({storyKey:opKey,editorial:{summary:'A release expands access.',whyItMatters:'More users can run it.',change:'Availability',evidenceIds:['fixture:review'],political:false}});
+ const reviewer='00000000-0000-4000-8000-000000000001';
+ const decision={reviewId:preview.reviewId,revision:preview.revision,contentHash:preview.contentHash,review:{factsVerified:true,meaningfulChange:true,scopeApproved:true},editorial:{summary:'MUST BE IGNORED'}};
+ assert.equal((await op.approve(decision,reviewer)).approved,true);
+ await assert.rejects(()=>op.reject(decision,reviewer),'stale decision cannot overwrite approval');
+ const audit=(await client.query('select state,revision,reviewer_id from warpcore_reviews where id=$1',[preview.reviewId])).rows[0];
+ assert.equal(audit.state,'approved');assert.equal(audit.revision,1);assert.equal(audit.reviewer_id,reviewer);
+ const saved=(await client.query('select record_payload from warpcore_publications where story_key=$1',[opKey])).rows[0].record_payload;
+ assert.equal(saved.text,preview.record.text);assert.ok(!saved.text.includes('MUST BE IGNORED'));
+ await assert.rejects(()=>client.query("update warpcore_reviews set packet='{}'::jsonb where id=$1",[preview.reviewId]));
+ console.log('PASS: operator frozen preview, exact approval, stale decision denial and reviewer audit');
  console.log('PASS: real PostgREST RPC shape, relationship filters, exact approval, claims, guarded state transitions and anonymous denial');
 }finally{await client.end();}

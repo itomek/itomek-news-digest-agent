@@ -3,7 +3,8 @@
   "type": "module",
   "scripts": {
     "test": "node postgres.mjs",
-    "test:concurrency": "node concurrency.mjs"
+    "test:concurrency": "node concurrency.mjs",
+    "test:postgrest": "node postgrest.mjs"
   },
   "dependencies": {
     "@electric-sql/pglite": "0.5.16",

@@ -9,7 +9,7 @@ try{
  await Promise.all(clients.map(c=>c.connect()));
  await Promise.all(clients.map(c=>c.query("set statement_timeout='10s'")));
  assert.equal((await a.query("select count(*)::int n from information_schema.tables where table_schema='public'")).rows[0].n,0,'Test DB must be empty');
- await a.query('create role anon;create role authenticated;create role service_role;');
+ await a.query('create role anon;create role authenticated;create role service_role bypassrls;');
  for(const p of ['warpcore-schema-proposal.sql','warpcore-publication-ledger-proposal.sql'])await a.query(await fs.readFile(new URL('../docs/'+p,import.meta.url),'utf8'));
  const key='b'.repeat(64),did='did:plc:abcdefghijklmnopqrstuvwx',record=JSON.stringify({text:'synthetic',createdAt:'2026-11-12T12:00:00Z'}),args=[did,key,'hash',record];
  await a.query("insert into warpcore_stories(story_key,status) values ($1,'approved')",[key]);

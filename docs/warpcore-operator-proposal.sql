@@ -10,6 +10,7 @@ create table public.warpcore_reviews (
  reviewer_id uuid,
  reviewed_at timestamptz
 );
+create unique index warpcore_one_pending_review on public.warpcore_reviews ((job->>'accountDid'),(job->>'storyKey')) where state='pending';
 alter table public.warpcore_reviews enable row level security;
 revoke all on public.warpcore_reviews from public,anon,authenticated;
 grant select,insert,update on public.warpcore_reviews to service_role;

@@ -11,7 +11,7 @@ export function operatorServices(config,fetcher=fetch){
   if(!r||r.state!=='pending'||r.revision!==body.revision||r.content_hash!==body.contentHash)throw Error('Stale review');
   if(approve)await approveReview(r.packet,{...body.review,contentHash:body.contentHash});
   const ok=await request('/rest/v1/rpc/warpcore_decide_review',{}, {p_id:r.id,p_hash:r.content_hash,p_revision:r.revision,p_reviewer:reviewer,p_approve:approve});
-  if(ok!==true)throw Error('Concurrent review conflict');return {approved:approve,rejected:!approve,publishing_enabled:false};
+  if(ok!==true)throw Error('Concurrent review conflict');return {approved:approve,rejected:!approve,publicationRevoked:false,publishing_enabled:false};
  };
  return {
   identify:async token=>readJson(await fetcher(new URL('/auth/v1/user',project()),{method:'GET',redirect:'error',signal:AbortSignal.timeout(10000),headers:{apikey:config.serviceKey,Authorization:`Bearer ${token}`}})),

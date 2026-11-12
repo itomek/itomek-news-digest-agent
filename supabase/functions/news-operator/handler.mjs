@@ -11,7 +11,7 @@ export async function handleOperator(req,config,services){
   const chunks=[];let length=0;try{while(true){const {done,value}=await reader.read();if(done)break;length+=value.length;if(length>16000)return new Response('Body too large',{status:413});chunks.push(value);}}finally{await reader.cancel();}
   const bytes=new Uint8Array(length);let offset=0;for(const c of chunks){bytes.set(c,offset);offset+=c.length;}
   let body;try{body=JSON.parse(new TextDecoder().decode(bytes));}catch{return new Response('Invalid JSON',{status:400});}
-  if(body?.action==='list')return Response.json({stories:await services.list()});
+  if(body?.action==='list')return Response.json(await services.list());
   if(body?.action==='preview')return Response.json(await services.preview(body));
   if(body?.action==='approve')return Response.json(await services.approve(body,user.id));
   if(body?.action==='reject')return Response.json(await services.reject(body,user.id));

@@ -1,6 +1,7 @@
 // Pure review preparation, not an LLM, fact checker, or source selector.
 // Editorial text and review attestations must come from trusted operators, never sources.
-const digest=async value=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(value))))].map(b=>b.toString(16).padStart(2,'0')).join('');
+const canonical=v=>Array.isArray(v)?v.map(canonical):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,canonical(v[k])])):v;
+const digest=async value=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(canonical(value)))))].map(b=>b.toString(16).padStart(2,'0')).join('');
 const reviewMaterial=p=>({recordDraft:p.recordDraft,evidence:p.evidence,change:p.change});
 export async function createReviewPacket({storyKey,evidence,editorial}){
  if(!/^[a-f0-9]{64}$/.test(storyKey)||!Array.isArray(evidence)||!evidence.length||evidence.length>20)throw Error('Evidence-backed story required');

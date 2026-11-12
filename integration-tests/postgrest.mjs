@@ -26,6 +26,9 @@ try{
  const claimed=await db.claim(job);assert.deepEqual(claimed.record,job.record);assert.equal(await db.claim(job),null);
  await db.uncertain(claimed);await db.checked(claimed);assert.equal(await db.published(claimed,'at://wrong'),false);
  assert.equal(await db.published(claimed,`at://${did}/app.bsky.feed.post/${job.recordKey}`),true);
+ const authPayload=enc({alg:'HS256',typ:'JWT'})+'.'+enc({role:'authenticated',sub:'00000000-0000-4000-8000-000000000002',exp:Math.floor(Date.now()/1000)+300});
+ const authToken=authPayload+'.'+createHmac('sha256',secret).update(authPayload).digest('base64url');
+ const deniedAuth=await fetch(base+'/warpcore_reviews',{headers:{Authorization:'Bearer '+authToken}});assert.ok([401,403].includes(deniedAuth.status));
  const denied=await fetch(base+'/warpcore_publications');assert.ok([401,403].includes(denied.status),'anonymous ledger read denied');
  const deniedRpc=await fetch(base+'/rpc/warpcore_review_publication',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({p_account:did,p_story:key,p_hash:job.contentHash,p_record:job.record,p_approve:true})});
  assert.ok([401,403,404].includes(deniedRpc.status),'anonymous approval denied');

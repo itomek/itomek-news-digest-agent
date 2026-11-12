@@ -1,6 +1,6 @@
 // Not wired to an endpoint. Credentials are injected by a future authorized runtime.
 // No login/session creation or token refresh, retries, redirects, or secret logging.
-async function readJson(response){
+export async function readJson(response){
  if(!response.ok)throw Error('Remote request failed');
  const reader=response.body.getReader(),chunks=[];let size=0;
  try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>1000000)throw Error('Response too large');chunks.push(value);}}

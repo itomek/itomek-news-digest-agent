@@ -14,6 +14,12 @@ export function databaseAdapter(config,fetcher=fetch){
  const rpc=async(name,body)=>{const url=new URL(`/rest/v1/rpc/${name}`,base);return readJson(await fetcher(url,{method:'POST',redirect:'error',signal:AbortSignal.timeout(10000),headers:{apikey:config.serviceKey,Authorization:`Bearer ${config.serviceKey}`,'Content-Type':'application/json'},body:JSON.stringify(body)}));};
  const params=j=>({p_account:j.accountDid,p_story:j.storyKey,p_hash:j.contentHash,p_record:j.record});
  return {
+  pending:async account=>{if(!/^did:plc:[a-z2-7]{24}$/.test(account))throw Error('Pinned DID required');
+   const url=new URL('/rest/v1/warpcore_publications',base);
+   url.search=new URLSearchParams({select:'*,warpcore_stories!inner(status)',account_did:'eq.'+account,approved_at:'not.is.null','warpcore_stories.status':'eq.approved',state:'in.(prepared,sending,uncertain)',order:'prepared_at.asc',limit:'5'});
+   const rows=await readJson(await fetcher(url,{method:'GET',redirect:'error',signal:AbortSignal.timeout(10000),headers:{apikey:config.serviceKey,Authorization:`Bearer ${config.serviceKey}`}}));
+   if(!Array.isArray(rows)||rows.length>5)throw Error('Invalid queue');
+   return rows.map(r=>({accountDid:r.account_did,storyKey:r.story_key,contentHash:r.content_hash,recordKey:r.record_key,record:r.record_payload,state:r.state}));},
   prepare:async j=>{if(await rpc('warpcore_prepare_publication',{...params(j),p_key:j.recordKey})!==true)throw Error('Preparation conflict');return true;},
   claim:async j=>{const rows=await rpc('warpcore_claim_publication',params(j));if(!Array.isArray(rows))throw Error('Invalid claim response');if(!rows.length)return null;if(rows.length!==1)throw Error('Ambiguous claim');const r=rows[0];return {accountDid:r.account_did,storyKey:r.story_key,contentHash:r.content_hash,recordKey:r.record_key,record:r.record_payload};},
   uncertain:async j=>{if(await rpc('warpcore_mark_uncertain',params(j))!==true)throw Error('Durable transition failed');},

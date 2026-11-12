@@ -6,6 +6,7 @@ create table public.warpcore_publications (
  record_key text not null,
  content_hash text not null,
  state text not null default 'prepared' check(state in ('prepared','sending','uncertain','published','rejected')),
+ approved_at timestamptz, -- exact persisted record approval, never source-provided
  prepared_at timestamptz not null default now(),
  remote_uri text,
  primary key(account_did,story_key),
@@ -33,7 +34,7 @@ returns setof public.warpcore_publications language plpgsql security invoker set
 begin
  return query update public.warpcore_publications p set state='sending'
  where p.account_did=p_account and p.story_key=p_story
- and p.content_hash=p_hash and p.record_payload=p_record and p.state='prepared'
+ and p.content_hash=p_hash and p.record_payload=p_record and p.state='prepared' and p.approved_at is not null
  and exists(select 1 from public.warpcore_stories s where s.story_key=p_story and s.status='approved') returning p.*;
 end;
 $fn$;

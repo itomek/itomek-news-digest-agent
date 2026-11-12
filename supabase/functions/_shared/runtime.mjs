@@ -19,6 +19,14 @@ export async function initialize(config,fetcher=fetch){
  const db=databaseAdapter(config,fetcher),remote=blueskyAdapter({...config,sessionDid:session.did},fetcher);
  return {
   enabled:true,
+  runPending:async()=>{
+   const jobs=await db.pending(config.accountDid),results=[];
+   for(const job of jobs){
+    if(job.accountDid!==config.accountDid)throw Error("Queue account mismatch");
+    results.push(job.state==='prepared'?await sendPrepared(job,db,remote,{enabled:true,accountDid:config.accountDid}):await reconcile(job,db,remote));
+   }
+   return results;
+  },
   prepareAndSend:async(draft,persistedTime)=>{
    const prepared=await prepareTransport(draft,config.accountDid,persistedTime);
    const job={...prepared,storyKey:draft.storyKey};

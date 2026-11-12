@@ -1,0 +1,1 @@
+{"private":true,"type":"module","scripts":{"test":"node postgres.mjs"},"dependencies":{"@electric-sql/pglite":"0.5.16"}}

@@ -1,3 +1,4 @@
+import {collectHuggingFacePosts} from './huggingface-posts.mjs';
 import {collectOfficialHTML} from './official-html.mjs';
 import {collectRSS} from './rss.mjs';
 import {collectHN} from './hn.mjs';
@@ -17,4 +18,4 @@ export function createBlueskyAdapter(collector=collect){return {collect:async co
    url:c.links.find(x=>{try{const u=new URL(x);return u.protocol==='https:'&&!u.username&&!u.password;}catch{return false;}}) || nativeUrl};
  });
 }};}
-export const registry={official_html:{collect:collectOfficialHTML},bluesky:createBlueskyAdapter(),rss:{collect:collectRSS},hn:{collect:async config=>(await collectHN(config)).map(x=>({...x,nativeUrl:x.discussion_url}))}};
+export const registry={huggingface_posts:{collect:collectHuggingFacePosts},official_html:{collect:collectOfficialHTML},bluesky:createBlueskyAdapter(),rss:{collect:collectRSS},hn:{collect:async config=>(await collectHN(config)).map(x=>({...x,nativeUrl:x.discussion_url}))}};

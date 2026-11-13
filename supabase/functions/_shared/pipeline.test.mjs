@@ -55,3 +55,10 @@ test('exactly forty sources remain within the bounded discovery capacity',async(
  const result=await pipeline.runAdapters(selections,{rss:{collect:async()=>[]}});
  assert.equal(result.sources.length,48);assert.ok(result.sources.every(s=>s.status==='ok'));
 });
+
+test('starts paginated HF alongside HN to preserve the cron time envelope',async()=>{
+ const started=[];const selections=[...Array.from({length:10},(_,i)=>({id:`r${i}`,adapter:'rss'})),{id:'hf',adapter:'huggingface_posts'},{id:'h',adapter:'hn'}];
+ const collect=id=>async()=>{started.push(id);return [];};
+ const result=await pipeline.runAdapters(selections,{rss:{collect:collect('rss')},hn:{collect:collect('hn')},huggingface_posts:{collect:collect('hf')}});
+ assert.deepEqual(started.slice(0,2),['hn','hf']);assert.deepEqual(result.sources.map(s=>s.id),selections.map(s=>s.id));
+});

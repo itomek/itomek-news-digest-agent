@@ -493,5 +493,10 @@
       "url": "https://www.perplexity.ai/hub/blog",
       "label": "Perplexity Blog"
     }
+  },
+  {
+    "id": "huggingface_posts",
+    "adapter": "huggingface_posts",
+    "config": {}
   }
 ]

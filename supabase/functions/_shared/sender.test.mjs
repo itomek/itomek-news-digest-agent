@@ -9,3 +9,13 @@ test('durable state failure prevents send',async()=>{let calls=0;await assert.re
 test('uses stored payload and requests create-only write',async()=>{let sent;const db={checked:async()=>{},manualReview:async()=>{},claim:async()=>job,uncertain:async()=>{},published:async()=>true};const remote={put:async(a,k,r,opts)=>{sent=r;assert.deepEqual(opts,{swapRecord:null});throw Error('conflict');}};const r=await s.sendPrepared({...job,record:{text:'tampered'}},db,remote,{enabled:true,accountDid:job.accountDid});assert.deepEqual(sent,job.record);assert.equal(r.state,'uncertain');});
 test('reconciliation rejects wrong remote URI even with matching text',async()=>{const r=await s.reconcile(job,{checked:async()=>{},manualReview:async()=>{},published:async()=>{throw Error('must not mark');}},{get:async()=>({record:job.record,uri:'at://wrong'})});assert.equal(r.state,'manual_review');});
 test('mismatched remote record is durably removed from automatic queue',async()=>{let marked=false;const r=await s.reconcile(job,{checked:async()=>{},manualReview:async()=>{marked=true;return true;}},{get:async()=>({record:{text:'mismatch'}})});assert.equal(r.state,'manual_review');assert.equal(marked,true);});
+test('native repost checks unchanged original and reconciles the repost collection',async()=>{
+ const record={$type:'app.bsky.feed.repost',subject:{uri:'at://did:plc:abcdefghijklmnopqrstuvwx/app.bsky.feed.post/3n256uxsaokol',cid:'bafyre'+'a'.repeat(53)},createdAt:job.record.createdAt};const j={...job,record};const events=[];
+ const db={claim:async()=>j,uncertain:async()=>{},checked:async()=>{},manualReview:async()=>{},published:async()=>true};
+ const remote={verifySubject:async subject=>{events.push('verify');assert.deepEqual(subject,record.subject);return true;},put:async()=>{events.push('put');return {uri:`at://${j.accountDid}/app.bsky.feed.repost/${j.recordKey}`};},get:async(a,k,collection)=>{assert.equal(collection,'app.bsky.feed.repost');return {uri:`at://${a}/${collection}/${k}`,record};}};
+ assert.equal((await s.sendPrepared(j,db,remote,{enabled:true,accountDid:j.accountDid})).state,'published');assert.deepEqual(events,['verify','put']);
+});
+test('changed/deleted original is held without repost write',async()=>{
+ const j={...job,record:{$type:'app.bsky.feed.repost',subject:{uri:'at://did:plc:abcdefghijklmnopqrstuvwx/app.bsky.feed.post/3n256uxsaokol',cid:'bafyre'+'a'.repeat(53)},createdAt:job.record.createdAt}};let held=false;
+ const r=await s.sendPrepared(j,{claim:async()=>j,uncertain:async()=>{},manualReview:async()=>{held=true;}},{verifySubject:async()=>false,put:async()=>{throw Error('must not write');}},{enabled:true,accountDid:j.accountDid});assert.equal(r.state,'manual_review');assert.equal(held,true);
+});

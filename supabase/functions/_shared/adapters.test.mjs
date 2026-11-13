@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import * as a from './adapters.mjs';
-const job={accountDid:'did:plc:abcdefghijklmnopqrstuvwx',storyKey:'a'.repeat(64),contentHash:'hash',recordKey:'3n24gaky622pe',record:{text:'test'}};
+const job={accountDid:'did:plc:abcdefghijklmnopqrstuvwx',storyKey:'a'.repeat(64),contentHash:'hash',recordKey:'3n24gaky622pe',record:{$type:'app.bsky.feed.post',text:'test'}};
 test('database claim maps persisted payload, never caller record',async()=>{assert.equal(typeof a.databaseAdapter,'function');const db=a.databaseAdapter({projectUrl:'https://example.supabase.co',serviceKey:'mock'},async(url,o)=>{assert.equal(url.pathname,'/rest/v1/rpc/warpcore_claim_publication');assert.equal(JSON.parse(o.body).p_record.text,'test');return Response.json([{account_did:job.accountDid,story_key:job.storyKey,record_key:'stored',content_hash:'hash',record_payload:{text:'stored'}}]);});assert.equal((await db.claim(job)).record.text,'stored');});
 test('database uncertain transition failure stops workflow',async()=>{const db=a.databaseAdapter({projectUrl:'https://example.supabase.co',serviceKey:'mock'},async()=>Response.json(false));await assert.rejects(()=>db.uncertain(job));assert.equal(await db.published(job,'at://test'),false);});
 test('Bluesky write is pinned, create-only, bounded and without redirect/retry',async()=>{let calls=0;const r=a.blueskyAdapter({accountDid:job.accountDid,sessionDid:job.accountDid,pdsUrl:'https://bsky.social',accessToken:'mock'},async(url,o)=>{calls++;assert.equal(url,'https://bsky.social/xrpc/com.atproto.repo.putRecord');assert.equal(o.redirect,'error');assert.equal(JSON.parse(o.body).swapRecord,null);return Response.json({uri:'at://test'});});await r.put(job.accountDid,job.recordKey,job.record,{swapRecord:null});assert.equal(calls,1);await assert.rejects(()=>r.put('did:plc:other',job.recordKey,job.record,{swapRecord:null}));});
@@ -12,4 +12,20 @@ test('post writes reject legacy generic record keys before network but reads may
  let calls=0;const remote=a.blueskyAdapter({accountDid:job.accountDid,sessionDid:job.accountDid,pdsUrl:'https://bsky.social',accessToken:'mock'},async()=>{calls++;return Response.json({value:job.record});});
  for(const key of ['story-'+'a'.repeat(64),'self','zzzzzzzzzzzzz','3jzfcijpj2z21'])await assert.rejects(()=>remote.put(job.accountDid,key,job.record,{swapRecord:null}));
  assert.equal(calls,0);await remote.get(job.accountDid,'story-'+'a'.repeat(64));assert.equal(calls,1);
+});
+test('repost transport uses exact collection and validates original via credential-free public API',async()=>{
+ const subject={uri:'at://did:plc:abcdefghijklmnopqrstuvwx/app.bsky.feed.post/3n256uxsaokol',cid:'bafyre'+'a'.repeat(53)},record={$type:'app.bsky.feed.repost',subject,createdAt:'2026-11-13T00:00:00.000Z'};
+ const r=a.blueskyAdapter({accountDid:job.accountDid,sessionDid:job.accountDid,pdsUrl:'https://bsky.social',accessToken:'mock'},async(url,o)=>{
+  if(String(url).includes('getPosts')){assert.equal(o.headers.Authorization,undefined);assert.equal(new URL(url).searchParams.get('uris'),subject.uri);return Response.json({posts:[{...subject,author:{did:job.accountDid}}]});}
+  if(o.method==='POST'){assert.equal(JSON.parse(o.body).collection,'app.bsky.feed.repost');assert.deepEqual(JSON.parse(o.body).record,record);return Response.json({uri:'at://test'});}
+  assert.equal(new URL(url).searchParams.get('collection'),'app.bsky.feed.repost');return Response.json({value:record});
+ });
+ assert.equal(await r.verifySubject(subject),true);await r.put(job.accountDid,job.recordKey,record,{swapRecord:null});assert.deepEqual((await r.get(job.accountDid,job.recordKey,'app.bsky.feed.repost')).record,record);
+ await assert.rejects(()=>r.put(job.accountDid,job.recordKey,{$type:'app.bsky.graph.follow',subject:job.accountDid},{swapRecord:null}));await assert.rejects(()=>r.get(job.accountDid,job.recordKey,'app.bsky.graph.follow'));
+});
+test('original verification rejects missing, changed or wrong-author records and propagates outage',async()=>{
+ const subject={uri:'at://did:plc:abcdefghijklmnopqrstuvwx/app.bsky.feed.post/3n256uxsaokol',cid:'bafyre'+'a'.repeat(53)},post={...subject,author:{did:job.accountDid}};
+ const config={accountDid:job.accountDid,sessionDid:job.accountDid,pdsUrl:'https://bsky.social',accessToken:'mock'};
+ for(const posts of [[],[{...post,cid:'bafyre'+'b'.repeat(53)}],[{...post,uri:subject.uri+'x'}],[{...post,author:{did:'did:plc:wrong'}}]])assert.equal(await a.blueskyAdapter(config,async()=>Response.json({posts})).verifySubject(subject),false);
+ await assert.rejects(()=>a.blueskyAdapter(config,async()=>{throw Error('timeout');}).verifySubject(subject),/timeout/);
 });

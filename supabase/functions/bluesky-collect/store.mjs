@@ -1,3 +1,4 @@
+import {repostSubject} from '../_shared/repost.mjs';
 // Internal persistence only. The database enforces uniqueness across concurrent runs.
 export function canonicalLink(raw) {
   try {
@@ -16,11 +17,12 @@ export async function candidateRow(candidate) {
   const sourceLinks=[...new Set([...(candidate.links ?? []).map(canonicalLink).filter(Boolean),...(nativeUrl?[nativeUrl]:[])])];
   if(sourceLinks.length>20)throw Error('Too many source links');
   const firstLink=sourceLinks[0];
-  const key = firstLink || candidate.uri;
+  if(candidate.native_cid!=null){const subject=repostSubject({uri:candidate.native_uri,cid:candidate.native_cid});if(candidate.source_type!=='bluesky'||candidate.native_author_did!==subject.uri.split('/')[2])throw Error('Invalid repost evidence');}
+  const key = candidate.native_cid!=null?candidate.native_uri:firstLink || candidate.uri;
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key));
   return {uri:candidate.uri,story_key:[...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join(''),
     source_type:candidate.source_type ?? 'bluesky',source_id:candidate.source_id ?? candidate.actor,actor:candidate.actor,text:candidate.text,source_created_at:candidate.created_at,
-    source_url:firstLink ?? null,source_links:sourceLinks,native_uri:candidate.native_uri ?? null,native_url:nativeUrl,status:'unverified_review_required'};
+    source_url:firstLink ?? null,source_links:sourceLinks,native_uri:candidate.native_uri ?? null,native_url:nativeUrl,...(candidate.native_cid!=null?{native_cid:candidate.native_cid,native_author_did:candidate.native_author_did}:{}),status:'unverified_review_required'};
 }
 export async function persist(candidates, config, fetcher=fetch) {
   const url = new URL(config.projectUrl);

@@ -1,3 +1,4 @@
+import {recordCollection,repostSubject} from './repost.mjs';
 // Not wired to an endpoint. Credentials are injected by a future authorized runtime.
 // No login/session creation or token refresh, retries, redirects, or secret logging.
 export async function readJson(response){
@@ -37,7 +38,13 @@ export function blueskyAdapter(config,fetcher=fetch){
  function check(account,key){if(account!==config.accountDid||typeof key!=='string'||!/^[a-zA-Z0-9._~:-]{1,512}$/.test(key))throw Error('Account/key mismatch');}
  const request=async(url,method,body)=>readJson(await fetcher(url,{method,redirect:'error',signal:AbortSignal.timeout(10000),headers:{Authorization:`Bearer ${config.accessToken}`,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})}));
  return {
-  put:async(account,key,record,options)=>{check(account,key);if(!/^[234567abcdefghij][234567abcdefghijklmnopqrstuvwxyz]{12}$/.test(key))throw Error('Post record key must be a TID');if(options?.swapRecord!==null)throw Error('Create-only required');return request(`${pds.origin}/xrpc/com.atproto.repo.putRecord`,'POST',{repo:account,collection:'app.bsky.feed.post',rkey:key,record,swapRecord:null,validate:true});},
-  get:async(account,key)=>{check(account,key);const query=new URLSearchParams({repo:account,collection:'app.bsky.feed.post',rkey:key});const result=await request(`${pds.origin}/xrpc/com.atproto.repo.getRecord?${query}`,'GET');return {record:result.value,uri:result.uri,cid:result.cid};},
+  verifySubject:async subject=>{
+   const original=repostSubject(subject),url=new URL('https://public.api.bsky.app/xrpc/app.bsky.feed.getPosts');
+   url.search=new URLSearchParams({'uris':original.uri});
+   const result=await readJson(await fetcher(url,{method:'GET',redirect:'error',signal:AbortSignal.timeout(10000),headers:{Accept:'application/json'}}));
+   return Array.isArray(result.posts)&&result.posts.length===1&&result.posts[0].uri===original.uri&&result.posts[0].cid===original.cid&&result.posts[0].author?.did===original.uri.split('/')[2];
+  },
+  put:async(account,key,record,options)=>{check(account,key);if(!/^[234567abcdefghij][234567abcdefghijklmnopqrstuvwxyz]{12}$/.test(key))throw Error('Post record key must be a TID');if(options?.swapRecord!==null)throw Error('Create-only required');return request(`${pds.origin}/xrpc/com.atproto.repo.putRecord`,'POST',{repo:account,collection:recordCollection(record),rkey:key,record,swapRecord:null,validate:true});},
+  get:async(account,key,collection='app.bsky.feed.post')=>{check(account,key);if(!['app.bsky.feed.post','app.bsky.feed.repost'].includes(collection))throw Error('Unsupported collection');const query=new URLSearchParams({repo:account,collection,rkey:key});const result=await request(`${pds.origin}/xrpc/com.atproto.repo.getRecord?${query}`,'GET');return {record:result.value,uri:result.uri,cid:result.cid};},
  };
 }

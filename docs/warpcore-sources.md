@@ -4,7 +4,7 @@ This is the human-readable companion to `supabase/functions/news-collect/initial
 
 ## Deployment status
 
-All 26 sources below are deployed in `news-collect` version 9 (November 13, 2026 UTC). Exact source roster and JWT authentication were verified by read-back. The 01:17 UTC scheduled collection returned HTTP 200 and all 26 sources reported successful retrieval; seven low-frequency feeds had no recent entries. The repository `index.ts` retains its empty-roster deployment safety lock; the approved deployment bundle loads `initial-sources.json`.
+All 31 configured sources are deployed (November 13, 2026 UTC): 28 RSS/Atom/Hacker News selections and three pinned Bluesky author feeds. Deployment read-back and collection checks confirmed all 31 sources retrieved successfully. The repository `index.ts` retains its empty-roster deployment safety lock; the approved deployment bundle loads `initial-sources.json`. Public newsletter feeds and native-repost collection/curation are enabled. The first native repost was prepared with its original subject intact, but delivery is pending rollover of the existing hourly login guard; this is not yet a verified published repost.
 
 ## Existing active sources
 
@@ -48,18 +48,18 @@ These exact URLs returned HTTP 200 with redirects disabled on November 13, 2026 
 
 Roster is capped at 32 sources, three workers at a time with the single slower HN scan started first, max 20 items/feed, a seven-day discovery ceiling and at most one HN selection. The live cron HTTP timeout is 120 seconds; the bounded worst-case network/persistence envelope is approximately 106 seconds. A source failure is isolated and reported; it does not approve or publish anything. GitHub release dates can be update dates: the curator must verify the actual release date and meaningful change. Skip nightly builds, RCs and patch-only noise unless a genuinely consequential change warrants coverage. Local feeds are low-frequency and may return zero recent entries; they are not complete Upper Bucks coverage. Political items are excluded by the editorial contract.
 
-## Public newsletter publisher expansion (pending deployment)
+## Public newsletter publisher feeds (active)
 
-Two public feeds from publishers already present in the secondary newsletter mailbox are included in the next collector roster. No email bodies, recipient data or personalized tracking links are copied into evidence.
+Two public feeds from publishers already present in the secondary newsletter mailbox are deployed and retrieved successfully. No email bodies, recipient data or personalized tracking links are copied into evidence.
 
 - [The Verge RSS](https://www.theverge.com/rss/index.xml)
 - [MIT Technology Review RSS](https://www.technologyreview.com/feed/)
 
 Both passed strict retrieval and parser validation. Select only meaningful AI, compute, developer, product and major company developments; general coverage is not blanket permission to post everything. Other newsletter feeds remain conditional: some Substack/TechCrunch endpoints intermittently return 403; Latent Space exceeds the current 1 MB cap. These are not enabled or bypassed.
 
-## Selected native repost sources (activation pending)
+## Selected native repost sources (enabled; first delivery pending)
 
-The repository roster now contains 31 selections: the 28 RSS/Atom/HN sources plus these three public Bluesky author feeds. These accounts are not active until the native-repost migration, worker deployment and curator runbook are verified.
+The repository roster now contains 31 selections: the 28 RSS/Atom/HN sources plus these three public Bluesky author feeds. The migration, collector, curator and publisher are deployed, and the curator runbook supports native mode. All three author feeds retrieved successfully. First native delivery remains pending the hourly login guard rollover.
 
 | Account | Profile | Pinned author DID |
 |---|---|---|
@@ -72,7 +72,7 @@ Collection uses the public Bluesky author-feed API with pinned DIDs, a 24-hour w
 ## Not connected / remaining gaps
 
 - **Secondary Gmail newsletters:** not connected to Warp Core. The now-canceled audio brief used them separately. A future discovery path must keep email text, personal links, tracking tokens and private account data out of public evidence; only independently verified public stories may enter the public pipeline.
-- **Bluesky news accounts:** [native repost support](warpcore-native-reposts.md) is implemented and tested, but is not active until its migration, worker deployment and live verification are complete. Do not paraphrase others' Bluesky posts into our own posts. Native reposts preserve the original author and exact post, and count toward the same hourly limit. Following accounts is optional for public author-feed discovery. The owner's reply-feedback check is separate, not a news source.
+- **Native repost delivery verification:** [native repost support](warpcore-native-reposts.md) is deployed and enabled for the three accounts above; the first delivery is not yet verified. Do not paraphrase others' Bluesky posts into our own posts. Native reposts preserve the original author and exact post, and count toward the same hourly limit. Following accounts is optional for public author-feed discovery. The owner's reply-feedback check is separate, not a news source.
 - **Anthropic, DeepSeek and Kimi:** no reliable direct RSS feed verified yet. Do not claim complete coverage through HN/Hugging Face.
 - **Intel:** direct newsroom feed not verified.
 - **Major security advisories:** MSRC's official [update-guide RSS](https://api.msrc.microsoft.com/update-guide/rss) is over 3 MB and too noisy for the current safe adapter; it is not enabled. .NET may include servicing posts, but this is not comprehensive security coverage.

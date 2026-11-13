@@ -57,10 +57,22 @@ Two public feeds from publishers already present in the secondary newsletter mai
 
 Both passed strict retrieval and parser validation. Select only meaningful AI, compute, developer, product and major company developments; general coverage is not blanket permission to post everything. Other newsletter feeds remain conditional: some Substack/TechCrunch endpoints intermittently return 403; Latent Space exceeds the current 1 MB cap. These are not enabled or bypassed.
 
+## Selected native repost sources (activation pending)
+
+The repository roster now contains 31 selections: the 28 RSS/Atom/HN sources plus these three public Bluesky author feeds. These accounts are not active until the native-repost migration, worker deployment and curator runbook are verified.
+
+| Account | Profile | Pinned author DID |
+|---|---|---|
+| Simon Willison | [simonwillison.net](https://bsky.app/profile/simonwillison.net) | `did:plc:kft6lu4trxowqmter2b6vg6z` |
+| Ars Technica | [arstechnica.com](https://bsky.app/profile/arstechnica.com) | `did:plc:wld6fad6xsm4tz4kfkoikun2` |
+| The Register | [theregister.com](https://bsky.app/profile/theregister.com) | `did:plc:bz67dxqh5nmjl5it36xylqyy` |
+
+Collection uses the public Bluesky author-feed API with pinned DIDs, a 24-hour window and broad AI/compute/product discovery terms. These terms are not publication approval: select meaningful, relevant developments using the owner's editorial criteria, not every matching opinion, experiment or routine update. Only original posts by the pinned author are collected; replies and already-reposted items are skipped. Native reposts preserve the author's post unchanged, share the existing hourly limit and require no follows. See [native repost safety and deployment](warpcore-native-reposts.md).
+
 ## Not connected / remaining gaps
 
 - **Secondary Gmail newsletters:** not connected to Warp Core. The now-canceled audio brief used them separately. A future discovery path must keep email text, personal links, tracking tokens and private account data out of public evidence; only independently verified public stories may enter the public pipeline.
-- **Bluesky news accounts:** native repost support is not live. Do not paraphrase others' Bluesky posts into our own posts. Planned native reposts will preserve original author identity and count toward the same hourly limit. Following accounts is optional for public author-feed discovery. The owner's reply-feedback check is separate, not a news source.
+- **Bluesky news accounts:** [native repost support](warpcore-native-reposts.md) is implemented and tested, but is not active until its migration, worker deployment and live verification are complete. Do not paraphrase others' Bluesky posts into our own posts. Native reposts preserve the original author and exact post, and count toward the same hourly limit. Following accounts is optional for public author-feed discovery. The owner's reply-feedback check is separate, not a news source.
 - **Anthropic, DeepSeek and Kimi:** no reliable direct RSS feed verified yet. Do not claim complete coverage through HN/Hugging Face.
 - **Intel:** direct newsroom feed not verified.
 - **Major security advisories:** MSRC's official [update-guide RSS](https://api.msrc.microsoft.com/update-guide/rss) is over 3 MB and too noisy for the current safe adapter; it is not enabled. .NET may include servicing posts, but this is not comprehensive security coverage.

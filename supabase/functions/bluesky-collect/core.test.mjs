@@ -11,3 +11,15 @@ test('omits replies/reposts/old/future/unmatched',async()=>{const withRecord=(r)
 test('source failure is distinct from empty',async()=>{const fail=await collect(config,async()=>new Response('',{status:500}),now);assert.equal(fail.sources[0].status,'error');const empty=await collect(config,async()=>response([]),now);assert.equal(empty.sources[0].status,'ok');});
 test('caps body size',async()=>{const result=await collect(config,async()=>new Response('x'.repeat(1000001)),now);assert.equal(result.sources[0].status,'error');});
 test('uses link-card titles for sources with empty text',async()=>{const card={post:{...entry.post,record:{...entry.post.record,text:'',embed:{external:{uri:'https://example.com/a',title:'AMD launches chip',description:'New architecture'}}}}};const result=await collect(config,async()=>response([card]),now);assert.equal(result.candidates.length,1);assert.match(result.candidates[0].text,/AMD launches/);assert.deepEqual(result.candidates[0].links,['https://example.com/a']);});
+test('pinned actor captures immutable repost identity and rejects spoofed author',async()=>{
+ const did='did:plc:abcdefghijklmnopqrstuvwx',cid='bafyre'+'a'.repeat(53),uri=`at://${did}/app.bsky.feed.post/3n256uxsaokol`;
+ const pinned={...config,actorDids:{'example.bsky.social':did}};
+ const good={post:{...entry.post,uri,cid,author:{did}}};
+ const result=await collect(pinned,async()=>response([good,{post:{...good.post,author:{did:'did:plc:wrong'}}}]),now);
+ assert.equal(result.candidates.length,1);assert.equal(result.candidates[0].native_cid,cid);assert.equal(result.candidates[0].native_author_did,did);
+});
+test('pinned standalone collector candidates remain persistable with exact native identity',async()=>{
+ const {candidateRow}=await import('./store.mjs');const did='did:plc:abcdefghijklmnopqrstuvwx',cid='bafyre'+'a'.repeat(53),uri=`at://${did}/app.bsky.feed.post/3n256uxsaokol`;
+ const result=await collect({...config,actorDids:{'example.bsky.social':did}},async()=>response([{post:{...entry.post,uri,cid,author:{did}}}]),now);
+ const row=await candidateRow(result.candidates[0]);assert.equal(row.native_cid,cid);assert.equal(row.native_uri,uri);
+});

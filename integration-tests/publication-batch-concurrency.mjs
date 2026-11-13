@@ -3,8 +3,8 @@ import {Client} from 'pg';import {createHash} from 'node:crypto';import fs from 
 const url=new URL(process.env.WARPCORE_TEST_DATABASE_URL??'');
 if(!['127.0.0.1','localhost'].includes(url.hostname)||url.pathname!=='/warpcore_test')throw Error('Dedicated loopback warpcore_test database required');
 const clients=Array.from({length:7},()=>new Client({connectionString:url.href}));const writers=clients.slice(0,6),a=writers[0],observer=clients[6];
-const account='did:plc:batchtestabcdefghijklmn',record={text:'Synthetic concurrency fixture',createdAt:'2026-11-12T12:00:00.000Z'};
-const args=n=>[account,createHash('sha256').update('batch-budget-story-'+n).digest('hex'),'hash',record];
+const account='did:plc:batchtestabcdefghijklmn',record=n=>n%2?{$type:'app.bsky.feed.repost',subject:{uri:'at://did:plc:abcdefghijklmnopqrstuvwx/app.bsky.feed.post/3n256uxsaokol',cid:'bafyre'+'a'.repeat(53)},createdAt:'2026-11-12T12:00:00.000Z'}:{$type:'app.bsky.feed.post',text:'Synthetic concurrency fixture',createdAt:'2026-11-12T12:00:00.000Z'};
+const args=n=>[account,createHash('sha256').update('batch-budget-story-'+n).digest('hex'),'hash',record(n)];
 const claim=(c,n)=>c.query('select * from warpcore_claim_publication($1,$2,$3,$4)',args(n));
 try{
  await Promise.all(clients.map(c=>c.connect()));await Promise.all(clients.map(c=>c.query("set statement_timeout='15s'")));
@@ -22,5 +22,5 @@ try{
  assert.equal((await a.query('select attempts from warpcore_publication_slots where account_did=$1',[account])).rows[0].attempts,5);
  const denied=results.findIndex(r=>r.rowCount===0)+2;assert.equal((await a.query('select state from warpcore_publications where account_did=$1 and story_key=$2',[account,args(denied)[1]])).rows[0].state,'prepared');
  assert.equal((await claim(a,1)).rowCount,0,'Same-story replay does not spend another attempt');assert.equal((await claim(a,denied)).rowCount,0,'Sixth story remains capped');assert.equal((await a.query('select attempts from warpcore_publication_slots where account_did=$1',[account])).rows[0].attempts,5);
- console.log('PASS: six genuinely concurrent different-story sessions yield exactly five attempts; replay and excess claim consume nothing');
+ console.log('PASS: six genuinely concurrent mixed post/repost sessions yield exactly five attempts; replay and excess claim consume nothing');
 }finally{await Promise.all(clients.map(c=>c.query('rollback').catch(()=>{})));await Promise.all(clients.map(c=>c.end().catch(()=>{})));}

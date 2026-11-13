@@ -1,3 +1,4 @@
+import {repostSubject} from './repost.mjs';
 // Source-neutral review queue contract. Adapters are trusted code, not names/URLs
 // supplied in an HTTP request. No publishing or model calls occur in this module.
 export const MAX_SOURCES=32;
@@ -23,10 +24,11 @@ export async function runAdapters(selections, registry) {
           nativeUrl=native.toString();
         }
         if(item.nativeUri!==undefined&&(typeof item.nativeUri!=='string'||!item.nativeUri||item.nativeUri.length>2048))throw new Error('Invalid native provenance identity');
+        if(item.nativeCid!==undefined){const subject=repostSubject({uri:item.nativeUri,cid:item.nativeCid});if(selection.adapter!=='bluesky'||item.nativeAuthorDid!==subject.uri.split('/')[2])throw Error('Invalid original author binding');}
         return {uri:`urn:warpcore:${selection.adapter}:${selection.id}:${encodeURIComponent(item.id)}`,
           source_type:selection.adapter,source_id:selection.id,actor:item.author || selection.id,
           text:item.text,created_at:new Date(item.publishedAt).toISOString(),links:[...new Set([url.toString(),nativeUrl].filter(Boolean))],
-          native_uri:item.nativeUri ?? null,native_url:nativeUrl,
+          native_uri:item.nativeUri ?? null,native_url:nativeUrl,...(item.nativeCid!==undefined?{native_cid:item.nativeCid,native_author_did:item.nativeAuthorDid}:{}),
           status:'unverified_review_required'};
       });
       return {batch,source:{id:selection.id,status:'ok',count:batch.length}};

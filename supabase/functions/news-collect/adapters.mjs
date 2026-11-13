@@ -12,7 +12,7 @@ export function createBlueskyAdapter(collector=collect){return {collect:async co
   const parts=/^at:\/\/([^/?#]+)\/app\.bsky\.feed\.post\/([a-zA-Z0-9._~:-]+)$/.exec(c.uri);
   if(!parts)throw new Error('Invalid native post identity');
   const nativeUrl=`https://bsky.app/profile/${encodeURIComponent(parts[1])}/post/${encodeURIComponent(parts[2])}`;
-  return {id:c.uri,nativeUri:c.uri,nativeUrl,text:c.text,author:c.actor,publishedAt:c.created_at,visibility:'public',
+  return {id:c.uri,nativeUri:c.uri,nativeUrl,...(c.native_cid?{nativeCid:c.native_cid,nativeAuthorDid:c.native_author_did}:{}),text:c.text,author:c.actor,publishedAt:c.created_at,visibility:'public',
    url:c.links.find(x=>{try{const u=new URL(x);return u.protocol==='https:'&&!u.username&&!u.password;}catch{return false;}}) || nativeUrl};
  });
 }};}

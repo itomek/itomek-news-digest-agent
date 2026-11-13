@@ -2,7 +2,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node postgres.mjs && node provenance.mjs && node publication-hour.mjs && node curator.mjs && node curator-tid.mjs && node firebase-recovery.mjs && node publication-batch.mjs",
+    "test": "node postgres.mjs && node provenance.mjs && node publication-hour.mjs && node curator.mjs && node curator-tid.mjs && node firebase-recovery.mjs && node publication-batch.mjs && node reposts.mjs",
     "test:concurrency": "node concurrency.mjs",
     "test:postgrest": "node postgrest.mjs",
     "test:hour-concurrency": "node publication-hour-concurrency.mjs",

@@ -237,5 +237,131 @@
       "url": "https://www.technologyreview.com/feed/",
       "label": "MIT Technology Review"
     }
+  },
+  {
+    "id": "bluesky_simon_willison",
+    "adapter": "bluesky",
+    "config": {
+      "actors": [
+        "simonwillison.net"
+      ],
+      "actorDids": {
+        "simonwillison.net": "did:plc:kft6lu4trxowqmter2b6vg6z"
+      },
+      "terms": [
+        "AMD",
+        "NVIDIA",
+        "Intel",
+        "Arm",
+        "ROCm",
+        "CUDA",
+        "MLX",
+        "Lemonade",
+        "llama.cpp",
+        "vLLM",
+        "Ollama",
+        "OpenAI",
+        "Anthropic",
+        "Claude",
+        "Gemini",
+        "DeepSeek",
+        "Kimi",
+        "Mistral",
+        "LLM",
+        "inference",
+        "agent",
+        "AI model",
+        "Apple",
+        "Microsoft",
+        "processor",
+        "GPU",
+        "chip",
+        "acquisition"
+      ]
+    }
+  },
+  {
+    "id": "bluesky_ars_technica",
+    "adapter": "bluesky",
+    "config": {
+      "actors": [
+        "arstechnica.com"
+      ],
+      "actorDids": {
+        "arstechnica.com": "did:plc:wld6fad6xsm4tz4kfkoikun2"
+      },
+      "terms": [
+        "AMD",
+        "NVIDIA",
+        "Intel",
+        "Arm",
+        "ROCm",
+        "CUDA",
+        "MLX",
+        "Lemonade",
+        "llama.cpp",
+        "vLLM",
+        "Ollama",
+        "OpenAI",
+        "Anthropic",
+        "Claude",
+        "Gemini",
+        "DeepSeek",
+        "Kimi",
+        "Mistral",
+        "LLM",
+        "inference",
+        "agent",
+        "AI model",
+        "Apple",
+        "Microsoft",
+        "processor",
+        "GPU",
+        "chip",
+        "acquisition"
+      ]
+    }
+  },
+  {
+    "id": "bluesky_the_register",
+    "adapter": "bluesky",
+    "config": {
+      "actors": [
+        "theregister.com"
+      ],
+      "actorDids": {
+        "theregister.com": "did:plc:bz67dxqh5nmjl5it36xylqyy"
+      },
+      "terms": [
+        "AMD",
+        "NVIDIA",
+        "Intel",
+        "Arm",
+        "ROCm",
+        "CUDA",
+        "MLX",
+        "Lemonade",
+        "llama.cpp",
+        "vLLM",
+        "Ollama",
+        "OpenAI",
+        "Anthropic",
+        "Claude",
+        "Gemini",
+        "DeepSeek",
+        "Kimi",
+        "Mistral",
+        "LLM",
+        "inference",
+        "agent",
+        "AI model",
+        "Apple",
+        "Microsoft",
+        "processor",
+        "GPU",
+        "chip",
+        "acquisition"
+      ]
+    }
   }
 ]

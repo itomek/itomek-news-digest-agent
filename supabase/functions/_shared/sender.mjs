@@ -1,3 +1,4 @@
+import {recordCollection} from './repost.mjs';
 // Dependency-injected sender; not imported by any deployed endpoint.
 // db must provide atomic claim, durable uncertain, and published transitions.
 // remote must be an authorized pinned-account transport; tests use mocks only.
@@ -5,9 +6,9 @@ function stable(value){if(Array.isArray(value))return '['+value.map(stable).join
 export async function reconcile(job,db,remote){
  try {
   await db.checked(job);
-  const found=await remote.get(job.accountDid,job.recordKey);
+  const found=await remote.get(job.accountDid,job.recordKey,recordCollection(job.record));
   if(!found || stable(found.record)!==stable(job.record)){await db.manualReview(job);return {state:'manual_review'};}
-  const uri=`at://${job.accountDid}/app.bsky.feed.post/${job.recordKey}`;
+  const uri=`at://${job.accountDid}/${recordCollection(job.record)}/${job.recordKey}`;
   if(found.uri!==uri){await db.manualReview(job);return {state:'manual_review'};}
   if(await db.published(job,uri)!==true)return {state:'manual_review'};
   return {state:'published',uri};
@@ -23,8 +24,9 @@ export async function sendPrepared(job,db,remote,policy){
  // Durable pessimistic state before any network write. Failure here means no send.
  await db.uncertain(job);
  try{
+  if(recordCollection(job.record)==='app.bsky.feed.repost'&&await remote.verifySubject(job.record.subject)!==true){await db.manualReview(job);return {state:'manual_review'};}
   const receipt=await remote.put(job.accountDid,job.recordKey,job.record,{swapRecord:null});
-  const expected=`at://${job.accountDid}/app.bsky.feed.post/${job.recordKey}`;
+  const expected=`at://${job.accountDid}/${recordCollection(job.record)}/${job.recordKey}`;
   if(receipt?.uri!==expected)return {state:'uncertain'};
  }catch{return {state:'uncertain'};}
  // Never trust a write receipt alone; read back exact persisted payload.

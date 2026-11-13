@@ -34,18 +34,24 @@ test('rejects unsafe native provenance URLs',async()=>{
 
 test("rejects multiple expensive HN selections before adapter calls",async()=>{let calls=0;await assert.rejects(()=>pipeline.runAdapters([{id:"a",adapter:"hn"},{id:"b",adapter:"hn"}],{hn:{collect:async()=>{calls++;return [];}}}));assert.equal(calls,0);});
 
-test('expanded roster collects at most three sources concurrently in deterministic order',async()=>{
+test('expanded roster collects at most four sources concurrently in deterministic order',async()=>{
  let active=0,peak=0;
  const selections=Array.from({length:24},(_,i)=>({id:`source_${i}`,adapter:'rss'}));
  const result=await pipeline.runAdapters(selections,{rss:{collect:async()=>{active++;peak=Math.max(peak,active);await new Promise(r=>setTimeout(r,2));active--;return [];}}});
- assert.equal(peak,3);assert.deepEqual(result.sources.map(s=>s.id),selections.map(s=>s.id));
+ assert.equal(peak,4);assert.deepEqual(result.sources.map(s=>s.id),selections.map(s=>s.id));
 });
 test('rejects rosters above bounded expanded maximum',async()=>{
- await assert.rejects(()=>pipeline.runAdapters(Array.from({length:33},(_,i)=>({id:`s${i}`,adapter:'rss'})),{}));
+ await assert.rejects(()=>pipeline.runAdapters(Array.from({length:41},(_,i)=>({id:`s${i}`,adapter:'rss'})),{}));
 });
 test('starts slow HN first without changing reported roster order',async()=>{
  const started=[];const selections=[{id:'a',adapter:'rss'},{id:'b',adapter:'rss'},{id:'h',adapter:'hn'}];
  const make=kind=>({collect:async()=>{started.push(kind);await new Promise(r=>setTimeout(r,1));return [];}});
  const result=await pipeline.runAdapters(selections,{rss:make('rss'),hn:make('hn')});
  assert.equal(started[0],'hn');assert.deepEqual(result.sources.map(x=>x.id),['a','b','h']);
+});
+
+test('exactly forty sources remain within the bounded discovery capacity',async()=>{
+ const selections=Array.from({length:40},(_,i)=>({id:`s${i}`,adapter:'rss'}));
+ const result=await pipeline.runAdapters(selections,{rss:{collect:async()=>[]}});
+ assert.equal(result.sources.length,40);assert.ok(result.sources.every(s=>s.status==='ok'));
 });

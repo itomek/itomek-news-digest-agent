@@ -276,7 +276,17 @@
         "processor",
         "GPU",
         "chip",
-        "acquisition"
+        "acquisition",
+        "xAI",
+        "Grok",
+        "SpaceX",
+        "Virgin Galactic",
+        "NASA",
+        "ESA",
+        "spaceflight",
+        "space mission",
+        "astronomy",
+        "Starship"
       ]
     }
   },
@@ -318,7 +328,17 @@
         "processor",
         "GPU",
         "chip",
-        "acquisition"
+        "acquisition",
+        "xAI",
+        "Grok",
+        "SpaceX",
+        "Virgin Galactic",
+        "NASA",
+        "ESA",
+        "spaceflight",
+        "space mission",
+        "astronomy",
+        "Starship"
       ]
     }
   },
@@ -360,7 +380,17 @@
         "processor",
         "GPU",
         "chip",
-        "acquisition"
+        "acquisition",
+        "xAI",
+        "Grok",
+        "SpaceX",
+        "Virgin Galactic",
+        "NASA",
+        "ESA",
+        "spaceflight",
+        "space mission",
+        "astronomy",
+        "Starship"
       ]
     }
   },
@@ -450,7 +480,17 @@
         "processor",
         "GPU",
         "chip",
-        "acquisition"
+        "acquisition",
+        "xAI",
+        "Grok",
+        "SpaceX",
+        "Virgin Galactic",
+        "NASA",
+        "ESA",
+        "spaceflight",
+        "space mission",
+        "astronomy",
+        "Starship"
       ]
     }
   },
@@ -492,6 +532,46 @@
     "config": {
       "url": "https://www.perplexity.ai/hub/blog",
       "label": "Perplexity Blog"
+    }
+  },
+  {
+    "id": "xai_news",
+    "adapter": "official_html",
+    "config": {
+      "url": "https://x.ai/news",
+      "label": "xAI News"
+    }
+  },
+  {
+    "id": "nasa_news",
+    "adapter": "rss",
+    "config": {
+      "url": "https://www.nasa.gov/feed/",
+      "label": "NASA"
+    }
+  },
+  {
+    "id": "esa_science",
+    "adapter": "rss",
+    "config": {
+      "url": "https://www.esa.int/rss/science.rss",
+      "label": "ESA Space Science"
+    }
+  },
+  {
+    "id": "spacenews",
+    "adapter": "rss",
+    "config": {
+      "url": "https://spacenews.com/feed/",
+      "label": "SpaceNews"
+    }
+  },
+  {
+    "id": "virgin_galactic_news",
+    "adapter": "official_html",
+    "config": {
+      "url": "https://www.virgingalactic.com/news",
+      "label": "Virgin Galactic"
     }
   }
 ]

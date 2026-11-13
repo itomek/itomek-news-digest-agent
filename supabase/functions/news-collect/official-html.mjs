@@ -1,6 +1,6 @@
 // Public official publisher indexes only. Never execute embedded scripts or follow
 // article URLs here; full primary-article verification belongs to the curator.
-const URLS=new Set(['https://www.anthropic.com/news','https://www.anthropic.com/research','https://www.perplexity.ai/hub/blog']);
+const URLS=new Set(['https://x.ai/news','https://www.virgingalactic.com/news','https://www.anthropic.com/news','https://www.anthropic.com/research','https://www.perplexity.ai/hub/blog']);
 const plain=v=>String(v??'').replace(/<[^>]*>/g,' ').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/\s+/g,' ').trim();
 export function parseOfficialHTML(html,config,now=Date.now()){
  if(!URLS.has(config?.url)||typeof html!=='string'||new TextEncoder().encode(html).length>1000000)throw Error('Invalid official index');
@@ -19,6 +19,15 @@ export function parseOfficialHTML(html,config,now=Date.now()){
    items.push({url:'https://www.anthropic.com'+link[1],title:plain(link[2].match(/<h[23]\b[^>]*>([\s\S]*?)<\/h[23]>/i)?.[1]),summary:plain(block.match(/<p\b[^>]*>([^<]+)<\/p>/i)?.[1]),date});
   }
   if(!items.length)throw Error('Official index entries missing');
+ }else if(config.url==='https://x.ai/news'||config.url==='https://www.virgingalactic.com/news'){
+  const visible=html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'');
+  for(const match of visible.matchAll(/<a\b[^>]*href="(\/news\/[a-z0-9][a-z0-9-]*)"[^>]*>([\s\S]*?)<\/a>/gi)){
+   const block=match[2];
+   const date=[...block.matchAll(/<p\b[^>]*>([^<]+)<\/p>/gi)].map(m=>m[1].trim()).find(v=>/^[A-Z][a-z]{2,8} \d{1,2}, \d{4}$/.test(v));
+   const title=config.url==='https://x.ai/news'?block.match(/<h[1-3]\b[^>]*>([\s\S]*?)<\/h[1-3]>/i)?.[1]:block.match(/<p\b[^>]*class="[^"]*\bfont-title-lg\b[^"]*"[^>]*>([\s\S]*?)<\/p>/i)?.[1];
+   if(date&&title)items.push({url:new URL(config.url).origin+match[1],title:plain(title),date});
+  }
+  if(!items.length)throw Error('Official index entries missing');
  }else{
   const raw=html.match(/window\.__PPL_INITIAL_SERVER_DATA__=(\{[^\n]*?\});window\.__PPL_INITIAL_SESSION__=/)?.[1];
   if(!raw)throw Error('Official index layout changed');
@@ -33,7 +42,7 @@ export function parseOfficialHTML(html,config,now=Date.now()){
  }
  const seen=new Set();return items.flatMap(e=>{
   // Date-only source dates remain UTC midnight; no invented retrieval timestamp.
-  const date=/^\d{4}-\d{2}-\d{2}$/.test(e.date)?e.date+'T00:00:00Z':/^[A-Z][a-z]{2} \d{1,2}, \d{4}$/.test(e.date)?e.date+' UTC':/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(e.date)?e.date:'';
+  const date=/^\d{4}-\d{2}-\d{2}$/.test(e.date)?e.date+'T00:00:00Z':/^[A-Z][a-z]{2,8} \d{1,2}, \d{4}$/.test(e.date)?e.date+' UTC':/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(e.date)?e.date:'';
   const published=Date.parse(date);if(!e.title||!Number.isFinite(published)||published>now+300000||published<now-7*86400000||seen.has(e.url))return [];
   seen.add(e.url);return [{id:e.url,url:e.url,text:[e.title,e.summary].filter(Boolean).join('\n').slice(0,18000),author:config.label,publishedAt:new Date(published).toISOString(),visibility:'public'}];
  });

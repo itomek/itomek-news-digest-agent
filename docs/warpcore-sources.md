@@ -105,3 +105,11 @@ Anthropic News (`https://www.anthropic.com/news`), Anthropic Research (`https://
 GitHub's HTML DOCTYPE text inside XML CDATA is now accepted as inert text; real XML DTD/entity declarations outside CDATA remain rejected. Response size, redirect denial, timeouts, dedicated authentication and review-only storage remain intact. The roster contains 43 sources; capacity is 48 with five bounded concurrent collectors (the slow HN scan starts first). This is resource scheduling, not an editorial selection limit. No publishing or editorial filters changed.
 
 RSS no longer discards entries after the first 100 or stops at 20 candidates. All entries in the retrieved, size-bounded feed are considered. Bluesky and HN upstream windows remain separately bounded; this is not a claim of exhaustive historical discovery.
+
+## Hugging Face community discovery
+
+`huggingface_posts` reads the anonymous endpoint used by Hugging Face Posts: `https://huggingface.co/api/posts?skip=0&sort=recent`, paging newest-first through the seven-day discovery window. This undocumented frontend endpoint may change; malformed pages, chronology errors, no-progress pagination, HTTP failures, response/timeout limits or the existing 500-candidate batch ceiling cause an explicit source failure, not a silently shortened success. Offset pagination is not snapshot isolation; new posts can shift pages between requests, and later scheduled scans cover subsequent changes. No claim of exhaustive historical access.
+
+Posts are unverified community leads, not official Hugging Face announcements. Preserve the canonical author post and a safe linked source; never fetch outbound URLs during collection. The curator must read the post and primary material and independently verify claims before an original attributed summary. Do not copy author posts or imply a Bluesky native repost. Existing semantic dedup, political/safety exclusions, editorial review and five-post publishing safeguards are unchanged. The roster now has 44 sources, within existing capacity.
+
+No llama.cpp or vLLM discussion/forum sources are added. Coverage of those projects remains high-level: meaningful release, capability, hardware support or performance changes rather than routine development chatter.

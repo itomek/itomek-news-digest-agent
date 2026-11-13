@@ -34,10 +34,11 @@ export async function runAdapters(selections, registry) {
       return {batch,source:{id:selection.id,status:'ok',count:batch.length}};
     } catch { return {batch:[],source:{id:selection?.id ?? 'invalid',status:'error'}}; }
   };
-  // Start the single slow HN scan first so it overlaps feed requests. Five
+  // Start slow HN and paginated HF scans first so they overlap feeds. Five
   // workers bound concurrency; output remains in the original roster order.
   const queue=selections.map((selection,index)=>({selection,index}));
-  queue.sort((a,b)=>Number(b.selection?.adapter==='hn')-Number(a.selection?.adapter==='hn'));
+  const priority=adapter=>adapter==='hn'?2:adapter==='huggingface_posts'?1:0;
+  queue.sort((a,b)=>priority(b.selection?.adapter)-priority(a.selection?.adapter));
   const results=new Array(selections.length);let cursor=0;
   const worker=async()=>{while(cursor<queue.length){const {selection,index}=queue[cursor++];results[index]=await collectOne(selection);}};
   await Promise.all(Array.from({length:Math.min(5,queue.length)},worker));

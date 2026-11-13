@@ -76,3 +76,26 @@ test('The Race discovery is restricted to selected team titles and excludes life
  assert.equal((await rss.collectRSS({url,label:'The Race'},async()=>new Response(titled('Haas appoints technical director'),{headers:{'content-type':'application/rss+xml'}}),now)).length,1);
  for(const title of ['Ferrari changes driver','Mercedes merchandise collection','Cadillac lifestyle launch','Russell signs contract'])assert.equal(rss.parseFeed(titled(title,'Haas mentioned in body'),{url},now).length,0,title);
 });
+test('HTML DOCTYPE inside CDATA is inert, actual XML declarations still rejected',()=>{
+ const inert=xml.replace('<p>Useful change.</p>','<!DOCTYPE html PUBLIC "x" "https://evil.example/dtd"><p>Useful change.</p>');
+ assert.equal(rss.parseFeed(inert,{},now)[0].text,'New release\nUseful change.');
+ for(const tail of ['<!DOCTYPE rss>','<!ENTITY x SYSTEM "file:///etc/passwd">'])assert.throws(()=>rss.parseFeed(inert+tail,{},now));
+ assert.throws(()=>rss.parseFeed('<!DOCTYPE rss [<!ENTITY x "<![CDATA[ignored]]>">]>'+xml,{},now));
+ assert.throws(()=>rss.parseFeed(xml.replace(']]>',''),{},now));
+});
+
+test('comment CDATA marker cannot conceal real XML DTD/entity declarations',()=>{
+ const prefix='<!-- <![CDATA[ --><!DOCTYPE rss [<!ENTITY injected "expanded">]><!-- ]]> -->';
+ assert.throws(()=>rss.parseFeed(prefix+xml,{},now));
+ assert.throws(()=>rss.parseFeed('<?fake <![CDATA[ ?><!DOCTYPE rss><!-- ]]> -->'+xml,{},now));
+});
+
+test('all entries within bounded feed are considered, without first100 or20 cutoff',()=>{
+ const item=xml.match(/<item>[\s\S]*?<\/item>/)[0];
+ const feed='<rss><channel>'+Array.from({length:125},(_,i)=>item.replace('release1','release'+i).replace('/news','/news'+i)).join('')+'</channel></rss>';
+ assert.equal(rss.parseFeed(feed,{},now).length,125);
+});
+
+test('fake CDATA in invalid attributes cannot bypass DTD rejection',()=>{
+ for(const value of ['<![CDATA[','> <![CDATA['])assert.throws(()=>rss.parseFeed('<fake x="'+value+'"/><!DOCTYPE rss [<!ENTITY injected "expanded">]><!-- ]]> -->'+xml,{},now));
+});

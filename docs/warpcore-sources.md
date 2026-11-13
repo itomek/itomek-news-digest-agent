@@ -105,3 +105,16 @@ Anthropic News (`https://www.anthropic.com/news`), Anthropic Research (`https://
 GitHub's HTML DOCTYPE text inside XML CDATA is now accepted as inert text; real XML DTD/entity declarations outside CDATA remain rejected. Response size, redirect denial, timeouts, dedicated authentication and review-only storage remain intact. The roster contains 43 sources; capacity is 48 with five bounded concurrent collectors (the slow HN scan starts first). This is resource scheduling, not an editorial selection limit. No publishing or editorial filters changed.
 
 RSS no longer discards entries after the first 100 or stops at 20 candidates. All entries in the retrieved, size-bounded feed are considered. Bluesky and HN upstream windows remain separately bounded; this is not a claim of exhaustive historical discovery.
+
+## Grok and space coverage (November 13, 2026)
+
+The roster now contains 48 sources (44 non-Bluesky plus four pinned author feeds), within the unchanged 48-source resource capacity and five-worker scheduler. This adds:
+- `xai_news`: https://x.ai/news (official dated HTML cards; Grok/xAI products, models and company announcements).
+- `nasa_news`: https://www.nasa.gov/feed/ (official RSS, discoveries and mission news).
+- `esa_science`: https://www.esa.int/rss/science.rss (official RSS, space science discoveries and missions).
+- `spacenews`: https://spacenews.com/feed/ (independent industry reporting, including SpaceX and Virgin Galactic).
+- `virgin_galactic_news`: https://www.virgingalactic.com/news (official dated HTML cards, including flight-test and business updates).
+
+All five public endpoints were fetched and parsed on November 13. xAI had no dated entries within the seven-day window; zero candidates is a valid outcome, not a fabricated release. The two HTML sources use the existing exact-URL allowlist, bounded response, eight-second timeout, redirect denial and visible-date requirements. Script content is not executed or treated as dated cards. No official SpaceX RSS feed is claimed; SpaceX discovery is provided by SpaceNews and existing quality feeds. Native discovery terms also include Grok/xAI and space topics, without weakening pinned author identity checks.
+
+Editorial scope now includes meaningful Grok/xAI developments, high-level discoveries and missions, SpaceX and Virgin Galactic (SPCE). SPCE identifies the company, not a request for routine stock-price coverage. Existing significance, attribution, primary-source verification, political exclusions, semantic dedup and publishing safeguards remain unchanged. A listed source is discovery, never automatic approval to post. Official company forecasts must remain attributed and distinguished from achieved milestones. Deployment and first production collection must be verified separately; public fetch checks do not establish production success.

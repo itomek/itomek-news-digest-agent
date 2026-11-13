@@ -27,3 +27,19 @@ test('Anthropic research accepts title headings wrapping the article anchor',()=
  const html='<article><time>Nov 9, 2026</time><h3><a href="/research/electronics">Electronics design</a></h3><p>Working prototypes.</p></article>';
  assert.equal(parseOfficialHTML(html,{...anth,url:'https://www.anthropic.com/research'},now)[0].text,'Electronics design\nWorking prototypes.');
 });
+
+test('xAI and Virgin Galactic visible dated cards preserve official origin and reject fake paths',()=>{
+ const fixtures=[
+ [{url:'https://x.ai/news',label:'xAI News'},'<a href="/news/grok-update"><p>Nov 12, 2026</p><h3>Grok update</h3><p>Useful feature.</p></a>','Grok update'],
+ [{url:'https://www.virgingalactic.com/news',label:'Virgin Galactic'},'<a href="/news/flight-update"><p>November 12, 2026</p><p class="font-title-lg">Flight update</p></a>','Flight update']
+ ];
+ for(const [config,html,title] of fixtures){
+  const rows=parseOfficialHTML(html+html,config,now);
+  assert.equal(rows.length,1);assert.equal(rows[0].text,title);assert.equal(rows[0].publishedAt,'2026-11-12T00:00:00.000Z');
+  assert.ok(rows[0].url.startsWith(new URL(config.url).origin+'/news/'));
+  assert.throws(()=>parseOfficialHTML('<script>'+html+'</script>',config,now));
+  assert.throws(()=>parseOfficialHTML(html.replace('/news/','//evil.example/'),config,now));
+  assert.equal(parseOfficialHTML(html.replace('12, 2026','30, 2026'),config,now).length,0);
+  assert.throws(()=>parseOfficialHTML(html.replace(/Nov(?:ember)? 12, 2026/,'yesterday'),config,now));
+ }
+});

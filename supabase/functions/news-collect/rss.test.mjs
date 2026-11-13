@@ -95,3 +95,7 @@ test('all entries within bounded feed are considered, without first100 or20 cuto
  const feed='<rss><channel>'+Array.from({length:125},(_,i)=>item.replace('release1','release'+i).replace('/news','/news'+i)).join('')+'</channel></rss>';
  assert.equal(rss.parseFeed(feed,{},now).length,125);
 });
+
+test('fake CDATA in invalid attributes cannot bypass DTD rejection',()=>{
+ for(const value of ['<![CDATA[','> <![CDATA['])assert.throws(()=>rss.parseFeed('<fake x="'+value+'"/><!DOCTYPE rss [<!ENTITY injected "expanded">]><!-- ]]> -->'+xml,{},now));
+});

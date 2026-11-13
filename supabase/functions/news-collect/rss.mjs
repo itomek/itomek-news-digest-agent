@@ -15,7 +15,17 @@ function hasDeclaration(xml){
   if(xml.startsWith('<!--',pos)){end=xml.indexOf('-->',pos+4);if(end<0)return true;pos=end+3;}
   else if(xml.startsWith('<![CDATA[',pos)){end=xml.indexOf(']]>',pos+9);if(end<0)return true;pos=end+3;}
   else if(xml.startsWith('<?',pos)){end=xml.indexOf('?>',pos+2);if(end<0)return true;pos=end+2;}
-  else {if(/^<!DOCTYPE|^<!ENTITY/i.test(xml.slice(pos,pos+10)))return true;pos++;}
+  else {
+   if(/^<!DOCTYPE|^<!ENTITY/i.test(xml.slice(pos,pos+10)))return true;
+   let quote=null,closed=false;
+   for(pos++;pos<xml.length;pos++){
+    const ch=xml[pos];if(ch==='<')return true; // illegal in XML attributes too
+    if(quote){if(ch===quote)quote=null;}
+    else if(ch==='"'||ch==="'")quote=ch;
+    else if(ch==='>'){pos++;closed=true;break;}
+   }
+   if(!closed)return true;
+  }
  }
  return false;
 }

@@ -12,7 +12,9 @@ export function parseOfficialHTML(html,config,now=Date.now()){
   if(!blocks.length)throw Error('Official index layout changed');
   for(const match of blocks){
    const block=match[1]??match[2],date=block.match(/<time\b[^>]*>([^<]+)<\/time>/i)?.[1];
-   const link=[...block.matchAll(/<a\b[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)].find(m=>/<h[23]\b/i.test(m[2]));
+   let link=[...block.matchAll(/<a\b[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)].find(m=>/<h[23]\b/i.test(m[2]));
+   const heading=block.match(/<h[23]\b[^>]*>([\s\S]*?)<\/h[23]>/i)?.[1];
+   if(!link&&heading){const nested=heading.match(/<a\b[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);if(nested)link=[nested[0],nested[1],'<h3>'+nested[2]+'</h3>'];}
    if(!link||!date||!/^\/[a-z0-9][a-z0-9/-]*$/.test(link[1]))continue;
    items.push({url:'https://www.anthropic.com'+link[1],title:plain(link[2].match(/<h[23]\b[^>]*>([\s\S]*?)<\/h[23]>/i)?.[1]),summary:plain(block.match(/<p\b[^>]*>([^<]+)<\/p>/i)?.[1]),date});
   }

@@ -22,3 +22,8 @@ test('official HTML fetching has exact URL allowlist, bounds, no redirects and n
  await assert.rejects(()=>collectOfficialHTML(anth,async()=>new Response(article,{headers:{'content-type':'application/json'}}),now));
  assert.throws(()=>parseOfficialHTML('changed layout',anth,now));
 });
+
+test('Anthropic research accepts title headings wrapping the article anchor',()=>{
+ const html='<article><time>Nov 9, 2026</time><h3><a href="/research/electronics">Electronics design</a></h3><p>Working prototypes.</p></article>';
+ assert.equal(parseOfficialHTML(html,{...anth,url:'https://www.anthropic.com/research'},now)[0].text,'Electronics design\nWorking prototypes.');
+});

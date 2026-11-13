@@ -26,7 +26,7 @@ export function parseFeed(xml,config={},now=Date.now()){
  const entries=parsed.rss?.channel?.item??parsed.feed?.entry;
  if(entries===undefined)return [];
  const out=[];
- for(const e of array(entries).slice(0,100)){
+ for(const e of array(entries)){
  const link=typeof e.link==='string'?e.link:array(e.link).find(x=>!x['@_rel']||x['@_rel']==='alternate')?.['@_href'];
  const url=safe(link),published=Date.parse(e.pubDate??e.published??e.updated),title=plain(e.title);
  if(!url||!title||!Number.isFinite(published)||published>now+300000||published<now-7*86400000)continue;
@@ -36,7 +36,6 @@ export function parseFeed(xml,config={},now=Date.now()){
  const detail=plain(e.description??e.summary??e.content??e['content:encoded']);
  const text=[title,detail].filter(Boolean).join('\n').slice(0,18000);
  out.push({id:plain(e.guid??e.id)||url,url,text,author:config.label||'RSS source',publishedAt:new Date(published).toISOString(),visibility:'public'});
- if(out.length>=20)break;
  }
  return out;
 }

@@ -89,3 +89,9 @@ test('comment CDATA marker cannot conceal real XML DTD/entity declarations',()=>
  assert.throws(()=>rss.parseFeed(prefix+xml,{},now));
  assert.throws(()=>rss.parseFeed('<?fake <![CDATA[ ?><!DOCTYPE rss><!-- ]]> -->'+xml,{},now));
 });
+
+test('all entries within bounded feed are considered, without first100 or20 cutoff',()=>{
+ const item=xml.match(/<item>[\s\S]*?<\/item>/)[0];
+ const feed='<rss><channel>'+Array.from({length:125},(_,i)=>item.replace('release1','release'+i).replace('/news','/news'+i)).join('')+'</channel></rss>';
+ assert.equal(rss.parseFeed(feed,{},now).length,125);
+});

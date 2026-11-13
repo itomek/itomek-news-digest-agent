@@ -4,7 +4,7 @@ This is the human-readable companion to `supabase/functions/news-collect/initial
 
 ## Deployment status
 
-All 26 sources below are deployed in `news-collect` version 9 (November 13, 2026 UTC). Exact source roster and JWT authentication were verified by read-back. The first scheduled collection with the expanded roster is still pending; cloud retrieval results may differ from the successful source validation. The repository `index.ts` retains its empty-roster deployment safety lock; the approved deployment bundle loads `initial-sources.json`.
+All 26 sources below are deployed in `news-collect` version 9 (November 13, 2026 UTC). Exact source roster and JWT authentication were verified by read-back. The 01:17 UTC scheduled collection returned HTTP 200 and all 26 sources reported successful retrieval; seven low-frequency feeds had no recent entries. The repository `index.ts` retains its empty-roster deployment safety lock; the approved deployment bundle loads `initial-sources.json`.
 
 ## Existing active sources
 
@@ -47,6 +47,15 @@ HN is a discovery signal, not a primary source: scans the top 20 stories, requir
 These exact URLs returned HTTP 200 with redirects disabled on November 13, 2026 UTC. The collector rejects unknown destinations, redirects, DTD/entities, invalid XML, unsafe item links and responses over 1 MB. Mistral serves valid RSS as `text/plain`; only its exact URL has a MIME exception, with the same XML/size safeguards. OpenAI, vLLM and MLX feeds are approaching the size ceiling and can fail closed if they grow.
 
 Roster is capped at 32 sources, three workers at a time with the single slower HN scan started first, max 20 items/feed, a seven-day discovery ceiling and at most one HN selection. The live cron HTTP timeout is 120 seconds; the bounded worst-case network/persistence envelope is approximately 106 seconds. A source failure is isolated and reported; it does not approve or publish anything. GitHub release dates can be update dates: the curator must verify the actual release date and meaningful change. Skip nightly builds, RCs and patch-only noise unless a genuinely consequential change warrants coverage. Local feeds are low-frequency and may return zero recent entries; they are not complete Upper Bucks coverage. Political items are excluded by the editorial contract.
+
+## Public newsletter publisher expansion (pending deployment)
+
+Two public feeds from publishers already present in the secondary newsletter mailbox are included in the next collector roster. No email bodies, recipient data or personalized tracking links are copied into evidence.
+
+- [The Verge RSS](https://www.theverge.com/rss/index.xml)
+- [MIT Technology Review RSS](https://www.technologyreview.com/feed/)
+
+Both passed strict retrieval and parser validation. Select only meaningful AI, compute, developer, product and major company developments; general coverage is not blanket permission to post everything. Other newsletter feeds remain conditional: some Substack/TechCrunch endpoints intermittently return 403; Latent Space exceeds the current 1 MB cap. These are not enabled or bypassed.
 
 ## Not connected / remaining gaps
 

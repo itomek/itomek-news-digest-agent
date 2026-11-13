@@ -221,5 +221,21 @@
       "url": "https://buckslib.org/feed/",
       "label": "Bucks County Free Library"
     }
+  },
+  {
+    "id": "verge_news",
+    "adapter": "rss",
+    "config": {
+      "url": "https://www.theverge.com/rss/index.xml",
+      "label": "The Verge"
+    }
+  },
+  {
+    "id": "mit_tech_review",
+    "adapter": "rss",
+    "config": {
+      "url": "https://www.technologyreview.com/feed/",
+      "label": "MIT Technology Review"
+    }
   }
 ]

@@ -197,3 +197,7 @@ See [`docs/architecture.md`](docs/architecture.md) for the full design spec — 
 ## License
 
 MIT
+
+## Warp Core news sources
+
+See the [source directory](docs/warpcore-sources.md) for direct RSS/Atom links, active versus planned coverage, and current limitations.

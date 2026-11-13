@@ -4,3 +4,8 @@ test('unconfigured endpoint is idle without network or persistence',async()=>{as
 test('rejects unauthenticated requests before collection',async()=>{const r=await h.handle(req(),{},{});assert.equal(r.status,401);});
 test('selected adapter feeds generic persistence without publishing',async()=>{let saved;const r=await h.handle(req(),{WARPCORE_CRON_TOKEN:token,NEWS_SOURCE_CONFIG:JSON.stringify([{id:'test',adapter:'fixture'}])},{fixture:{collect:async()=>[{id:'1',text:'release',url:'https://example.com',publishedAt:'2026-11-12',visibility:'public'}]}},async c=>{saved=c;return c.length;});assert.equal(r.status,200);assert.equal(saved[0].source_id,'test');assert.equal((await r.json()).publishing_enabled,false);});
 test('all-source failure is not successful empty collection',async()=>{const r=await h.handle(req(),{WARPCORE_CRON_TOKEN:token,NEWS_SOURCE_CONFIG:'[{"id":"x","adapter":"unknown"}]'},{});assert.equal(r.status,502);});
+test('accepts bounded expanded roster while retaining authentication and review-only mode',async()=>{
+ const sources=Array.from({length:24},(_,i)=>({id:`s${i}`,adapter:'rss'}));
+ const r=await h.handle(req(),{WARPCORE_CRON_TOKEN:token,NEWS_SOURCE_CONFIG:JSON.stringify(sources)},{rss:{collect:async()=>[]}},async()=>0);
+ assert.equal(r.status,200);assert.equal((await r.json()).publishing_enabled,false);
+});

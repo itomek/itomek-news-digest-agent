@@ -1,10 +1,225 @@
 [
- {"id":"amd_press_releases","adapter":"rss","config":{"url":"https://ir.amd.com/news-events/press-releases/rss","label":"AMD News Releases"}},
- {"id":"motorsport_f1_selected_teams","adapter":"rss","config":{"url":"https://www.motorsport.com/rss/f1/news/","label":"Motorsport F1 (Haas, Cadillac, Mercedes discovery)"}},
- {"id":"nvidia_blog","adapter":"rss","config":{"url":"https://blogs.nvidia.com/feed/","label":"NVIDIA Blog"}},
- {"id":"supabase_blog","adapter":"rss","config":{"url":"https://supabase.com/rss.xml","label":"Supabase Blog"}},
- {"id":"firebase_blog","adapter":"rss","config":{"url":"https://firebase.blog/rss.xml","label":"Firebase Blog"}},
- {"id":"apple_newsroom","adapter":"rss","config":{"url":"https://www.apple.com/newsroom/rss-feed.rss","label":"Apple Newsroom"}},
- {"id":"pensburgh","adapter":"rss","config":{"url":"https://www.pensburgh.com/rss/index.xml","label":"PensBurgh (independent Penguins coverage)"}},
- {"id":"hn_discovery","adapter":"hn","config":{"terms":["agent","LLM","AI model","inference","AMD","Nvidia","Intel","Arm chip","Supabase","Firebase","Omarchy"],"minScore":100,"minComments":30,"maxItems":20,"maxAgeHours":48}}
+  {
+    "id": "amd_press_releases",
+    "adapter": "rss",
+    "config": {
+      "url": "https://ir.amd.com/news-events/press-releases/rss",
+      "label": "AMD News Releases"
+    }
+  },
+  {
+    "id": "motorsport_f1_selected_teams",
+    "adapter": "rss",
+    "config": {
+      "url": "https://www.motorsport.com/rss/f1/news/",
+      "label": "Motorsport F1 (Haas, Cadillac, Mercedes discovery)"
+    }
+  },
+  {
+    "id": "nvidia_blog",
+    "adapter": "rss",
+    "config": {
+      "url": "https://blogs.nvidia.com/feed/",
+      "label": "NVIDIA Blog"
+    }
+  },
+  {
+    "id": "supabase_blog",
+    "adapter": "rss",
+    "config": {
+      "url": "https://supabase.com/rss.xml",
+      "label": "Supabase Blog"
+    }
+  },
+  {
+    "id": "firebase_blog",
+    "adapter": "rss",
+    "config": {
+      "url": "https://firebase.blog/rss.xml",
+      "label": "Firebase Blog"
+    }
+  },
+  {
+    "id": "apple_newsroom",
+    "adapter": "rss",
+    "config": {
+      "url": "https://www.apple.com/newsroom/rss-feed.rss",
+      "label": "Apple Newsroom"
+    }
+  },
+  {
+    "id": "pensburgh",
+    "adapter": "rss",
+    "config": {
+      "url": "https://www.pensburgh.com/rss/index.xml",
+      "label": "PensBurgh (independent Penguins coverage)"
+    }
+  },
+  {
+    "id": "hn_discovery",
+    "adapter": "hn",
+    "config": {
+      "terms": [
+        "agent",
+        "LLM",
+        "AI model",
+        "inference",
+        "AMD",
+        "Nvidia",
+        "Intel",
+        "Arm chip",
+        "Supabase",
+        "Firebase",
+        "Omarchy"
+      ],
+      "minScore": 100,
+      "minComments": 30,
+      "maxItems": 20,
+      "maxAgeHours": 48
+    }
+  },
+  {
+    "id": "openai_news",
+    "adapter": "rss",
+    "config": {
+      "url": "https://openai.com/news/rss.xml",
+      "label": "OpenAI News"
+    }
+  },
+  {
+    "id": "google_ai",
+    "adapter": "rss",
+    "config": {
+      "url": "https://blog.google/innovation-and-ai/technology/ai/rss/",
+      "label": "Google AI"
+    }
+  },
+  {
+    "id": "deepmind_blog",
+    "adapter": "rss",
+    "config": {
+      "url": "https://deepmind.google/blog/rss.xml",
+      "label": "Google DeepMind"
+    }
+  },
+  {
+    "id": "mistral_news",
+    "adapter": "rss",
+    "config": {
+      "url": "https://mistral.ai/news/rss",
+      "label": "Mistral News"
+    }
+  },
+  {
+    "id": "rocm_blog",
+    "adapter": "rss",
+    "config": {
+      "url": "https://rocm.blogs.amd.com/blog/atom.xml",
+      "label": "AMD ROCm Blog"
+    }
+  },
+  {
+    "id": "huggingface_blog",
+    "adapter": "rss",
+    "config": {
+      "url": "https://huggingface.co/blog/feed.xml",
+      "label": "Hugging Face Blog"
+    }
+  },
+  {
+    "id": "lemonade_releases",
+    "adapter": "rss",
+    "config": {
+      "url": "https://github.com/lemonade-sdk/lemonade/releases.atom",
+      "label": "Lemonade Releases"
+    }
+  },
+  {
+    "id": "rocm_therock_releases",
+    "adapter": "rss",
+    "config": {
+      "url": "https://github.com/ROCm/TheRock/releases.atom",
+      "label": "ROCm TheRock Releases"
+    }
+  },
+  {
+    "id": "llamacpp_releases",
+    "adapter": "rss",
+    "config": {
+      "url": "https://github.com/ggml-org/llama.cpp/releases.atom",
+      "label": "llama.cpp Releases"
+    }
+  },
+  {
+    "id": "vllm_releases",
+    "adapter": "rss",
+    "config": {
+      "url": "https://github.com/vllm-project/vllm/releases.atom",
+      "label": "vLLM Releases"
+    }
+  },
+  {
+    "id": "ollama_releases",
+    "adapter": "rss",
+    "config": {
+      "url": "https://github.com/ollama/ollama/releases.atom",
+      "label": "Ollama Releases"
+    }
+  },
+  {
+    "id": "mlx_releases",
+    "adapter": "rss",
+    "config": {
+      "url": "https://github.com/ml-explore/mlx/releases.atom",
+      "label": "Apple MLX Releases"
+    }
+  },
+  {
+    "id": "dotnet_blog",
+    "adapter": "rss",
+    "config": {
+      "url": "https://devblogs.microsoft.com/dotnet/feed/",
+      "label": "Microsoft .NET Blog"
+    }
+  },
+  {
+    "id": "visualstudio_blog",
+    "adapter": "rss",
+    "config": {
+      "url": "https://devblogs.microsoft.com/visualstudio/feed/",
+      "label": "Microsoft Visual Studio Blog"
+    }
+  },
+  {
+    "id": "arm_newsroom",
+    "adapter": "rss",
+    "config": {
+      "url": "https://newsroom.arm.com/feed",
+      "label": "Arm Newsroom"
+    }
+  },
+  {
+    "id": "omarchy_news",
+    "adapter": "rss",
+    "config": {
+      "url": "https://omarchy.org/news/rss.xml",
+      "label": "Omarchy News"
+    }
+  },
+  {
+    "id": "milford_local",
+    "adapter": "rss",
+    "config": {
+      "url": "https://milfordtownship.org/feed/",
+      "label": "Milford Township"
+    }
+  },
+  {
+    "id": "buckslib_local",
+    "adapter": "rss",
+    "config": {
+      "url": "https://buckslib.org/feed/",
+      "label": "Bucks County Free Library"
+    }
+  }
 ]

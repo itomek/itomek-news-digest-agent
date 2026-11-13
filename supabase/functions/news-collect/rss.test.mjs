@@ -49,3 +49,14 @@ test('selected F1 teams do not admit merchandise or lifestyle headlines',()=>{
 test('selected team financial and acquisition news is not mistaken for merchandise',()=>{
  for(const title of ['Mercedes responds to cost cap ruling','Haas team sale confirmed','Cadillac to buy technical supplier'])assert.equal(rss.parseFeed(titled(title),{url:motorsport},now).length,1,title);
 });
+test('expanded official feeds remain exact allowlisted destinations',async()=>{
+ for(const url of ['https://openai.com/news/rss.xml','https://devblogs.microsoft.com/dotnet/feed/','https://github.com/vllm-project/vllm/releases.atom','https://milfordtownship.org/feed/']){
+  const rows=await rss.collectRSS({url,label:'Official'},async()=>new Response(xml,{headers:{'content-type':'application/xml'}}),now);assert.equal(rows.length,1);
+ }
+});
+test('Mistral text/plain exception still requires valid bounded XML and is not global',async()=>{
+ const config={url:'https://mistral.ai/news/rss',label:'Mistral'};
+ assert.equal((await rss.collectRSS(config,async()=>new Response(xml,{headers:{'content-type':'text/plain'}}),now)).length,1);
+ await assert.rejects(()=>rss.collectRSS(config,async()=>new Response('<html>Not a feed',{headers:{'content-type':'text/plain'}}),now));
+ await assert.rejects(()=>rss.collectRSS({url:'https://blogs.nvidia.com/feed/',label:'NVIDIA'},async()=>new Response(xml,{headers:{'content-type':'text/plain'}}),now));
+});

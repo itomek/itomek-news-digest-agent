@@ -1,10 +1,11 @@
 // Source-neutral review queue contract. Adapters are trusted code, not names/URLs
 // supplied in an HTTP request. No publishing or model calls occur in this module.
+export const MAX_SOURCES=32;
 export async function runAdapters(selections, registry) {
-  if (!Array.isArray(selections) || selections.length > 10) throw new Error('Invalid source selection');
+  if (!Array.isArray(selections) || selections.length > MAX_SOURCES) throw new Error('Invalid source selection');
   if(selections.filter(s=>s?.adapter==='hn').length>1)throw new Error('One HN discovery selection per run');
   const candidates=[], sources=[];
-  for (const selection of selections) {
+  const collectOne=async selection=>{
     try {
       if (!/^[a-z0-9_-]{1,64}$/i.test(selection.id) || !/^[a-z0-9_-]{1,32}$/i.test(selection.adapter)) throw new Error('Invalid adapter identity');
       const adapter=Object.hasOwn(registry,selection.adapter) && registry[selection.adapter];
@@ -28,8 +29,16 @@ export async function runAdapters(selections, registry) {
           native_uri:item.nativeUri ?? null,native_url:nativeUrl,
           status:'unverified_review_required'};
       });
-      candidates.push(...batch); sources.push({id:selection.id,status:'ok',count:batch.length});
-    } catch { sources.push({id:selection?.id ?? 'invalid',status:'error'}); }
-  }
+      return {batch,source:{id:selection.id,status:'ok',count:batch.length}};
+    } catch { return {batch:[],source:{id:selection?.id ?? 'invalid',status:'error'}}; }
+  };
+  // Start the single slow HN scan first so it overlaps feed requests. Three
+  // workers bound concurrency; output remains in the original roster order.
+  const queue=selections.map((selection,index)=>({selection,index}));
+  queue.sort((a,b)=>Number(b.selection?.adapter==='hn')-Number(a.selection?.adapter==='hn'));
+  const results=new Array(selections.length);let cursor=0;
+  const worker=async()=>{while(cursor<queue.length){const {selection,index}=queue[cursor++];results[index]=await collectOne(selection);}};
+  await Promise.all(Array.from({length:Math.min(3,queue.length)},worker));
+  for(const {batch,source} of results){candidates.push(...batch);sources.push(source);}
   return {candidates,sources,publishing_enabled:false};
 }

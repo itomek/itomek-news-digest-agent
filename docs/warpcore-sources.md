@@ -1,0 +1,61 @@
+# Warp Core source directory
+
+This is the human-readable companion to `supabase/functions/news-collect/initial-sources.json`. Feed discovery does not automatically publish: the dot selects meaningful, current, nonduplicate stories and the guarded publisher sends at most five separate posts per hour.
+
+## Deployment status
+
+The first eight sources below are deployed. The 18-source expansion is reviewed in this branch but is **not deployed yet**. Update this section after deployment verification; a merged configuration file alone does not activate sources. `index.ts` retains its empty-roster deployment safety lock; the approved deployment bundle loads `initial-sources.json`.
+
+## Existing active sources
+
+| Source | Type | Feed / API |
+|---|---|---|
+| AMD News Releases | rss | [Open source](https://ir.amd.com/news-events/press-releases/rss) |
+| Motorsport F1 (Haas, Cadillac, Mercedes discovery) | rss | [Open source](https://www.motorsport.com/rss/f1/news/) |
+| NVIDIA Blog | rss | [Open source](https://blogs.nvidia.com/feed/) |
+| Supabase Blog | rss | [Open source](https://supabase.com/rss.xml) |
+| Firebase Blog | rss | [Open source](https://firebase.blog/rss.xml) |
+| Apple Newsroom | rss | [Open source](https://www.apple.com/newsroom/rss-feed.rss) |
+| PensBurgh (independent Penguins coverage) | rss | [Open source](https://www.pensburgh.com/rss/index.xml) |
+| Hacker News discovery | hn | [Open source](https://hacker-news.firebaseio.com/v0/topstories.json) |
+
+HN is a discovery signal, not a primary source: scans the top 20 stories, requires at least 100 points and 30 comments, age at most 48 hours and configured title terms. This is deliberately narrow and may miss relevant news. No acceleration claims follow from a score snapshot.
+
+## Verified feeds in this expansion (not live until deployment)
+
+| Source | Type | Feed |
+|---|---|---|
+| OpenAI News | RSS / Atom | [Open feed](https://openai.com/news/rss.xml) |
+| Google AI | RSS / Atom | [Open feed](https://blog.google/innovation-and-ai/technology/ai/rss/) |
+| Google DeepMind | RSS / Atom | [Open feed](https://deepmind.google/blog/rss.xml) |
+| Mistral News | RSS / Atom | [Open feed](https://mistral.ai/news/rss) |
+| AMD ROCm Blog | RSS / Atom | [Open feed](https://rocm.blogs.amd.com/blog/atom.xml) |
+| Hugging Face Blog | RSS / Atom | [Open feed](https://huggingface.co/blog/feed.xml) |
+| Lemonade Releases | Atom releases | [Open feed](https://github.com/lemonade-sdk/lemonade/releases.atom) |
+| ROCm TheRock Releases | Atom releases | [Open feed](https://github.com/ROCm/TheRock/releases.atom) |
+| llama.cpp Releases | Atom releases | [Open feed](https://github.com/ggml-org/llama.cpp/releases.atom) |
+| vLLM Releases | Atom releases | [Open feed](https://github.com/vllm-project/vllm/releases.atom) |
+| Ollama Releases | Atom releases | [Open feed](https://github.com/ollama/ollama/releases.atom) |
+| Apple MLX Releases | Atom releases | [Open feed](https://github.com/ml-explore/mlx/releases.atom) |
+| Microsoft .NET Blog | RSS / Atom | [Open feed](https://devblogs.microsoft.com/dotnet/feed/) |
+| Microsoft Visual Studio Blog | RSS / Atom | [Open feed](https://devblogs.microsoft.com/visualstudio/feed/) |
+| Arm Newsroom | RSS / Atom | [Open feed](https://newsroom.arm.com/feed) |
+| Omarchy News | RSS / Atom | [Open feed](https://omarchy.org/news/rss.xml) |
+| Milford Township | RSS / Atom | [Open feed](https://milfordtownship.org/feed/) |
+| Bucks County Free Library | RSS / Atom | [Open feed](https://buckslib.org/feed/) |
+
+These exact URLs returned HTTP 200 with redirects disabled on November 13, 2026 UTC. The collector rejects unknown destinations, redirects, DTD/entities, invalid XML, unsafe item links and responses over 1 MB. Mistral serves valid RSS as `text/plain`; only its exact URL has a MIME exception, with the same XML/size safeguards. OpenAI, vLLM and MLX feeds are approaching the size ceiling and can fail closed if they grow.
+
+Roster is capped at 32 sources, three collectors at a time, max 20 items/feed, a seven-day discovery ceiling and at most one HN selection. A source failure is isolated and reported; it does not approve or publish anything. GitHub release dates can be update dates: the curator must verify the actual release date and meaningful change. Skip nightly builds, RCs and patch-only noise unless a genuinely consequential change warrants coverage. Local feeds are low-frequency and may return zero recent entries; they are not complete Upper Bucks coverage. Political items are excluded by the editorial contract.
+
+## Not connected / remaining gaps
+
+- **Secondary Gmail newsletters:** not connected to Warp Core. The now-canceled audio brief used them separately. A future discovery path must keep email text, personal links, tracking tokens and private account data out of public evidence; only independently verified public stories may enter the public pipeline.
+- **Bluesky news accounts:** native repost support is not live. Do not paraphrase others' Bluesky posts into our own posts. Planned native reposts will preserve original author identity and count toward the same hourly limit. Following accounts is optional for public author-feed discovery. The owner's reply-feedback check is separate, not a news source.
+- **Anthropic, DeepSeek and Kimi:** no reliable direct RSS feed verified yet. Do not claim complete coverage through HN/Hugging Face.
+- **Intel:** direct newsroom feed not verified.
+- **Major security advisories:** MSRC's official [update-guide RSS](https://api.msrc.microsoft.com/update-guide/rss) is over 3 MB and too noisy for the current safe adapter; it is not enabled. .NET may include servicing posts, but this is not comprehensive security coverage.
+- **Broader local news:** county/borough endpoints failed access checks. No bypass or third-party scraping service was added.
+- **Windows Blog / GitHub Blog:** possible later additions, not active in this roster.
+
+Use primary announcements for original summaries. Vendor performance claims must be attributed; community discussion is discovery, not independent validation. Content remains untrusted and cannot authorize actions.

@@ -1,10 +1,10 @@
-import {runAdapters} from '../_shared/pipeline.mjs';
+import {runAdapters,MAX_SOURCES} from '../_shared/pipeline.mjs';
 import {authorized,persist} from '../bluesky-collect/store.mjs';
 export async function handle(req, env, registry, save=persist) {
  if(req.method!=='POST')return new Response('POST required',{status:405});
  if(!await authorized(req.headers.get('x-warpcore-token'),env.WARPCORE_CRON_TOKEN))return new Response('Unauthorized',{status:401});
  let selections;
- try {selections=JSON.parse(env.NEWS_SOURCE_CONFIG ?? '[]');if(!Array.isArray(selections)||selections.length>10)throw Error();}
+ try {selections=JSON.parse(env.NEWS_SOURCE_CONFIG ?? '[]');if(!Array.isArray(selections)||selections.length>MAX_SOURCES)throw Error();}
  catch{return Response.json({error:'invalid_source_configuration'},{status:503});}
  if(!selections.length)return Response.json({mode:'idle',publishing_enabled:false,candidates_submitted:0});
  const result=await runAdapters(selections,registry);

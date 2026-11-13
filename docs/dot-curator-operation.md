@@ -1,4 +1,9 @@
-# Dot-curated Warpcore operation (inactive proposal)
+# Dot-curated Warpcore operation (historical proposal)
+
+> This document records the original pre-launch proposal, not the live runbook.
+> For current candidate discovery use [full paginated review](warpcore-full-review.md);
+> publication batching and native repost behavior are documented in
+> [hourly batches](warpcore-hourly-batches.md) and [native reposts](warpcore-native-reposts.md).
 
 The owner delegates editorial review to dot, not to a per-story owner approval
 screen. Collection, persistence, outbox validation and publication stay in

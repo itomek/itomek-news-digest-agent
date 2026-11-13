@@ -2,13 +2,26 @@ import {XMLParser,XMLValidator} from 'fast-xml-parser';
 // Reviewed public publisher destinations only; no arbitrary DNS names or redirects.
 const MOTORSPORT_F1='https://www.motorsport.com/rss/f1/news/';
 const F1_FEEDS=new Set([MOTORSPORT_F1,'https://www.the-race.com/rss/']);
-const FEEDS=new Set(["https://www.intc.com/news-events/press-releases/rss","https://pytorch.org/blog/feed/","https://github.com/anthropics/claude-code/releases.atom","https://www.servethehome.com/feed/","https://www.techpowerup.com/rss/news","https://www.the-race.com/rss/",'https://ir.amd.com/news-events/press-releases/rss',MOTORSPORT_F1,'https://blogs.nvidia.com/feed/','https://supabase.com/rss.xml','https://firebase.blog/rss.xml','https://github.blog/feed/','https://newsroom.arm.com/feed','https://www.apple.com/newsroom/rss-feed.rss','https://www.pensburgh.com/rss/index.xml','https://www.formula1.com/en/latest/all.xml',"https://openai.com/news/rss.xml","https://blog.google/innovation-and-ai/technology/ai/rss/","https://deepmind.google/blog/rss.xml","https://mistral.ai/news/rss","https://rocm.blogs.amd.com/blog/atom.xml","https://huggingface.co/blog/feed.xml","https://github.com/lemonade-sdk/lemonade/releases.atom","https://github.com/ROCm/TheRock/releases.atom","https://github.com/ggml-org/llama.cpp/releases.atom","https://github.com/vllm-project/vllm/releases.atom","https://github.com/ollama/ollama/releases.atom","https://github.com/ml-explore/mlx/releases.atom","https://devblogs.microsoft.com/dotnet/feed/","https://devblogs.microsoft.com/visualstudio/feed/","https://newsroom.arm.com/feed","https://omarchy.org/news/rss.xml","https://milfordtownship.org/feed/","https://buckslib.org/feed/",'https://www.theverge.com/rss/index.xml','https://www.technologyreview.com/feed/']);
+const FEEDS=new Set(['https://research.google/blog/rss/',"https://www.intc.com/news-events/press-releases/rss","https://pytorch.org/blog/feed/","https://github.com/anthropics/claude-code/releases.atom","https://www.servethehome.com/feed/","https://www.techpowerup.com/rss/news","https://www.the-race.com/rss/",'https://ir.amd.com/news-events/press-releases/rss',MOTORSPORT_F1,'https://blogs.nvidia.com/feed/','https://supabase.com/rss.xml','https://firebase.blog/rss.xml','https://github.blog/feed/','https://newsroom.arm.com/feed','https://www.apple.com/newsroom/rss-feed.rss','https://www.pensburgh.com/rss/index.xml','https://www.formula1.com/en/latest/all.xml',"https://openai.com/news/rss.xml","https://blog.google/innovation-and-ai/technology/ai/rss/","https://deepmind.google/blog/rss.xml","https://mistral.ai/news/rss","https://rocm.blogs.amd.com/blog/atom.xml","https://huggingface.co/blog/feed.xml","https://github.com/lemonade-sdk/lemonade/releases.atom","https://github.com/ROCm/TheRock/releases.atom","https://github.com/ggml-org/llama.cpp/releases.atom","https://github.com/vllm-project/vllm/releases.atom","https://github.com/ollama/ollama/releases.atom","https://github.com/ml-explore/mlx/releases.atom","https://devblogs.microsoft.com/dotnet/feed/","https://devblogs.microsoft.com/visualstudio/feed/","https://newsroom.arm.com/feed","https://omarchy.org/news/rss.xml","https://milfordtownship.org/feed/","https://buckslib.org/feed/",'https://www.theverge.com/rss/index.xml','https://www.technologyreview.com/feed/']);
 const array=v=>v===undefined?[]:Array.isArray(v)?v:[v];
 const plain=v=>String(typeof v==='object'?v?.['#text']??'':v??'').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();
 function safe(raw){try{const u=new URL(raw);if(u.protocol!=='https:'||u.username||u.password||u.port||!u.hostname.includes('.')||/^\d|localhost|\.local$/.test(u.hostname)||u.hostname.startsWith('['))return null;return u.toString();}catch{return null;}}
+// Lexical scan distinguishes XML markup from inert comments/CDATA/PI. Never
+// remove overlapping regex regions: a comment can contain a fake CDATA opener.
+function hasDeclaration(xml){
+ let pos=0;
+ while((pos=xml.indexOf('<',pos))!==-1){
+  let end;
+  if(xml.startsWith('<!--',pos)){end=xml.indexOf('-->',pos+4);if(end<0)return true;pos=end+3;}
+  else if(xml.startsWith('<![CDATA[',pos)){end=xml.indexOf(']]>',pos+9);if(end<0)return true;pos=end+3;}
+  else if(xml.startsWith('<?',pos)){end=xml.indexOf('?>',pos+2);if(end<0)return true;pos=end+2;}
+  else {if(/^<!DOCTYPE|^<!ENTITY/i.test(xml.slice(pos,pos+10)))return true;pos++;}
+ }
+ return false;
+}
 // Feed URLs are trusted configuration, never taken from request bodies or items.
 export function parseFeed(xml,config={},now=Date.now()){
- if(typeof xml!=='string'||new TextEncoder().encode(xml).length>1000000||/<!DOCTYPE|<!ENTITY/i.test(xml)||XMLValidator.validate(xml)!==true)throw Error('Unsafe or invalid XML');
+ if(typeof xml!=='string'||new TextEncoder().encode(xml).length>1000000||hasDeclaration(xml)||XMLValidator.validate(xml)!==true)throw Error('Unsafe or invalid XML');
  const parsed=new XMLParser({ignoreAttributes:false,parseTagValue:false,processEntities:true}).parse(xml);
  const entries=parsed.rss?.channel?.item??parsed.feed?.entry;
  if(entries===undefined)return [];

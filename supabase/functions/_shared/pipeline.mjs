@@ -1,7 +1,7 @@
 import {repostSubject} from './repost.mjs';
 // Source-neutral review queue contract. Adapters are trusted code, not names/URLs
 // supplied in an HTTP request. No publishing or model calls occur in this module.
-export const MAX_SOURCES=40;
+export const MAX_SOURCES=48;
 export async function runAdapters(selections, registry) {
   if (!Array.isArray(selections) || selections.length > MAX_SOURCES) throw new Error('Invalid source selection');
   if(selections.filter(s=>s?.adapter==='hn').length>1)throw new Error('One HN discovery selection per run');
@@ -34,13 +34,13 @@ export async function runAdapters(selections, registry) {
       return {batch,source:{id:selection.id,status:'ok',count:batch.length}};
     } catch { return {batch:[],source:{id:selection?.id ?? 'invalid',status:'error'}}; }
   };
-  // Start the single slow HN scan first so it overlaps feed requests. Four
+  // Start the single slow HN scan first so it overlaps feed requests. Five
   // workers bound concurrency; output remains in the original roster order.
   const queue=selections.map((selection,index)=>({selection,index}));
   queue.sort((a,b)=>Number(b.selection?.adapter==='hn')-Number(a.selection?.adapter==='hn'));
   const results=new Array(selections.length);let cursor=0;
   const worker=async()=>{while(cursor<queue.length){const {selection,index}=queue[cursor++];results[index]=await collectOne(selection);}};
-  await Promise.all(Array.from({length:Math.min(4,queue.length)},worker));
+  await Promise.all(Array.from({length:Math.min(5,queue.length)},worker));
   for(const {batch,source} of results){candidates.push(...batch);sources.push(source);}
   return {candidates,sources,publishing_enabled:false};
 }

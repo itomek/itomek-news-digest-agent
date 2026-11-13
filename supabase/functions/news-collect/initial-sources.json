@@ -453,5 +453,45 @@
         "acquisition"
       ]
     }
+  },
+  {
+    "id": "github_blog",
+    "adapter": "rss",
+    "config": {
+      "url": "https://github.blog/feed/",
+      "label": "GitHub Blog"
+    }
+  },
+  {
+    "id": "google_research",
+    "adapter": "rss",
+    "config": {
+      "url": "https://research.google/blog/rss/",
+      "label": "Google Research"
+    }
+  },
+  {
+    "id": "anthropic_news",
+    "adapter": "official_html",
+    "config": {
+      "url": "https://www.anthropic.com/news",
+      "label": "Anthropic News"
+    }
+  },
+  {
+    "id": "anthropic_research",
+    "adapter": "official_html",
+    "config": {
+      "url": "https://www.anthropic.com/research",
+      "label": "Anthropic Research"
+    }
+  },
+  {
+    "id": "perplexity_blog",
+    "adapter": "official_html",
+    "config": {
+      "url": "https://www.perplexity.ai/hub/blog",
+      "label": "Perplexity Blog"
+    }
   }
 ]

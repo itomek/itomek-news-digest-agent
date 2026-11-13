@@ -73,10 +73,10 @@ Collection uses the public Bluesky author-feed API with pinned DIDs, a 24-hour w
 ## Not connected / remaining gaps
 
 - **Secondary Gmail newsletters:** not connected to Warp Core. The now-canceled audio brief used them separately. A future discovery path must keep email text, personal links, tracking tokens and private account data out of public evidence; only independently verified public stories may enter the public pipeline.
-- **Anthropic, DeepSeek and Kimi:** Claude Code release discovery is included, but no reliable direct company/model RSS feeds were verified. Anthropic's domain-verified Bluesky profile currently has no posts, so it is not configured. Do not claim complete model coverage through HN/Hugging Face.
+- **DeepSeek and Kimi:** no reliable direct company/model feeds verified. Anthropic now uses its official news and research indexes (see below), not its empty Bluesky profile. Do not claim complete model coverage through HN/Hugging Face.
 - **Major security advisories:** MSRC's official [update-guide RSS](https://api.msrc.microsoft.com/update-guide/rss) is over 3 MB and too noisy for the current safe adapter; it is not enabled. .NET may include servicing posts, but this is not comprehensive security coverage.
 - **Broader local news:** county/borough endpoints failed access checks. No bypass or third-party scraping service was added.
-- **Windows Blog:** access checks returned 403; not enabled or bypassed. GitHub Blog returned valid XML but includes a DOCTYPE token in article content, rejected by the existing conservative parser; not activated.
+- **Windows Blog:** access checks returned 403; not enabled or bypassed.
 - **SGLang:** release feed exceeds the current 1 MB ceiling; not enabled. LevittownNow is predominantly Lower Bucks, outside the local focus, so was not added.
 
 Programming coverage follows significance and relevance, not a rigid language whitelist. .NET is now lower priority: only major language/platform news for .NET, Python, TypeScript and JavaScript, not routine features, updates or security patches. Python, Rust and C++ are more relevant when there is an actual AI-development connection. A configured feed does not mean its routine posts will be published.
@@ -95,3 +95,11 @@ Use primary announcements for original summaries. Vendor performance claims must
 | The Race | https://www.the-race.com/rss/ | Haas/Cadillac/Mercedes title filter; skip lifestyle and merchandise |
 
 TechCrunch's domain-verified public Bluesky author feed supplies native-repost discovery without its blocked RSS endpoint. Its general business, political and sensitive stories remain excluded unless independently within approved scope; source membership is never blanket publication permission. No public follows, mailbox sources or publisher limits changed.
+
+## Frontier/company expansion (November 13)
+
+GitHub Blog (`https://github.blog/feed/`) and Google Research (`https://research.google/blog/rss/`) are collected directly via official RSS. Existing OpenAI News, Google AI and Google DeepMind feeds remain enabled.
+
+Anthropic News (`https://www.anthropic.com/news`), Anthropic Research (`https://www.anthropic.com/research`), and Perplexity Blog (`https://www.perplexity.ai/hub/blog`) use bounded, read-only official HTML indexes, not unofficial RSS mirrors. Only dated entries and same-origin article URLs are extracted. No script is executed, no article links are fetched during collection, and layout failures report a source error rather than invented entries. Full article verification remains mandatory before editorial approval.
+
+GitHub's HTML DOCTYPE text inside XML CDATA is now accepted as inert text; real XML DTD/entity declarations outside CDATA remain rejected. Response size, redirect denial, timeouts, dedicated authentication and review-only storage remain intact. The roster contains 43 sources; capacity is 48 with five bounded concurrent collectors (the slow HN scan starts first). This is resource scheduling, not an editorial selection limit. No publishing or editorial filters changed.

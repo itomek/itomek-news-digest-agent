@@ -60,3 +60,8 @@ test('Mistral text/plain exception still requires valid bounded XML and is not g
  await assert.rejects(()=>rss.collectRSS(config,async()=>new Response('<html>Not a feed',{headers:{'content-type':'text/plain'}}),now));
  await assert.rejects(()=>rss.collectRSS({url:'https://blogs.nvidia.com/feed/',label:'NVIDIA'},async()=>new Response(xml,{headers:{'content-type':'text/plain'}}),now));
 });
+test('public newsletter publisher feeds preserve attribution without mailbox content',async()=>{
+ for(const url of ['https://www.theverge.com/rss/index.xml','https://www.technologyreview.com/feed/']){
+  const rows=await rss.collectRSS({url,label:'Public publisher'},async()=>new Response(xml,{headers:{'content-type':'application/rss+xml'}}),now);assert.equal(rows.length,1);assert.equal(rows[0].author,'Public publisher');
+ }
+});

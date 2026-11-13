@@ -4,7 +4,7 @@ This is the human-readable companion to `supabase/functions/news-collect/initial
 
 ## Deployment status
 
-The first 31 sources are deployed and verified. This expansion prepares 38 configured sources: 34 RSS/Atom/Hacker News selections and four pinned Bluesky author feeds. The seven additions below passed public retrieval and parser checks on November 13, 2026; production deployment verification is pending. The repository `index.ts` retains its empty-roster deployment safety lock; the approved deployment bundle loads `initial-sources.json`. Native repost delivery is verified: the first Ars Technica repost is recorded as published, with its original subject preserved.
+Collector version 12 is deployed (November 13, 2026 UTC), with 38 configured sources: 34 RSS/Atom/Hacker News selections and four pinned Bluesky author feeds. The seven additions below passed public retrieval and parser checks on November 13, 2026; deployment read-back confirmed all 38 selections, exact source code and JWT authentication. The first scheduled collection of the expanded roster is pending at 16:17 UTC. The repository `index.ts` retains its empty-roster deployment safety lock; the approved deployment bundle loads `initial-sources.json`. Native repost delivery is verified: the first Ars Technica repost is recorded as published, with its original subject preserved.
 
 ## Existing active sources
 
@@ -59,7 +59,7 @@ Both passed strict retrieval and parser validation. Select only meaningful AI, c
 
 ## Selected native repost sources
 
-The expanded repository roster contains 38 selections: 34 RSS/Atom/HN sources plus these four public Bluesky author feeds. The native-mode migration, collector, curator and publisher are deployed. The first three feeds are already active; TechCrunch is included in this expansion. Native reposts preserve the original author and exact post, and count toward the same hourly limit.
+The expanded repository roster contains 38 selections: 34 RSS/Atom/HN sources plus these four public Bluesky author feeds. The native-mode migration, collector, curator and publisher are deployed. All four are enabled, with the expanded collector bundle verified by read-back; the first scheduled TechCrunch collection is pending. Native reposts preserve the original author and exact post, and count toward the same hourly limit.
 
 | Account | Profile | Pinned author DID |
 |---|---|---|

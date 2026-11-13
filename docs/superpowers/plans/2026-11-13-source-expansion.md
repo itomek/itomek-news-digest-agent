@@ -14,5 +14,6 @@
 ## Tasks
 - [x] Add failing roster, exact-destination, F1 filtering and four-worker/cap40 tests.
 - [x] Add six verified RSS feeds and TechCrunch pinned native source; update bounded scheduler.
-- [ ] Run local safety tests, update source docs, obtain independent review and CI.
-- [ ] Merge verified change; deploy only collector preserving its existing activation/auth; verify collected-source status.
+- [x] Run local safety tests, update source docs, obtain independent review and CI.
+- [x] Merge verified change; deploy only collector preserving its existing activation/auth; verify exact bundle read-back.
+- [ ] Confirm source results from the first scheduled collection at 16:17 UTC.

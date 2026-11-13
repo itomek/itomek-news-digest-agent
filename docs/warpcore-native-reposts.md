@@ -4,11 +4,11 @@ This feature preserves the original author and post using `app.bsky.feed.repost`
 
 ## Deployment status
 
-Deployed November 13, 2026 UTC: migration, collector, curator and publisher, with existing authentication and guards retained. The three pinned author feeds are enabled and retrieved successfully. The first Ars Technica native-repost decision was processed and prepared, but the publisher returned `429 hourly_limit_reached` from the existing hourly login guard before sending. Delivery awaits the next hour and authoritative record verification; no successful native repost is claimed yet.
+Deployed November 13, 2026 UTC: migration, collector, curator and publisher, with existing authentication and guards retained. The first Ars Technica native repost is now verified as published: `at://did:plc:pfq2p7n2oiiy2k4pv6xnsgdk/app.bsky.feed.repost/3n25tzkvo3csd`, preserving the [original Ars Technica post](https://bsky.app/profile/arstechnica.com/post/3n25fui3tpf2w). Collector version 12 adds TechCrunch as a fourth pinned author; the next scheduled collection will verify its production retrieval.
 
 ## Source identity
 
-A Bluesky source selection needs one verified handle in `actors`, a pinned DID in `actorDids` keyed by that handle, and relevance terms. The collector queries the pinned DID, accepts original posts only (not replies or existing reposts), and requires matching post URI, author DID and a canonical post CID. The source's native URI becomes the story key input; external links remain provenance, not identity. The configured roster contains Simon Willison, Ars Technica and The Register; all three are enabled after migration and worker deployment verification.
+A Bluesky source selection needs one verified handle in `actors`, a pinned DID in `actorDids` keyed by that handle, and relevance terms. The collector queries the pinned DID, accepts original posts only (not replies or existing reposts), and requires matching post URI, author DID and a canonical post CID. The source's native URI becomes the story key input; external links remain provenance, not identity. The configured roster contains Simon Willison, Ars Technica, The Register and TechCrunch; all four are enabled after migration and worker deployment verification.
 
 ## Editorial decision
 
@@ -20,7 +20,7 @@ The record contains only `$type`, `subject: {uri,cid}` and the persisted prepara
 
 Original posts and reposts share the same publication ledger, deterministic key generation, atomic five-attempt hourly budget, pessimistic uncertain state and exact read-back verification. Only two collection types are supported, never an arbitrary collection. Before a new repost write, the public Bluesky API must still return the exact original URI, CID and author; changed/deleted posts move to manual review without a write. A verification outage leaves the attempt uncertain, not automatically retried. Reconciliation looks up the correct record collection and never repeats a write.
 
-## Deployment sequence (completed through activation; first delivery verification pending)
+## Deployment sequence (completed, including first delivery verification)
 
 1. Verify code, SQL integration and concurrency checks, then merge the reviewed PR.
 2. Apply the additive native-reposts migration. It does not modify existing publication rows, candidate text, inbox records, guards, schedules, RLS or existing grants. Existing snapshots without native CID metadata have unchanged hashes. The new immutable validator is callable only by internal service_role/owner roles, not public clients.

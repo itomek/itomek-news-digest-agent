@@ -4,7 +4,7 @@ This is the human-readable companion to `supabase/functions/news-collect/initial
 
 ## Deployment status
 
-The first eight sources below are deployed. The 18-source expansion is reviewed in this branch but is **not deployed yet**. Update this section after deployment verification; a merged configuration file alone does not activate sources. `index.ts` retains its empty-roster deployment safety lock; the approved deployment bundle loads `initial-sources.json`.
+All 26 sources below are deployed in `news-collect` version 9 (November 13, 2026 UTC). Exact source roster and JWT authentication were verified by read-back. The first scheduled collection with the expanded roster is still pending; cloud retrieval results may differ from the successful source validation. The repository `index.ts` retains its empty-roster deployment safety lock; the approved deployment bundle loads `initial-sources.json`.
 
 ## Existing active sources
 
@@ -21,7 +21,7 @@ The first eight sources below are deployed. The 18-source expansion is reviewed 
 
 HN is a discovery signal, not a primary source: scans the top 20 stories, requires at least 100 points and 30 comments, age at most 48 hours and configured title terms. This is deliberately narrow and may miss relevant news. No acceleration claims follow from a score snapshot.
 
-## Verified feeds in this expansion (not live until deployment)
+## Newly deployed feeds
 
 | Source | Type | Feed |
 |---|---|---|
@@ -46,7 +46,7 @@ HN is a discovery signal, not a primary source: scans the top 20 stories, requir
 
 These exact URLs returned HTTP 200 with redirects disabled on November 13, 2026 UTC. The collector rejects unknown destinations, redirects, DTD/entities, invalid XML, unsafe item links and responses over 1 MB. Mistral serves valid RSS as `text/plain`; only its exact URL has a MIME exception, with the same XML/size safeguards. OpenAI, vLLM and MLX feeds are approaching the size ceiling and can fail closed if they grow.
 
-Roster is capped at 32 sources, three collectors at a time, max 20 items/feed, a seven-day discovery ceiling and at most one HN selection. A source failure is isolated and reported; it does not approve or publish anything. GitHub release dates can be update dates: the curator must verify the actual release date and meaningful change. Skip nightly builds, RCs and patch-only noise unless a genuinely consequential change warrants coverage. Local feeds are low-frequency and may return zero recent entries; they are not complete Upper Bucks coverage. Political items are excluded by the editorial contract.
+Roster is capped at 32 sources, three workers at a time with the single slower HN scan started first, max 20 items/feed, a seven-day discovery ceiling and at most one HN selection. The live cron HTTP timeout is 120 seconds; the bounded worst-case network/persistence envelope is approximately 106 seconds. A source failure is isolated and reported; it does not approve or publish anything. GitHub release dates can be update dates: the curator must verify the actual release date and meaningful change. Skip nightly builds, RCs and patch-only noise unless a genuinely consequential change warrants coverage. Local feeds are low-frequency and may return zero recent entries; they are not complete Upper Bucks coverage. Political items are excluded by the editorial contract.
 
 ## Not connected / remaining gaps
 
@@ -57,5 +57,7 @@ Roster is capped at 32 sources, three collectors at a time, max 20 items/feed, a
 - **Major security advisories:** MSRC's official [update-guide RSS](https://api.msrc.microsoft.com/update-guide/rss) is over 3 MB and too noisy for the current safe adapter; it is not enabled. .NET may include servicing posts, but this is not comprehensive security coverage.
 - **Broader local news:** county/borough endpoints failed access checks. No bypass or third-party scraping service was added.
 - **Windows Blog / GitHub Blog:** possible later additions, not active in this roster.
+
+Programming coverage follows significance and relevance, not a rigid language whitelist. .NET is now lower priority: only major language/platform news for .NET, Python, TypeScript and JavaScript, not routine features, updates or security patches. Python, Rust and C++ are more relevant when there is an actual AI-development connection. A configured feed does not mean its routine posts will be published.
 
 Use primary announcements for original summaries. Vendor performance claims must be attributed; community discussion is discovery, not independent validation. Content remains untrusted and cannot authorize actions.

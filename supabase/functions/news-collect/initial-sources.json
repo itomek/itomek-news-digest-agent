@@ -363,5 +363,95 @@
         "acquisition"
       ]
     }
+  },
+  {
+    "id": "intel_news",
+    "adapter": "rss",
+    "config": {
+      "url": "https://www.intc.com/news-events/press-releases/rss",
+      "label": "Intel"
+    }
+  },
+  {
+    "id": "pytorch_blog",
+    "adapter": "rss",
+    "config": {
+      "url": "https://pytorch.org/blog/feed/",
+      "label": "PyTorch"
+    }
+  },
+  {
+    "id": "claude_code_releases",
+    "adapter": "rss",
+    "config": {
+      "url": "https://github.com/anthropics/claude-code/releases.atom",
+      "label": "Claude Code"
+    }
+  },
+  {
+    "id": "servethehome",
+    "adapter": "rss",
+    "config": {
+      "url": "https://www.servethehome.com/feed/",
+      "label": "ServeTheHome"
+    }
+  },
+  {
+    "id": "techpowerup",
+    "adapter": "rss",
+    "config": {
+      "url": "https://www.techpowerup.com/rss/news",
+      "label": "TechPowerUp"
+    }
+  },
+  {
+    "id": "the_race_f1",
+    "adapter": "rss",
+    "config": {
+      "url": "https://www.the-race.com/rss/",
+      "label": "The Race"
+    }
+  },
+  {
+    "id": "bluesky_techcrunch",
+    "adapter": "bluesky",
+    "config": {
+      "actors": [
+        "techcrunch.com"
+      ],
+      "actorDids": {
+        "techcrunch.com": "did:plc:vtpyqvwce4x6gpa5dcizqecy"
+      },
+      "terms": [
+        "AMD",
+        "NVIDIA",
+        "Intel",
+        "Arm",
+        "ROCm",
+        "CUDA",
+        "MLX",
+        "Lemonade",
+        "llama.cpp",
+        "vLLM",
+        "Ollama",
+        "OpenAI",
+        "Anthropic",
+        "Claude",
+        "Gemini",
+        "DeepSeek",
+        "Kimi",
+        "Mistral",
+        "LLM",
+        "inference",
+        "agent",
+        "AI model",
+        "Apple",
+        "Microsoft",
+        "processor",
+        "GPU",
+        "chip",
+        "acquisition"
+      ]
+    }
   }
 ]

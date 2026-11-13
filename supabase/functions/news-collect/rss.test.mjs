@@ -65,3 +65,14 @@ test('public newsletter publisher feeds preserve attribution without mailbox con
   const rows=await rss.collectRSS({url,label:'Public publisher'},async()=>new Response(xml,{headers:{'content-type':'application/rss+xml'}}),now);assert.equal(rows.length,1);assert.equal(rows[0].author,'Public publisher');
  }
 });
+
+test('additional verified feeds use exact reviewed URLs',async()=>{
+ for(const url of ['https://github.blog/feed/','https://www.intc.com/news-events/press-releases/rss','https://pytorch.org/blog/feed/','https://github.com/anthropics/claude-code/releases.atom','https://www.servethehome.com/feed/','https://www.techpowerup.com/rss/news']){
+  assert.equal((await rss.collectRSS({url,label:'Public source'},async()=>new Response(xml,{headers:{'content-type':'application/xml'}}),now)).length,1);
+ }
+});
+test('The Race discovery is restricted to selected team titles and excludes lifestyle',async()=>{
+ const url='https://www.the-race.com/rss/';
+ assert.equal((await rss.collectRSS({url,label:'The Race'},async()=>new Response(titled('Haas appoints technical director'),{headers:{'content-type':'application/rss+xml'}}),now)).length,1);
+ for(const title of ['Ferrari changes driver','Mercedes merchandise collection','Cadillac lifestyle launch','Russell signs contract'])assert.equal(rss.parseFeed(titled(title,'Haas mentioned in body'),{url},now).length,0,title);
+});

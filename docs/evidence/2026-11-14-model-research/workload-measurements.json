@@ -1,0 +1,111 @@
+{
+  "environment": {
+    "node": "v22.23.4",
+    "measuredAt": "2026-11-14T22:24:12.035Z",
+    "modelPlaceholder": "measurement/placeholder",
+    "outputTokenCap": 2048,
+    "requestByteCap": 200000,
+    "notes": "No tokenizer, network, credentials or model calls; serialized byte counts depend on chosen model ID and output cap."
+  },
+  "measurements": [
+    {
+      "name": "eight-recorded-public-discovery-cases",
+      "candidates": 8,
+      "requestBytes": 10891,
+      "systemContentBytes": 7971,
+      "userContentBytes": 2448,
+      "combinedMessageContentBytes": 10419,
+      "requestSha256": "ed4c885ced1ab02991e51c1fafd0bcf64eb1b2a1a453bd1a6065a98d3098e155",
+      "transportAccepted": true,
+      "containsGoldFields": false
+    },
+    {
+      "name": "405-same-source-copy-fixture-from-evaluation-test",
+      "candidates": 405,
+      "requestBytes": 107445,
+      "systemContentBytes": 7971,
+      "userContentBytes": 91062,
+      "combinedMessageContentBytes": 99033,
+      "requestSha256": "806621121d59ece5127cc4bb8e0164bafa1ac72cb892b4168290eea211fcb854",
+      "transportAccepted": true,
+      "containsGoldFields": false
+    },
+    {
+      "name": "405-large-same-source-fixture-from-paged-runtime-integration",
+      "candidates": 405,
+      "requestBytes": 2533694,
+      "systemContentBytes": 7971,
+      "userContentBytes": 2517311,
+      "combinedMessageContentBytes": 2525282,
+      "requestSha256": "33e4ce28df32ced98d59317708429b2890331a83b9da8fd2d18ce2bfc911a820",
+      "transportAccepted": false,
+      "containsGoldFields": false
+    }
+  ],
+  "packed": {
+    "short405": {
+      "maxCandidatesPerInvocation": 100,
+      "requests": 5,
+      "totalRequestBytes": 140765,
+      "batchSizes": [
+        100,
+        100,
+        100,
+        100,
+        5
+      ],
+      "requestBytes": [
+        32720,
+        32830,
+        32830,
+        32830,
+        9555
+      ]
+    },
+    "large405": {
+      "maxCandidatesPerInvocation": 100,
+      "requests": 14,
+      "totalRequestBytes": 2641984,
+      "batchSizes": [
+        30,
+        30,
+        30,
+        30,
+        30,
+        30,
+        30,
+        30,
+        30,
+        30,
+        30,
+        30,
+        30,
+        15
+      ],
+      "requestBytes": [
+        195332,
+        195350,
+        195350,
+        195392,
+        195410,
+        195410,
+        195410,
+        195410,
+        195410,
+        195410,
+        195410,
+        195410,
+        195410,
+        101870
+      ]
+    }
+  },
+  "corpus": {
+    "cases": 8,
+    "expectedVerify": 3,
+    "expectedSkip": 5,
+    "ownerLabeled": 1,
+    "provisional": 7,
+    "heldoutFrozen": false
+  }
+}

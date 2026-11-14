@@ -1,0 +1,146 @@
+{
+  "retrievedDate": "2026-11-14",
+  "source": "Public unauthenticated OpenRouter endpoint metadata; no paid request",
+  "observations": [
+    {
+      "model": "anthropic/claude-haiku-5.5",
+      "provider": "anthropic",
+      "source": "https://openrouter.ai/api/v1/models/anthropic/claude-haiku-5.5/endpoints",
+      "sourceSha256": "bae5fd05a1b34b1231f42c3a5ebdbcfad8c04710b139aacc71d7a64edd051080",
+      "endpoint": {
+        "name": "Anthropic | anthropic/claude-haiku-5.5-20261007",
+        "tag": "anthropic",
+        "context_length": 1000000,
+        "max_prompt_tokens": null,
+        "max_completion_tokens": 128000,
+        "pricing": {
+          "prompt": "0.0000001",
+          "completion": "0.0000005",
+          "web_search": "0.01",
+          "input_cache_read": "0.00000001",
+          "input_cache_write": "0.000000125",
+          "input_cache_write_1h": "0.0000002",
+          "discount": 0,
+          "overrides": [
+            {
+              "min_prompt_tokens": 100000,
+              "prompt": "0.0000005",
+              "completion": "0.0000025",
+              "input_cache_read": "0.00000005",
+              "input_cache_write": "0.000000625",
+              "input_cache_write_1h": "0.000001"
+            }
+          ]
+        },
+        "supported_parameters": [
+          "reasoning",
+          "include_reasoning",
+          "max_tokens",
+          "stop",
+          "tools",
+          "tool_choice",
+          "structured_outputs",
+          "response_format",
+          "verbosity",
+          "reasoning_effort"
+        ],
+        "supports_implicit_caching": false
+      },
+      "currentTransportUnsupportedParameters": [
+        "temperature"
+      ],
+      "structuredOutputsAdvertised": true,
+      "actualModelTested": false
+    },
+    {
+      "model": "openai/gpt-5.6-luna",
+      "provider": "openai",
+      "source": "https://openrouter.ai/api/v1/models/openai/gpt-5.6-luna/endpoints",
+      "sourceSha256": "3f06d0864fac955944c013c06c5557b36d1f7f5aa719e5d9cceff1b8bbe1a74f",
+      "endpoint": {
+        "name": "OpenAI | openai/gpt-5.6-luna-20260709",
+        "tag": "openai",
+        "context_length": 1050000,
+        "max_prompt_tokens": 922000,
+        "max_completion_tokens": 128000,
+        "pricing": {
+          "prompt": "0.0000002",
+          "completion": "0.0000012",
+          "web_search": "0.01",
+          "input_cache_read": "0.00000002",
+          "input_cache_write": "0.00000025",
+          "discount": 0,
+          "overrides": [
+            {
+              "min_prompt_tokens": 272000,
+              "prompt": "0.0000004",
+              "completion": "0.0000018",
+              "input_cache_read": "0.00000004",
+              "input_cache_write": "0.0000005"
+            }
+          ]
+        },
+        "supported_parameters": [
+          "reasoning",
+          "include_reasoning",
+          "seed",
+          "max_tokens",
+          "response_format",
+          "structured_outputs",
+          "tools",
+          "tool_choice",
+          "verbosity",
+          "reasoning_effort"
+        ],
+        "supports_implicit_caching": false
+      },
+      "currentTransportUnsupportedParameters": [
+        "temperature"
+      ],
+      "structuredOutputsAdvertised": true,
+      "actualModelTested": false
+    },
+    {
+      "model": "google/gemini-3.8-flash",
+      "provider": "google-ai-studio",
+      "source": "https://openrouter.ai/api/v1/models/google/gemini-3.8-flash/endpoints",
+      "sourceSha256": "d2d1f3b4ffacc98e983970e3879645e3e385bf5cdb3405ae6c002f3f6c105f11",
+      "endpoint": {
+        "name": "Google AI Studio | google/gemini-3.8-flash-20260902",
+        "tag": "google-ai-studio",
+        "context_length": 1048576,
+        "max_prompt_tokens": null,
+        "max_completion_tokens": 65536,
+        "pricing": {
+          "prompt": "0.00000075",
+          "completion": "0.00000375",
+          "image": "0.00000075",
+          "audio": "0.00000075",
+          "input_audio_cache": "0.000000075",
+          "web_search": "0.014",
+          "internal_reasoning": "0.00000375",
+          "input_cache_read": "0.000000075",
+          "input_cache_write": "0.0000000416666666666667",
+          "discount": 0.5
+        },
+        "supported_parameters": [
+          "reasoning",
+          "include_reasoning",
+          "max_tokens",
+          "temperature",
+          "top_p",
+          "seed",
+          "response_format",
+          "structured_outputs",
+          "tool_choice",
+          "tools",
+          "reasoning_effort"
+        ],
+        "supports_implicit_caching": false
+      },
+      "currentTransportUnsupportedParameters": [],
+      "structuredOutputsAdvertised": true,
+      "actualModelTested": false
+    }
+  ]
+}

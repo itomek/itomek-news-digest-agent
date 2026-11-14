@@ -4,6 +4,11 @@ Related work: [#159](https://github.com/itomek/itomek-news-digest-agent/issues/1
 [#160](https://github.com/itomek/itomek-news-digest-agent/issues/160) and
 [#164](https://github.com/itomek/itomek-news-digest-agent/issues/164).
 
+The newer [disabled producer](warpcore-agent-producer.md) adds normalized storage,
+budget deferral, audit records and an inactive authenticated entrypoint. Historical
+slice descriptions below describe their original limits; the legacy aggregate
+checkpoint remains a reference path. Neither path has hosted/model acceptance.
+
 ## Goal and boundary
 
 Move editorial production into an independently scheduled Supabase agent with

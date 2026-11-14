@@ -1,0 +1,23 @@
+import {handleAgent} from './handler.mjs';
+import {createAgentService} from './services.mjs';
+// Inactive artifact. Enabling requires reviewed model/pricing/budgets, database
+// installation, deployment provenance and explicit hosted-spike authorization.
+// Platform JWT verification is required in addition to this dedicated token.
+Deno.serve((req:Request)=>{
+ let service:ReturnType<typeof createAgentService>;
+ const getService=()=>service??=createAgentService({
+  projectUrl:Deno.env.get('SUPABASE_URL'),
+  serviceKey:Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),
+  runtimeConfig:{enabled:true,
+   model:Deno.env.get('WARPCORE_AGENT_MODEL'),
+   allowedModels:[Deno.env.get('WARPCORE_AGENT_MODEL')],
+   maxOutputTokens:Number(Deno.env.get('WARPCORE_AGENT_MAX_OUTPUT_TOKENS')),
+   maxCostCredits:Number(Deno.env.get('WARPCORE_AGENT_MAX_COST_CREDITS')),
+   apiKey:Deno.env.get('OPENROUTER_API_KEY'),
+  },
+ });
+ return handleAgent(req,{enabled:false,producerToken:Deno.env.get('WARPCORE_AGENT_CRON_TOKEN')},{
+  selectRun:()=>getService().selectRun(),
+  runInvocation:(runId:string)=>getService().runInvocation(runId),
+ });
+});

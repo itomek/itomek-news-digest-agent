@@ -51,7 +51,7 @@ jobs:
       - name: Install pinned feed parser
         run: npm ci --prefix supabase/functions --ignore-scripts --no-audit --no-fund
       - name: Unit and mock transport tests (no external API calls)
-        run: node --test supabase/functions/{_shared,news-collect,news-publish,news-operator,news-curate,bluesky-collect}/*.test.mjs review_tests/*.test.mjs
+        run: node --test supabase/functions/{_shared,news-collect,news-publish,news-operator,news-curate,bluesky-collect,news-agent}/*.test.mjs review_tests/*.test.mjs
       - name: Credential-free timer tests
         run: python3 -m unittest discover -s timer_tests -v
       - name: Embedded SQL integration

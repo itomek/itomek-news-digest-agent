@@ -190,3 +190,24 @@ machine. A trusted caller must use the validated workflow transitions; manually
 advancing a revision while replaying the same batch would defeat that semantic
 protection. A production bridge must enforce transition/batch identity as well
 as the existing revision fence before enabling autonomous dispatch.
+
+## Disabled injected runtime (fourth slice)
+
+`runtime.mjs` composes the existing workflow and private SQL contract with supplied
+query, candidate-page and HTTP dependencies. It does not open a database connection,
+read environment secrets or register an HTTP server/cron. It is off unless explicitly
+enabled, and its caller must already have authorization for any model spending.
+Tests supply disposable SQL and fabricated OpenRouter responses only.
+
+This is a runtime integration seam, not a deployed or hosted agent. Live activation
+still requires a vetted database adapter and source-page query, endpoint authentication,
+worker scheduling/observability, approved model/pricing/budget settings, and a safe
+reconciliation procedure. The model's `verify` decision is only a request for later
+verification; this module cannot approve or publish stories.
+
+The configured lease must exceed the transport timeout by at least five seconds.
+That preflight check does not guarantee remaining lease time after slow SQL or
+network operations. Lease loss fails checkpoint writes closed; any billed response
+can still be settled with the original reservation token, but the run then needs
+manual reconciliation. A hosted worker needs safe lease renewal or a remaining-time
+guard before dispatch rather than relying on the initial margin alone.

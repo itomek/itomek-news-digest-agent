@@ -59,12 +59,16 @@ function parseResult(data,request,ids,reservation){
  }
  return {generationId:data.id,model:data.model,usage,decisions:parsed.decisions};
 }
+export function serializeReviewBody(request){
+ const body=JSON.stringify({...request,stream:false,provider:{allow_fallbacks:false,require_parameters:true}});
+ if(encoder.encode(body).byteLength>200000)fail('request_too_large');
+ return body;
+}
 export async function reviewWithOpenRouter(request,config={},fetcher){
  const ids=validate(request,config,fetcher);
  const timeoutMs=config.timeoutMs??10000,maxResponseBytes=config.maxResponseBytes??200000;
  if(!boundedInteger(timeoutMs,30000)||!boundedInteger(maxResponseBytes,200000))fail('invalid_limits');
- const body=JSON.stringify({...request,stream:false,provider:{allow_fallbacks:false,require_parameters:true}});
- if(encoder.encode(body).byteLength>200000)fail('request_too_large');
+ const body=serializeReviewBody(request);
  const pinnedRequest={model:request.model};
  const pinnedReservation={maxCostCredits:config.reservation.maxCostCredits};
  const controller=new AbortController();let timer;

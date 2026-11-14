@@ -45,3 +45,22 @@ not run locally (no PostgreSQL server here). Independent review identified and
 fixed shared-day dispatch blocking and changed-hash retry within one checkpoint;
 midnight dispatch is also refused. Production workflow transition enforcement,
 normalized candidate persistence and real model-quality evaluation remain gates.
+
+## Fourth slice: disabled injected runtime composition
+
+Use the existing Deno-compatible workflow and parameterized-query seam instead of
+adding a database SDK, credentials or deployable Edge Function. This connects
+proven components while leaving production activation explicitly out of scope.
+The runtime is off by default, acquires a durable lease, persists reviewing state,
+reserves credit against an exact HTTP-body hash, records dispatch once, and settles
+known cost independently from editorial success. Any uncertain persistence result
+stops dispatch/replay. All HTTP in tests is injected synthetic transport.
+
+- [x] Test-first disabled runtime and exact-request serialization contract.
+- [x] Real embedded SQL composition with fake responses and uncertain failures.
+- [x] Independent review, aggregate checks, existing draft PR only.
+
+Fourth-slice verification: 198 JavaScript tests, 10 timer tests and the full embedded
+SQL suite passed, including actual SQL with fake model HTTP. Independent reviewer
+reran runtime and composition tests. Remaining-lease-time robustness is documented
+as a hosted-worker gate; no model quality or deployment readiness is claimed.

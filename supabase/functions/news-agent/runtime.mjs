@@ -5,7 +5,7 @@ const flags={publishingEnabled:false,modelQualityProven:false};
 // Isolated injected SQL runtime, not a hosted handler or authorization mechanism.
 // Caller owns verified worst-case pricing, approved spend and durable SQL setup.
 // No env reads, connection defaults, retries, publisher, credentials lookup or cron.
-export async function runShadowInvocation({runId,config={},query,fetcher,fetchPage}={},options={}){
+export async function runShadowInvocation({runId,config={},query,fetcher,fetchPage,now=()=>performance.now()}={},options={}){
  if(config.enabled!==true)return {status:'disabled',...flags};
  const cfg=structuredClone(config);
  if(!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(runId??'')||typeof query!=='function'||typeof fetcher!=='function'||
@@ -15,6 +15,17 @@ export async function runShadowInvocation({runId,config={},query,fetcher,fetchPa
  const timeoutMs=cfg.timeoutMs??10000,maxResponseBytes=cfg.maxResponseBytes??200000;
  if(!Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>30000||!Number.isSafeInteger(maxResponseBytes)||maxResponseBytes<1||maxResponseBytes>200000||leaseSeconds*1000<timeoutMs+5000)throw Error('Invalid transport limits or insufficient lease margin');
  if(!Number.isSafeInteger(leaseSeconds)||leaseSeconds<1||leaseSeconds>300)throw Error('Invalid shadow lease');
+ if(typeof now!=='function')throw Error('Invalid shadow clock');
+ // Start before claim: SQL round-trip time must consume, never extend, the lease.
+ // The injected clock must be monotonic; wall-clock adjustments are not safe here.
+ let lastTime=now();
+ if(!Number.isFinite(lastTime))throw Error('Invalid shadow clock');
+ const leaseDeadline=lastTime+leaseSeconds*1000;
+ const requireLeaseMargin=()=>{
+  const current=now();
+  if(!Number.isFinite(current)||current<lastTime||leaseDeadline-current<timeoutMs+5000)throw Error('Insufficient remaining lease');
+  lastTime=current;
+ };
  const call=async(sql,args)=>{
   const result=await query(sql,args);
   if(!Array.isArray(result?.rows)||result.rows.length!==1||!Object.hasOwn(result.rows[0],'value'))throw Error('Invalid SQL result');
@@ -35,10 +46,15 @@ export async function runShadowInvocation({runId,config={},query,fetcher,fetchPa
     const request=buildReviewRequest(batch,cfg);
     const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(serializeReviewBody(request)));
     const hash=Array.from(new Uint8Array(bytes),b=>b.toString(16).padStart(2,'0')).join('');
+    requireLeaseMargin();
     const attempt=await call('select shadow_agent.reserve($1,$2,$3,$4) as value',[runId,lease,hash,cfg.maxCostCredits]);
     if(typeof attempt!=='string'||!attempt)throw Error('Invalid reservation result');
     // An uncertain reserve/dispatch response NEVER permits HTTP or retry.
+    requireLeaseMargin();
     if(await call('select shadow_agent.dispatch($1,$2) as value',[attempt,lease])!==true)throw Error('Dispatch not confirmed');
+    // Dispatch confirmation itself may have consumed the remaining lease.
+    // Retain its hold and require reconciliation rather than begin a late call.
+    requireLeaseMargin();
     let result;
     try{result=await reviewWithOpenRouter(request,{...cfg,reservation:{id:attempt,maxCostCredits:cfg.maxCostCredits}},fetcher);}
     catch(error){

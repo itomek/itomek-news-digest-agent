@@ -82,3 +82,23 @@ Fifth-slice verification: 211 JavaScript tests and the complete embedded SQL sui
 passed. Candidate scan exercised 211 eligible records across 100/100/11/empty
 pages. Independent review passed acquisition and candidate integration tests.
 No real evidence fetch, live model call, or factual verification is claimed.
+
+## Sixth slice: lease and transition safety
+
+- [x] Conservative remaining-time checks before reservation, dispatch and HTTP.
+- [x] Regression cases for delayed SQL, backwards clocks and late cost settlement.
+- [x] SQL legal transitions, immutable candidate/decision prefixes and exact active batches.
+- [x] Candidate adapter scans 411 eligible records through 100/100/100/100/11/empty pages.
+
+Normalized candidate/decision storage is the next dependency: use compact run
+checkpoints and atomic append-page/commit-batch operations, rather than loading
+the entire backlog into checkpoint JSON. Prove a >2MB aggregate backlog with
+restart between pages/batches before removing the current explicit safety ceiling.
+Hosted authentication, vetted adapters, model/pricing/budget approval, real model
+evaluation, global verification/ranking/dedup and display/cutover gates remain open.
+
+Sixth-slice local verification: 216 JavaScript tests, 352 Python unit tests
+(8 integration tests deselected), 10 timer tests, Ruff lint/format and the full
+embedded SQL suite passed. Independent review caught and fixed null-revision,
+late lease-expiry and numeric candidate-ID cases. Real PostgreSQL/PostgREST
+validation runs in CI; no local server was available.

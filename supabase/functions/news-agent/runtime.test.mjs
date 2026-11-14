@@ -61,3 +61,45 @@ test('invalid transport limits or too-short lease fail before SQL',async()=>{
   let calls=0;await assert.rejects(runShadowInvocation({runId,config:{...config,...extra},query:async()=>{calls++;throw Error('not expected')},fetcher:async()=>{throw Error('not expected')}}));assert.equal(calls,0);
  }
 });
+
+test('slow claim, checkpoint or reservation stops before dispatch when lease margin is gone',async()=>{
+ for(const delayed of ['claim','load','save','reserve']){
+  const f=fixture();const base=f.query;let elapsed=0;
+  const query=async(sql,args)=>{const result=await base(sql,args);if(sql.includes(`.${delayed}(`))elapsed+=55000;return result;};
+  await assert.rejects(runShadowInvocation({runId,config,...f,query,now:()=>elapsed}));
+  assert.equal(f.events.includes('dispatch'),false,delayed);assert.equal(f.events.includes('http'),false,delayed);
+  assert.equal(f.state.phase,'uncertain');
+ }
+});
+test('slow dispatch confirmation prevents HTTP and retains the reservation without settlement',async()=>{
+ const f=fixture();const base=f.query;let elapsed=0;
+ const query=async(sql,args)=>{const result=await base(sql,args);if(sql.includes('.dispatch('))elapsed=60000;return result;};
+ await assert.rejects(runShadowInvocation({runId,config,...f,query,now:()=>elapsed}));
+ assert.equal(f.events.includes('dispatch'),true);assert.equal(f.events.includes('http'),false);
+ assert.equal(f.events.includes('settle'),false);assert.equal(f.state.phase,'uncertain');
+});
+test('sufficient remaining lease permits dispatch and known cost settlement',async()=>{
+ const f=fixture();const base=f.query;let elapsed=0;
+ const query=async(sql,args)=>{const result=await base(sql,args);elapsed+=1000;return result;};
+ const result=await runShadowInvocation({runId,config,...f,query,now:()=>elapsed});
+ assert.equal(result.state.decisions.length,1);assert.equal(f.events.filter(x=>x==='http').length,1);assert.ok(f.events.includes('settled'));
+});
+test('nonfinite or backwards clock fails closed before HTTP',async()=>{
+ for(const invalid of [NaN,Infinity,-1]){
+  const f=fixture();let calls=0;
+  await assert.rejects(runShadowInvocation({runId,config,...f,now:()=>calls++===0?0:invalid}));
+  assert.equal(f.events.includes('http'),false);
+ }
+});
+
+test('late model completion still settles known cost even when result checkpoint loses lease',async()=>{
+ const f=fixture();const base=f.query;let elapsed=0;
+ const query=async(sql,args)=>{
+  if(sql.includes('.save(')&&elapsed>=60000)return {rows:[{value:false}]};
+  return base(sql,args);
+ };
+ const fetcher=async(...args)=>{const result=await f.fetcher(...args);elapsed=60000;return result;};
+ await assert.rejects(runShadowInvocation({runId,config,...f,query,fetcher,now:()=>elapsed}));
+ assert.equal(f.events.filter(x=>x==='http').length,1);assert.ok(f.events.includes('settled'));
+ assert.equal(f.state.phase,'reviewing');
+});

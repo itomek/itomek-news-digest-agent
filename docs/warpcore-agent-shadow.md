@@ -185,11 +185,11 @@ uncertain. Do not discard known usage merely because the model output failed
 validation. Unknown cost retains the full reservation; neither case permits an
 automatic retry of the same reviewing checkpoint.
 
-SQL enforces one attempt per checkpoint revision, not a complete workflow state
-machine. A trusted caller must use the validated workflow transitions; manually
-advancing a revision while replaying the same batch would defeat that semantic
-protection. A production bridge must enforce transition/batch identity as well
-as the existing revision fence before enabling autonomous dispatch.
+SQL enforces legal scan/review transitions and immutable candidate/decision prefixes.
+Review batches must match the next unreviewed candidates; successful completion
+requires the matching settled attempt. Revision-only replay and changes to frozen
+candidates are rejected. These checks protect the isolated contract; a vetted
+production bridge and normalized backlog storage remain required.
 
 ## Disabled injected runtime (fourth slice)
 
@@ -206,11 +206,13 @@ reconciliation procedure. The model's `verify` decision is only a request for la
 verification; this module cannot approve or publish stories.
 
 The configured lease must exceed the transport timeout by at least five seconds.
-That preflight check does not guarantee remaining lease time after slow SQL or
-network operations. Lease loss fails checkpoint writes closed; any billed response
-can still be settled with the original reservation token, but the run then needs
-manual reconciliation. A hosted worker needs safe lease renewal or a remaining-time
-guard before dispatch rather than relying on the initial margin alone.
+A conservative monotonic deadline starts before the claim request. Remaining-time
+guards run before reservation, before dispatch, and after dispatch confirmation
+before HTTP, so slow SQL consumes the usable lease. Failed guards stop without
+HTTP or automatic replay; any existing reservation remains held for reconciliation.
+Late billed responses can still settle with the original reservation token while
+stale checkpoint writes fail closed. There is no lease renewal, and hosted clock,
+database adapter and scheduling behavior remain unproven.
 
 ## Source adapters (fifth slice)
 

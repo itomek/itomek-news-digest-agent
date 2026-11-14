@@ -32,7 +32,7 @@ async function seed(id, cap = 1) {
   const candidate = {id:'a'.repeat(64),sourceUrl:'https://example.com/shadow-concurrency',
     sourceType:'rss',sourceCreatedAt:new Date().toISOString(),discoveryText:'Synthetic test candidate, not public evidence.'};
   const state = {...newShadowRun({runId:id,scanStartedAt:new Date().toISOString()}),
-    phase:'reviewing',activeBatch:[candidate.id],cursor:candidate.id,candidates:[candidate]};
+    phase:'reviewing',activeBatch:[candidate.id],cursor:'b'.repeat(64),candidates:[candidate,{...candidate,id:'b'.repeat(64)}]};
   states.set(id, state);
   await query(observer, 'insert into shadow_agent.runs(id,state,limit_credits) values ($1,$2,$3)',
     [id, state, cap]);
@@ -70,6 +70,9 @@ try {
   // Competing workers cannot obtain the same run lease.
   const run = randomUUID();
   await seed(run);
+  const scanState=newShadowRun({runId:run,scanStartedAt:new Date().toISOString()});
+  await query(observer,'update shadow_agent.runs set state=$2 where id=$1',[run,scanState]);
+  states.set(run,{...scanState,phase:'review'});
   const claims = await Promise.all([claim(a, run), claim(b, run)]);
   assert.equal(claims.filter(Boolean).length, 1, 'Exactly one claimant wins');
   const lease = claims.find(Boolean);
@@ -128,11 +131,12 @@ try {
   assert.deepEqual(accounting, {held:0.4, spent:0.3}, 'Release only the first reservation and charge once');
   // Advance to a distinct, coherent reviewing checkpoint before a second call.
   const prior = states.get(first);
-  const nextCandidate = {...prior.candidates[0], id:'b'.repeat(64)};
-  states.set(first, {...prior, candidates:[...prior.candidates, nextCandidate],
-    decisions:[{id:prior.candidates[0].id,action:'skip',reason:'Synthetic concurrency fixture.'}],
-    cursor:nextCandidate.id,activeBatch:[nextCandidate.id]});
+  const completed = {...prior, phase:'review',activeBatch:null,
+    decisions:[{id:prior.candidates[0].id,action:'skip',reason:'Synthetic concurrency fixture.'}]};
+  states.set(first, completed);
   assert.equal(await save(a, first, firstLease, 0), true);
+  states.set(first,{...completed,phase:'reviewing',activeBatch:[prior.candidates[1].id]});
+  assert.equal(await save(a, first, firstLease, 1), true);
   const lastAttempt = await reserve(a, first, firstLease, 'e'.repeat(64), 0.3);
   assert.ok(lastAttempt);
   await assert.rejects(() => reserve(b, second, secondLease, 'f'.repeat(64), 0.001), /already reserved/i);
@@ -151,6 +155,7 @@ try {
   const replacement = await claim(b, run);
   assert.ok(replacement);
   assert.notEqual(replacement, lease);
+  states.set(run,{...scanState,phase:'complete'});
   assert.equal(await save(a, run, lease, 1), false, 'Expired worker cannot save after another worker reacquires');
   assert.equal(await save(b, run, replacement, 1), true, 'New lease can continue from exact revision');
   console.log('PASS: real PostgreSQL concurrent lease, CAS, shared daily budget, one-time dispatch, idempotent settlement and lease fencing; no external calls');

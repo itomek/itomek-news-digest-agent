@@ -47,17 +47,80 @@ begin
 end $$;
 create function shadow_agent.save(p_run uuid,p_lease uuid,p_revision bigint,p_next jsonb) returns boolean
 language plpgsql security definer set search_path='' as $$
-declare old_state jsonb;
+declare old_state jsonb; r shadow_agent.runs; c jsonb; d jsonb; i integer; n integer; m integer; previous_id text;
 begin
- select state into old_state from shadow_agent.runs where id=p_run for update;
+ select * into r from shadow_agent.runs where id=p_run for update;
+ -- Stale callers lose CAS before their payload is interpreted.
+ if not found or r.revision is distinct from p_revision or p_lease is null or r.lease_token is distinct from p_lease
+ or r.lease_until<=clock_timestamp() then return false; end if;
+ old_state:=r.state;
  if p_next is null or jsonb_typeof(p_next)<>'object' or p_next->>'runId' is distinct from p_run::text
  or p_next->'publishingEnabled' is distinct from 'false'::jsonb
  or p_next->'revision' is distinct from to_jsonb(p_revision+1)
  or p_next->'scanStartedAt' is distinct from old_state->'scanStartedAt'
  or p_next->'policyVersion' is distinct from old_state->'policyVersion'
+ or jsonb_typeof(p_next->'candidates') is distinct from 'array'
+ or jsonb_typeof(p_next->'decisions') is distinct from 'array'
+ or p_next->>'phase' is null or p_next->>'phase' not in ('scan','review','reviewing','uncertain','complete')
  or octet_length(p_next::text)>2000000 then raise exception 'Invalid shadow state'; end if;
- update shadow_agent.runs set state=p_next,revision=revision+1 where id=p_run and revision=p_revision
- and lease_token=p_lease and lease_until>clock_timestamp();
+ n:=jsonb_array_length(p_next->'candidates'); m:=jsonb_array_length(p_next->'decisions');
+ if m>n then raise exception 'Invalid shadow state'; end if;
+ for i in 0..n-1 loop
+  c:=p_next->'candidates'->i;
+  if jsonb_typeof(c)<>'object' or jsonb_typeof(c->'id') is distinct from 'string' or c->>'id' is null or c->>'id' !~ '^[a-f0-9]{64}$'
+  or (previous_id is not null and c->>'id'<=previous_id)
+  or jsonb_typeof(c->'discoveryText') is distinct from 'string' or length(c->>'discoveryText')=0
+  or jsonb_typeof(c->'sourceUrl') is distinct from 'string' or c->>'sourceUrl' !~ '^https://[^/@[:space:]]+([/?#]|$)'
+  then raise exception 'Invalid shadow state'; end if;
+  previous_id:=c->>'id';
+  if i<m then
+   d:=p_next->'decisions'->i;
+   if jsonb_typeof(d)<>'object' or d->'id' is distinct from c->'id'
+   or d->>'action' is null or d->>'action' not in ('skip','verify')
+   or jsonb_typeof(d->'reason') is distinct from 'string' or length(btrim(d->>'reason'))=0 or length(d->>'reason')>1000
+   or (d-'id'-'action'-'reason')<>'{}'::jsonb then raise exception 'Invalid shadow state'; end if;
+  end if;
+ end loop;
+ if p_next->'cursor' is distinct from coalesce(to_jsonb(previous_id),'null'::jsonb)
+ or (p_next->>'phase'='scan' and m<>0)
+ or (p_next->>'phase'='complete' and m<>n) then raise exception 'Invalid shadow state'; end if;
+ if p_next->>'phase' in ('reviewing','uncertain') then
+  if jsonb_typeof(p_next->'activeBatch') is distinct from 'array' then raise exception 'Invalid shadow state'; end if;
+  if jsonb_array_length(p_next->'activeBatch') not between 1 and 100 or m+jsonb_array_length(p_next->'activeBatch')>n then raise exception 'Invalid shadow state'; end if;
+  for i in 0..jsonb_array_length(p_next->'activeBatch')-1 loop
+   if p_next->'activeBatch'->i is distinct from p_next->'candidates'->(m+i)->'id' then raise exception 'Invalid shadow state'; end if;
+  end loop;
+ elsif coalesce(p_next->'activeBatch','null'::jsonb)<>'null'::jsonb then raise exception 'Invalid shadow state'; end if;
+ -- The only scan operation appends a nonempty page; an empty terminal page
+ -- switches to review without changing the captured candidate snapshot.
+ if old_state->>'phase'='scan' and p_next->>'phase' in ('scan','review') then
+  if p_next->'decisions' is distinct from old_state->'decisions' then raise exception 'Invalid shadow transition'; end if;
+  if p_next->>'phase'='scan' then
+   if n<=jsonb_array_length(old_state->'candidates') or n>jsonb_array_length(old_state->'candidates')+100
+   then raise exception 'Invalid shadow transition'; end if;
+   for i in 0..jsonb_array_length(old_state->'candidates')-1 loop
+    if p_next->'candidates'->i is distinct from old_state->'candidates'->i then raise exception 'Invalid shadow transition'; end if;
+   end loop;
+  elsif p_next->'candidates' is distinct from old_state->'candidates' then raise exception 'Invalid shadow transition'; end if;
+ elsif old_state->>'phase'='review' and p_next->>'phase' in ('reviewing','complete') then
+  if p_next->'candidates' is distinct from old_state->'candidates' or p_next->'decisions' is distinct from old_state->'decisions'
+  then raise exception 'Invalid shadow transition'; end if;
+ elsif old_state->>'phase'='reviewing' and p_next->>'phase' in ('review','uncertain') then
+  if p_next->'candidates' is distinct from old_state->'candidates' then raise exception 'Invalid shadow transition'; end if;
+  if p_next->>'phase'='uncertain' then
+   if p_next->'decisions' is distinct from old_state->'decisions' or p_next->'activeBatch' is distinct from old_state->'activeBatch'
+   then raise exception 'Invalid shadow transition'; end if;
+  else
+   if m<>jsonb_array_length(old_state->'decisions')+jsonb_array_length(old_state->'activeBatch')
+   or not exists(select 1 from shadow_agent.attempts where run_id=p_run and checkpoint_revision=p_revision and status='settled')
+   then raise exception 'Invalid shadow transition'; end if;
+   for i in 0..jsonb_array_length(old_state->'decisions')-1 loop
+    if p_next->'decisions'->i is distinct from old_state->'decisions'->i then raise exception 'Invalid shadow transition'; end if;
+   end loop;
+  end if;
+ else raise exception 'Invalid shadow transition'; end if;
+ update shadow_agent.runs set state=p_next,revision=revision+1 where id=p_run
+ and revision=p_revision and lease_token=p_lease and lease_until>clock_timestamp();
  return found;
 end $$;
 create function shadow_agent.reserve(p_run uuid,p_lease uuid,p_hash text,p_max numeric) returns uuid

@@ -211,3 +211,26 @@ network operations. Lease loss fails checkpoint writes closed; any billed respon
 can still be settled with the original reservation token, but the run then needs
 manual reconciliation. A hosted worker needs safe lease renewal or a remaining-time
 guard before dispatch rather than relying on the initial margin alone.
+
+## Source adapters (fifth slice)
+
+`createCandidateSource({query})` supplies the runtime's `fetchPage` using the exact
+operator-contract discovery filters: fixed collection cutoff, seven-day source
+window, newest candidate per story, live inbox/publication exclusions and ascending
+exclusive keyset cursor. Each SQL page contains at most 100 entries; callers keep
+scanning until empty. There is no per-source or total review quota. Invalid rows
+fail the page explicitly rather than silently producing an incomplete scan.
+
+`fetchCapturedEvidence` is disabled by default. When explicitly enabled with a
+trusted injected transport, it only retrieves an exact captured URL from identified
+public, non-Bluesky evidence on an explicit hostname allowlist. It refuses redirects,
+credentials, noncanonical URLs and unsupported MIME types, and bounds streamed
+bytes/time. Returned HTML/text/JSON remains untrusted; the packet explicitly has
+`factsVerified:false`. It neither extracts factual claims nor follows page links.
+Bluesky's URI/CID/author verification requires a different native-record path.
+
+Hostname validation is not DNS pinning. A production transport must enforce public
+network/DNS/IP egress restrictions, including redirect behavior, before this seam
+is wired to live retrieval. No such egress policy or hosted network adapter is
+installed by this PR. Source availability, fetched bytes and matching a fixture
+label do not prove a story's factual accuracy or significance.

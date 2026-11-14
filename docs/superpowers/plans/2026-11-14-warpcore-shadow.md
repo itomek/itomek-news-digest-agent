@@ -64,3 +64,21 @@ Fourth-slice verification: 198 JavaScript tests, 10 timer tests and the full emb
 SQL suite passed, including actual SQL with fake model HTTP. Independent reviewer
 reran runtime and composition tests. Remaining-lease-time robustness is documented
 as a hosted-worker gate; no model quality or deployment readiness is claimed.
+
+## Fifth slice: safe source seams
+
+Prepare real-story shadow inputs without invoking a model or deploying anything.
+Reuse the operator contract's fixed-timestamp, full keyset candidate scan as a
+parameterized read-only adapter. Add a separate disabled HTTP acquisition seam
+for exact captured public evidence URLs on explicit trusted hostname allowlists.
+Fetched content remains untrusted, and successful retrieval is never a factual
+verification attestation. No ranking/publication decision is automated here.
+
+- [x] Test-first candidate adapter and >100-candidate embedded SQL coverage.
+- [x] Disabled, bounded exact-URL source acquisition and adversarial tests.
+- [x] Independent review and aggregate verification; draft PR only.
+
+Fifth-slice verification: 211 JavaScript tests and the complete embedded SQL suite
+passed. Candidate scan exercised 211 eligible records across 100/100/11/empty
+pages. Independent review passed acquisition and candidate integration tests.
+No real evidence fetch, live model call, or factual verification is claimed.

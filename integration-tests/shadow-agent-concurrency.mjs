@@ -168,7 +168,7 @@ try {
   const cfg={model:'fixture/concurrency',maxOutputTokens:100,timeoutMs:1000,maxResponseBytes:200000,maxCostCredits:0.2,policyVersion:newPagedShadowRun({runId:paged,scanStartedAt:new Date().toISOString()}).policyVersion,routing:'openrouter-no-fallback'};
   assert.equal(await scalar(a,'select shadow_agent.paged_bind_config($1,$2,$3) as value',[paged,pagedLease,cfg]),true);
   const page=[{id:'1'.repeat(64),sourceUrl:'https://example.com/paged',sourceType:'rss',sourceCreatedAt:new Date().toISOString(),discoveryText:'Synthetic contention fixture.'}];
-  const append=(client,revision,rows)=>scalar(client,'select shadow_agent.paged_append($1,$2,$3,$4) as value',[paged,pagedLease,revision,rows]);
+  const append=(client,revision,rows)=>scalar(client,'select shadow_agent.paged_append($1,$2,$3,$4) as value',[paged,pagedLease,revision,JSON.stringify(rows)]);
   await query(a,'begin');
   assert.equal((await append(a,0,page)).candidateCount,1);
   const appendRace=outcome(append(b,0,page));
@@ -197,7 +197,7 @@ try {
   const auditRace=outcome(auditedSettle(b));assert.equal(await waitsOnLock(bPid),true);
   await query(a,'commit');const audited=await auditRace;assert.ifError(audited.error);assert.equal(audited.value,true);
   const decision=[{id:page[0].id,action:'skip',reason:'Synthetic normalized contention fixture.'}];
-  const commitBatch=client=>scalar(client,'select shadow_agent.paged_commit($1,$2,$3,$4) as value',[paged,pagedLease,3,decision]);
+  const commitBatch=client=>scalar(client,'select shadow_agent.paged_commit($1,$2,$3,$4) as value',[paged,pagedLease,3,JSON.stringify(decision)]);
   await query(a,'begin');assert.equal((await commitBatch(a)).reviewedCount,1);
   const commitRace=outcome(commitBatch(b));assert.equal(await waitsOnLock(bPid),true);
   await query(a,'commit');const committed=await commitRace;assert.ifError(committed.error);assert.equal(committed.value,null);

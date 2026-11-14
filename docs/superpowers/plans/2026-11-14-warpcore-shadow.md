@@ -13,3 +13,12 @@ Constraints: no paid requests, credentials, live writes or production enablement
 - [x] Independent review, fix findings, commit and draft PR only.
 
 Verification: 170 JavaScript tests and 10 timer tests passed. Legacy Python suite could not start because pytest is unavailable. Hosted execution, paid model evaluation and rendered Bluesky tests remain unrun.
+
+## Second slice
+- [x] Add test-first resumable scan/review core with fixed timestamp, terminal-page gate and atomic-save dependency.
+- [x] Prevent automatic model replay after crash, timeout, malformed response or persistence conflict.
+- [x] Separate unlabeled discovery input from evaluation gold labels.
+- [x] Add explicit-off OpenRouter-only transport with injected fetch, usage validation, timeout and response-size bounds; no real calls.
+- [x] Run final full JavaScript suite and independent review. No hosted database adapter or production cutover in this slice.
+
+Second-slice verification: 191 JavaScript tests passed, including an offline workflow/request/transport composition test. Previous commit CI and isolated validation both passed on GitHub. No actual OpenRouter request or hosted scheduler ran.

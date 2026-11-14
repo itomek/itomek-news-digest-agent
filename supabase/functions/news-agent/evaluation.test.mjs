@@ -69,3 +69,7 @@ test('CLI rejects invalid output and does not mistake incomplete coverage for pa
   assert.equal(spawnSync(process.execPath,[cli]).status,2);
  }finally{await rm(dir,{recursive:true,force:true});}
 });
+test('request builder accepts unlabeled production discovery inputs',()=>{
+ const inputs=cases.map(({expectedAction,ownerRationale,provenance,...c})=>c);
+ assert.equal(JSON.parse(buildReviewRequest(inputs,{model:'test/model',allowedModels:['test/model'],maxOutputTokens:2000}).messages[1].content).candidates.length,cases.length);
+});

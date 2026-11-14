@@ -101,3 +101,43 @@ node supabase/functions/news-agent/evaluate-cli.mjs \
 Exit 0 means all supplied labels match, 1 means missing/mismatched decisions,
 and 2 means invalid inputs. Even a perfect score explicitly reports
 `modelQualityProven: false`; a mocked response is only a contract test.
+
+## Resumable core (second slice)
+
+`newShadowRun` fixes the scan time and policy version. `advanceShadowRun` scans
+keyset pages to an empty terminal page before model review. Each invocation handles
+a bounded number of pages or one review batch; invocation bounds are not total
+review limits. All decisions remain `skip` or `verify`, not publication approvals.
+
+The injected `save(next, expectedRevision)` **must** implement durable atomic
+compare-and-swap and lease checks. Tests use an in-memory store; there is no
+Supabase database store or scheduled entrypoint yet. Review state is persisted as
+`reviewing` before invoking the model. After a crash or uncertain model response,
+the run requires reconciliation rather than repeating a possibly billed request.
+Missing, duplicate or unknown decisions cannot finish a batch. Completion means
+all discovery candidates were considered, not selected sources verified or final
+stories ranked. Global semantic deduplication and ranking still need implementation.
+
+Before any live wiring, persist request/spend reservations in the same trusted
+workflow and implement concurrency tests against actual PostgreSQL. Do not simply
+supply an in-memory save adapter to a hosted function and call it durable.
+
+`reviewWithOpenRouter(request, config, fetcher)` now provides a single-attempt
+OpenRouter transport seam. It is disabled unless explicitly enabled and requires
+an injected fetch function, key, allowed model and cost reservation. It uses a
+fixed endpoint, disables redirects/fallback routing, bounds tokens/body/time and
+requires complete structured decisions and usage/cost metadata. It does not look
+up secrets. Errors after transmission are uncertain and never automatically retried.
+The caller must durably reserve a verified worst-case cost under run/day limits
+before dispatch, persist actual usage and reconcile uncertainty. A reservation
+object alone is not a budget implementation. The offline composition test uses
+synthetic usage, not a real request; live API compatibility remains unproven.
+
+Provider `usage.cost` is treated as OpenRouter credits (`costCredits`), not an
+assumed USD amount. The reservation is `maxCostCredits`; conversion to the owner's
+approved currency budget must be explicitly verified before live activation.
+Missing cost fails closed. `json_object` mode guarantees JSON only; local validation
+enforces the decisions schema. Exact response-model equality is deliberately
+conservative and may reject aliases; verify chosen canonical model IDs live.
+References: [usage accounting](https://openrouter.ai/docs/cookbook/administration/usage-accounting),
+[API reference](https://openrouter.ai/docs/api_reference/overview).

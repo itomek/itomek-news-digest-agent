@@ -1,10 +1,10 @@
 import {buildEditorialInstructions, POLICY_VERSION} from './policy.mjs';
 const actions=new Set(['skip','verify']);
-function validateCases(cases){
+function validateCases(cases, requireLabels=true){
  if(!Array.isArray(cases)||cases.length===0)throw Error('Nonempty case set required');
  const ids=new Set();
  for(const c of cases){
-  if(!c||typeof c.id!=='string'||!c.id||ids.has(c.id)||!actions.has(c.expectedAction)||typeof c.discoveryText!=='string'||!c.discoveryText)throw Error('Invalid or duplicate case');
+  if(!c||typeof c.id!=='string'||!c.id||ids.has(c.id)||(requireLabels&&!actions.has(c.expectedAction))||typeof c.discoveryText!=='string'||!c.discoveryText)throw Error('Invalid or duplicate case');
   const url=new URL(c.sourceUrl);
   if(url.protocol!=='https:'||url.username||url.password)throw Error('Public HTTPS provenance required');
   ids.add(c.id);
@@ -13,7 +13,7 @@ function validateCases(cases){
 }
 // Builds data only. No HTTP client, API key, database, publishing or hidden fallback.
 export function buildReviewRequest(cases,{model,allowedModels,maxOutputTokens}={}){
- validateCases(cases);
+ validateCases(cases,false);
  if(typeof model!=='string'||!model||!Array.isArray(allowedModels)||!allowedModels.includes(model)||!Number.isSafeInteger(maxOutputTokens)||maxOutputTokens<1||maxOutputTokens>16384)throw Error('Explicit allowed model and bounded output budget required');
  return {
   model,max_tokens:maxOutputTokens,temperature:0,

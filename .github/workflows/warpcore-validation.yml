@@ -82,3 +82,7 @@ jobs:
         env:
           WARPCORE_TEST_DATABASE_URL: postgres://postgres:disposable-ci-only@127.0.0.1:5432/warpcore_test
         run: npm run test:batch-concurrency --prefix integration-tests
+      - name: Shadow agent lease and budget contention (no live calls)
+        env:
+          WARPCORE_TEST_DATABASE_URL: postgres://postgres:disposable-ci-only@127.0.0.1:5432/warpcore_test
+        run: npm run test:shadow-concurrency --prefix integration-tests

@@ -22,3 +22,26 @@ Verification: 170 JavaScript tests and 10 timer tests passed. Legacy Python suit
 - [x] Run final full JavaScript suite and independent review. No hosted database adapter or production cutover in this slice.
 
 Second-slice verification: 191 JavaScript tests passed, including an offline workflow/request/transport composition test. Previous commit CI and isolated validation both passed on GitHub. No actual OpenRouter request or hosted scheduler ran.
+
+## Third slice: isolated durable shadow store
+
+Build on the existing PostgreSQL stack rather than add a second queue vendor.
+Keep proposed SQL outside `supabase/migrations` so this draft cannot install it
+through a normal migration deployment. No Edge Function entrypoint or live
+scheduler is added. The database contract will fence stale workers with lease
+tokens and revision checks. Cost reservations must serialize against shared
+budget rows; uncertain requests retain their full reservation. Settlements record
+actual spend, including overages, without silently freeing uncertain requests.
+This is infrastructure validation, not proof of editorial/model quality.
+
+- [x] Test-first SQL contract for shadow run state and cost ledger.
+- [x] Embedded SQL tests for permissions, invalid states and idempotency.
+- [x] Real PostgreSQL contention tests for leases and shared budgets in CI.
+- [x] Independent review and aggregate tests; publish only to existing draft PR.
+
+Third-slice local checks: 191 JavaScript tests, 10 timer tests, and the full
+embedded SQL suite passed. Real PostgreSQL contention is configured for CI but
+not run locally (no PostgreSQL server here). Independent review identified and
+fixed shared-day dispatch blocking and changed-hash retry within one checkpoint;
+midnight dispatch is also refused. Production workflow transition enforcement,
+normalized candidate persistence and real model-quality evaluation remain gates.

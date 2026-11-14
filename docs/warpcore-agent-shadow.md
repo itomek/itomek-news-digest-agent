@@ -110,8 +110,8 @@ a bounded number of pages or one review batch; invocation bounds are not total
 review limits. All decisions remain `skip` or `verify`, not publication approvals.
 
 The injected `save(next, expectedRevision)` **must** implement durable atomic
-compare-and-swap and lease checks. Tests use an in-memory store; there is no
-Supabase database store or scheduled entrypoint yet. Review state is persisted as
+compare-and-swap and lease checks. Workflow unit tests use an in-memory store; the separate SQL contract below adds
+an isolated durable-store candidate. There is no scheduled entrypoint yet. Review state is persisted as
 `reviewing` before invoking the model. After a crash or uncertain model response,
 the run requires reconciliation rather than repeating a possibly billed request.
 Missing, duplicate or unknown decisions cannot finish a batch. Completion means
@@ -141,3 +141,52 @@ enforces the decisions schema. Exact response-model equality is deliberately
 conservative and may reject aliases; verify chosen canonical model IDs live.
 References: [usage accounting](https://openrouter.ai/docs/cookbook/administration/usage-accounting),
 [API reference](https://openrouter.ai/docs/api_reference/overview).
+
+
+## Isolated persistence contract (third slice)
+
+`supabase/functions/news-agent/sql/shadow-state.sql` is proposed **shadow-only**
+PostgreSQL infrastructure, deliberately outside `supabase/migrations`. Normal
+migration deployment will not install it. Do not manually apply it to production
+as part of this draft. There is no live database connection, model dispatch,
+secret lookup, publication API or hosted scheduler in this slice.
+
+The private schema keeps run checkpoints and budget accounting separate from the
+existing curator/publication tables. Trusted administrative setup provisions
+limits; workers cannot raise limits or directly edit accounting tables. Leases
+and revision checks fence checkpoint writes. One attempt is bound to each reviewing checkpoint, even when a retry changes
+the request hash. Reservations must precede dispatch;
+uncertain attempts retain their reserved amount until explicitly reconciled.
+A reservation is not permission to make a paid request, and a request hash does
+not prove that the dispatched HTTP request actually matches it. Runtime wiring,
+canonical request hashing and approved worst-case pricing remain required.
+
+Embedded SQL tests cover the contract; a separate disposable PostgreSQL CI test
+exercises genuine independent-session contention. Neither is model evaluation.
+The service bridge, real API/usage compatibility, owner-approved spending limits,
+verification/ranking and hosted shadow run are still not implemented here.
+
+The proposed checkpoint JSON currently has a 2 MB safety ceiling. Oversized
+checkpoints raise an explicit error, never truncate candidates or declare a
+partial scan complete. Normalized/paged candidate persistence is still required
+before claiming this store supports arbitrarily large review backlogs. The
+per-invocation page limits remain transport bounds, not editorial review quotas.
+
+Dispatch also refuses a reservation from a previous UTC date; its hold is retained
+for explicit reconciliation. Late results can settle against the original
+reservation day using the original token, without permitting stale state writes
+or another dispatch. This is conservative reservation-day accounting, not a
+claim of matching a provider's eventual invoice timestamps.
+
+A future runtime must separate cost settlement from editorial success. If the
+transport reports trustworthy usage alongside malformed decisions or another
+completion error, record the actual billed cost while leaving the workflow
+uncertain. Do not discard known usage merely because the model output failed
+validation. Unknown cost retains the full reservation; neither case permits an
+automatic retry of the same reviewing checkpoint.
+
+SQL enforces one attempt per checkpoint revision, not a complete workflow state
+machine. A trusted caller must use the validated workflow transitions; manually
+advancing a revision while replaying the same batch would defeat that semantic
+protection. A production bridge must enforce transition/batch identity as well
+as the existing revision fence before enabling autonomous dispatch.

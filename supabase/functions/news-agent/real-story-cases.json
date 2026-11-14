@@ -1,0 +1,82 @@
+[
+  {
+    "id": "09c7b6b14931c3c4f4dfd4836a15dad2f17bf3db31281aa4517d243d66caadb0",
+    "sourceUrl": "https://github.com/ggml-org/llama.cpp/releases/tag/b12379",
+    "sourceType": "rss",
+    "sourceCreatedAt": "2026-11-14 12:34:20+00",
+    "discoveryText": "b12379: jinja : reduce template rendering overhead (#32023)",
+    "expectedAction": "skip",
+    "ownerRationale": "Routine granular template optimization, no demonstrated material inference impact.",
+    "provenance": "Public configured-candidate snapshot from the 2026-11-14 18:20 UTC curation pass; discovery only, not independently verified release claims."
+  },
+  {
+    "id": "1a51f6d11fbb39a9a064382f15771de9fd7e822063e8e4c8706773fe9ffcd9c6",
+    "sourceUrl": "https://github.com/ggml-org/llama.cpp/releases/tag/b12347",
+    "sourceType": "rss",
+    "sourceCreatedAt": "2026-11-12 18:59:09+00",
+    "discoveryText": "b12347: llama : prune (#30565)",
+    "expectedAction": "skip",
+    "ownerRationale": "Deprecated API removal alone is not meaningful high-level news.",
+    "provenance": "Public configured-candidate snapshot from the 2026-11-14 18:20 UTC curation pass; discovery only, not independently verified release claims."
+  },
+  {
+    "id": "3007fcee676fa59fcd8726a886833154d9403288975bf7727518bf44e08de4dd",
+    "sourceUrl": "https://github.com/vllm-project/vllm/releases/tag/v0.34.0rc0",
+    "sourceType": "rss",
+    "sourceCreatedAt": "2026-11-08 18:38:57+00",
+    "discoveryText": "v0.34.0rc0: [Transformers backend] Migrate Gemma and StableLM (#66393)",
+    "expectedAction": "skip",
+    "ownerRationale": "Backend migration release candidate alone is routine.",
+    "provenance": "Public configured-candidate snapshot from the 2026-11-14 18:20 UTC curation pass; discovery only, not independently verified release claims."
+  },
+  {
+    "id": "a989f1582084d0cf153c32d2fa32483a4ec12dee696b65f0f20a1d5ab4b8abfd",
+    "sourceUrl": "https://www.anthropic.com/claude-fable-and-mythos-5-2",
+    "sourceType": "official_html",
+    "sourceCreatedAt": "2026-11-09 00:00:00+00",
+    "discoveryText": "Introducing Claude Fable 5.2 and Claude Mythos 5.2",
+    "expectedAction": "verify",
+    "ownerRationale": "Named frontier model launch merits source verification and semantic dedup, not automatic publication.",
+    "provenance": "Public configured-candidate snapshot from the 2026-11-14 18:20 UTC curation pass; discovery only, not independently verified release claims."
+  },
+  {
+    "id": "6841e619fcd7e8d9370258a227590a244c9afe604f7f173c18d14806c323db86",
+    "sourceUrl": "https://huggingface.co/blog/ggml-org/llama-cpp-v1",
+    "sourceType": "rss",
+    "sourceCreatedAt": "2026-11-13 14:05:22+00",
+    "discoveryText": "llama.cpp v1.0.0 : A stronger foundation for the local AI ecosystem",
+    "expectedAction": "verify",
+    "ownerRationale": "Major llama.cpp release deserves verification of substantive capabilities.",
+    "provenance": "Public configured-candidate snapshot from the 2026-11-14 18:20 UTC curation pass; discovery only, not independently verified release claims."
+  },
+  {
+    "id": "e58a3ce1f17ad846cacd2e2ab7abc0d4baff55f9bb76d89b44eb35823e0ff20e",
+    "sourceUrl": "https://github.com/anthropics/claude-code/releases/tag/v2.1.325",
+    "sourceType": "rss",
+    "sourceCreatedAt": "2026-11-13 20:40:01+00",
+    "discoveryText": "Claude Code v2.1.325 fixes a security issue decoding zstd-compressed responses and adds a spinner tip in VS Code.",
+    "expectedAction": "skip",
+    "ownerRationale": "Routine security patch and UI spinner change.",
+    "provenance": "Public configured-candidate snapshot from the 2026-11-14 18:20 UTC curation pass; discovery only, not independently verified release claims."
+  },
+  {
+    "id": "754f24889ed9e00a6da88e40a1324be1247f4f90f8282ebd03dd4f917036942d",
+    "sourceUrl": "https://www.theverge.com/ai-artificial-intelligence/1033425/openai-chatgpt-wallet",
+    "sourceType": "rss",
+    "sourceCreatedAt": "2026-11-13 20:45:10+00",
+    "discoveryText": "ChatGPT Wallet lets OpenAI’s Dots agents make purchases for you",
+    "expectedAction": "verify",
+    "ownerRationale": "Meaningful new OpenAI feature merits verification and cross-source dedup.",
+    "provenance": "Public configured-candidate snapshot from the 2026-11-14 18:20 UTC curation pass; discovery only, not independently verified release claims."
+  },
+  {
+    "id": "case-008",
+    "sourceUrl": "https://bsky.app/profile/warp-core.bsky.social/post/3n2a56hyffkyt",
+    "sourceType": "published-summary",
+    "sourceCreatedAt": "2026-11-13T23:28:25.030Z",
+    "discoveryText": "PyTorch’s Helion now optimizes GPU kernels without costly autotuning. The new defaults ship enabled for NVIDIA H100 and B200 GPUs.",
+    "expectedAction": "skip",
+    "ownerRationale": "Owner explicitly rejected this as too PyTorch-specific; he does not use PyTorch directly. No demonstrated impact on his inference tools.",
+    "provenance": "Public getPostThread retrieved during development on 2026-11-14. URI at://did:plc:pfq2p7n2oiiy2k4pv6xnsgdk/app.bsky.feed.post/3n2a56hyffkyt; CID bafyreiek2fqtzjdtsierg6gkjc5btchx6yxmujynjdbtmqg3wn234nfqmm. Negative expectation supplied by owner Nov 14."
+  }
+]

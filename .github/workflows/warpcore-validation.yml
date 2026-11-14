@@ -51,7 +51,7 @@ jobs:
       - name: Install pinned feed parser
         run: npm ci --prefix supabase/functions --ignore-scripts --no-audit --no-fund
       - name: Unit and mock transport tests (no external API calls)
-        run: node --test supabase/functions/{_shared,news-collect,news-publish,news-operator,news-curate,bluesky-collect}/*.test.mjs review_tests/*.test.mjs
+        run: node --test supabase/functions/{_shared,news-collect,news-publish,news-operator,news-curate,bluesky-collect,news-agent}/*.test.mjs review_tests/*.test.mjs
       - name: Credential-free timer tests
         run: python3 -m unittest discover -s timer_tests -v
       - name: Embedded SQL integration
@@ -82,3 +82,7 @@ jobs:
         env:
           WARPCORE_TEST_DATABASE_URL: postgres://postgres:disposable-ci-only@127.0.0.1:5432/warpcore_test
         run: npm run test:batch-concurrency --prefix integration-tests
+      - name: Shadow agent lease and budget contention (no live calls)
+        env:
+          WARPCORE_TEST_DATABASE_URL: postgres://postgres:disposable-ci-only@127.0.0.1:5432/warpcore_test
+        run: npm run test:shadow-concurrency --prefix integration-tests

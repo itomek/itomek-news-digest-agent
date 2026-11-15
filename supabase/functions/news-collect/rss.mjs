@@ -30,16 +30,17 @@ function hasDeclaration(xml){
  return false;
 }
 // Feed URLs are trusted configuration, never taken from request bodies or items.
-export function parseFeed(xml,config={},now=Date.now()){
+export function parseFeed(xml,config={},now=Date.now(),window=null){
  if(typeof xml!=='string'||new TextEncoder().encode(xml).length>1000000||hasDeclaration(xml)||XMLValidator.validate(xml)!==true)throw Error('Unsafe or invalid XML');
  const parsed=new XMLParser({ignoreAttributes:false,parseTagValue:false,processEntities:true}).parse(xml);
+ if(window&&!Object.hasOwn(parsed.rss??{},'channel')&&!Object.hasOwn(parsed,'feed'))throw Error('Unrecognized feed document');
  const entries=parsed.rss?.channel?.item??parsed.feed?.entry;
  if(entries===undefined)return [];
  const out=[];
  for(const e of array(entries)){
  const link=typeof e.link==='string'?e.link:array(e.link).find(x=>!x['@_rel']||x['@_rel']==='alternate')?.['@_href'];
  const url=safe(link),published=Date.parse(e.pubDate??e.published??e.updated),title=plain(e.title);
- if(!url||!title||!Number.isFinite(published)||published>now+300000||published<now-7*86400000)continue;
+ if(!url||!title||!Number.isFinite(published)||published>(window?Date.parse(window.until):now+300000)||published<(window?Date.parse(window.since):now-7*86400000))continue;
  // Discovery filter only, never editorial verification or approval. Team names
  // must occur in the title; body mentions and driver-only stories are insufficient.
  if(F1_FEEDS.has(config.url)&&(!/\b(?:Haas|Cadillac|Mercedes)\b/i.test(title)||/\b(?:merchandise|merch|shirts?|t-shirts?|(?:team|baseball)\s+caps?|hoodies?|fashion|lifestyle|weddings?|girlfriends?|boyfriends?|vacations?|holidays?|shopping|discounts?)\b/i.test(title)))continue;
@@ -49,12 +50,21 @@ export function parseFeed(xml,config={},now=Date.now()){
  }
  return out;
 }
-export async function collectRSS(config,fetcher=fetch,now=Date.now()){
+export async function collectRSS(config,fetcher=fetch,now=Date.now(),window=null){
  const url=safe(config?.url);if(!url||!FEEDS.has(url)||typeof config.label!=='string'||!config.label.trim())throw Error('Trusted labeled feed required');
  const r=await fetcher(url,{method:'GET',redirect:'error',signal:AbortSignal.timeout(8000),headers:{Accept:'application/rss+xml, application/atom+xml, application/xml, text/xml'}});
  if(!r.ok||!(/(xml|rss|atom)/i.test(r.headers.get('content-type')||'')||(url==='https://mistral.ai/news/rss'&&/^text\/plain(?:;|$)/i.test(r.headers.get('content-type')||''))))throw Error('Invalid feed response');
  const reader=r.body.getReader(),chunks=[];let size=0;
  try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>1000000)throw Error('Feed too large');chunks.push(value);}}finally{await reader.cancel();}
  const bytes=new Uint8Array(size);let offset=0;for(const c of chunks){bytes.set(c,offset);offset+=c.length;}
- return parseFeed(new TextDecoder().decode(bytes),config,now);
+ return parseFeed(new TextDecoder().decode(bytes),config,now,window);
+}
+
+// A finite snapshot scan cannot certify retained, late, or re-dated history.
+export async function collectRSSPage(config,fetcher=fetch,window={}){
+ const since=Date.parse(window.since),until=Date.parse(window.until);
+ if(!Number.isFinite(since)||!Number.isFinite(until)||since>until||window.cursor!=null)throw Error('Invalid sync window');
+ const items=await collectRSS(config,fetcher,until,{since:new Date(0).toISOString(),until:window.until});
+ const earliestAvailableAt=items.length?new Date(Math.min(...items.map(x=>Date.parse(x.publishedAt)))).toISOString():null;
+ return {items,complete:true,cursor:null,earliestAvailableAt,coverageGap:true,gapReason:'finite_feed_history',fetchedCount:items.length};
 }

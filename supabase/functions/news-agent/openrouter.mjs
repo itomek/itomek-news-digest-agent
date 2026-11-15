@@ -1,3 +1,4 @@
+import {matchesDiscoveryFormat,validateProviderPolicy} from './review-contract.mjs';
 // OpenRouter Chat Completions contract:
 // https://openrouter.ai/docs/api_reference/overview
 // This adapter owns one HTTP attempt, NOT spend authorization or a durable ledger.
@@ -15,9 +16,10 @@ function validate(request,config,fetcher){
  if(config.enabled!==true)fail('disabled');
  if(typeof fetcher!=='function'||typeof config.apiKey!=='string'||!config.apiKey.trim()||/[\r\n]/.test(config.apiKey))fail('invalid_transport_configuration');
  if(!config.reservation||typeof config.reservation.id!=='string'||!config.reservation.id.trim()||!Number.isFinite(config.reservation.maxCostCredits)||config.reservation.maxCostCredits<=0)fail('missing_cost_reservation');
- if(!request||Object.keys(request).some(k=>!['model','max_tokens','temperature','messages','response_format'].includes(k)))fail('unsupported_request');
- if(typeof request.model!=='string'||!Array.isArray(config.allowedModels)||!config.allowedModels.includes(request.model)||!boundedInteger(request.max_tokens,16384)||request.temperature!==0)fail('invalid_model_or_budget');
- if(!Array.isArray(request.messages)||request.messages.length!==2||request.messages[0]?.role!=='system'||request.messages[1]?.role!=='user'||request.messages.some(m=>typeof m.content!=='string'||!m.content||Object.keys(m).some(k=>!['role','content'].includes(k)))||request.response_format?.type!=='json_object'||Object.keys(request.response_format).length!==1)fail('invalid_messages');
+ if(!request||Object.keys(request).some(k=>!['model','max_tokens','messages','response_format','provider'].includes(k)))fail('unsupported_request');
+ if(typeof request.model!=='string'||!Array.isArray(config.allowedModels)||!config.allowedModels.includes(request.model)||!boundedInteger(request.max_tokens,16384))fail('invalid_model_or_budget');
+ if(!Array.isArray(request.messages)||request.messages.length!==2||request.messages[0]?.role!=='system'||request.messages[1]?.role!=='user'||request.messages.some(m=>typeof m.content!=='string'||!m.content||Object.keys(m).some(k=>!['role','content'].includes(k)))||!matchesDiscoveryFormat(request.response_format))fail('invalid_messages');
+ if(Object.hasOwn(request,'provider'))validateReviewProvider(request.provider);
  let candidates;
  try{candidates=JSON.parse(request.messages[1].content).candidates;}catch{fail('invalid_candidates');}
  if(!Array.isArray(candidates)||!candidates.length)fail('invalid_candidates');
@@ -59,8 +61,12 @@ function parseResult(data,request,ids,reservation){
  }
  return {generationId:data.id,model:data.model,usage,decisions:parsed.decisions};
 }
+export function validateReviewProvider(provider){
+ try{return validateProviderPolicy(provider);}catch{fail('unsupported_request');}
+}
 export function serializeReviewBody(request){
- const body=JSON.stringify({...request,stream:false,provider:{allow_fallbacks:false,require_parameters:true}});
+ const provider=Object.hasOwn(request,'provider')?validateReviewProvider(request.provider):{allow_fallbacks:false,require_parameters:true};
+ const body=JSON.stringify({...request,stream:false,provider});
  if(encoder.encode(body).byteLength>200000)fail('request_too_large');
  return body;
 }

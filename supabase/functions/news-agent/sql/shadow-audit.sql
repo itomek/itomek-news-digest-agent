@@ -14,12 +14,12 @@ alter table shadow_agent.deferrals enable row level security;
 revoke all on shadow_agent.run_config,shadow_agent.attempt_audit,shadow_agent.deferrals from public,anon,authenticated,service_role;
 create function shadow_agent.paged_bind_config(p_run uuid,p_lease uuid,p_config jsonb) returns boolean
 language plpgsql security definer set search_path='' as $$
-declare r shadow_agent.runs; existing jsonb; k text;
+declare r shadow_agent.runs; existing jsonb; k text; profile jsonb; provider jsonb; prices jsonb;
 begin
  select * into r from shadow_agent.runs where id=p_run for update;
  if not found or p_lease is null or r.lease_token is distinct from p_lease or r.lease_until<=clock_timestamp() then return false; end if;
- if r.state->>'storageKind' is distinct from 'paged-v1' or p_config is null or jsonb_typeof(p_config)<>'object'
- or (p_config-'model'-'maxOutputTokens'-'maxCostCredits'-'timeoutMs'-'maxResponseBytes'-'policyVersion'-'routing')<>'{}'::jsonb
+ if r.state->>'storageKind' is distinct from 'paged-v1' or p_config is null or jsonb_typeof(p_config)<>'object' or octet_length(p_config::text)>8192
+ or (p_config-'model'-'maxOutputTokens'-'maxCostCredits'-'timeoutMs'-'maxResponseBytes'-'policyVersion'-'routing'-'requestProfile')<>'{}'::jsonb
  or jsonb_typeof(p_config->'model') is distinct from 'string' or p_config->>'model' !~ '^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$'
  or p_config->'policyVersion' is distinct from r.state->'policyVersion'
  or p_config->'routing' is distinct from '"openrouter-no-fallback"'::jsonb then raise exception 'Invalid runtime config'; end if;
@@ -31,6 +31,36 @@ begin
  or (p_config->>'maxResponseBytes')::numeric not between 1 and 200000
  or jsonb_typeof(p_config->'maxCostCredits') is distinct from 'number' then raise exception 'Invalid runtime config'; end if;
  if not((p_config->>'maxCostCredits')::numeric>0 and (p_config->>'maxCostCredits')::numeric<1000000) then raise exception 'Invalid runtime config'; end if;
+ -- Optional immutable routing/structured-output profile. Keep only the
+ -- reviewed public contract, never arbitrary transport parameters or secrets.
+ if p_config ? 'requestProfile' then
+  profile:=p_config->'requestProfile';
+  if jsonb_typeof(profile) is distinct from 'object'
+  or (profile-'version'-'provider'-'responseFormat')<>'{}'::jsonb
+  or jsonb_typeof(profile->'version') is distinct from 'string'
+  or profile->>'version' !~ '^[A-Za-z0-9._-]{1,64}$'
+  or profile->'responseFormat' is distinct from '"discovery-json-schema-v1"'::jsonb
+  or jsonb_typeof(profile->'provider') is distinct from 'object'
+  then raise exception 'Invalid request profile'; end if;
+  provider:=profile->'provider';
+  if (provider-'only'-'order'-'allow_fallbacks'-'require_parameters'-'max_price')<>'{}'::jsonb
+  or jsonb_typeof(provider->'only') is distinct from 'array'
+  or provider->'order' is distinct from provider->'only'
+  or provider->'allow_fallbacks' is distinct from 'false'::jsonb
+  or provider->'require_parameters' is distinct from 'true'::jsonb
+  or jsonb_typeof(provider->'max_price') is distinct from 'object'
+  then raise exception 'Invalid request profile'; end if;
+  if jsonb_array_length(provider->'only')<>1
+  or jsonb_typeof(provider->'only'->0) is distinct from 'string'
+  or provider->'only'->>0 !~ '^[a-z0-9][a-z0-9._/-]{0,127}$'
+  then raise exception 'Invalid request profile'; end if;
+  prices:=provider->'max_price';
+  if (prices-'prompt'-'completion'-'request')<>'{}'::jsonb
+  or jsonb_typeof(prices->'prompt') is distinct from 'number'
+  or jsonb_typeof(prices->'completion') is distinct from 'number'
+  or prices->'request' is distinct from '0'::jsonb then raise exception 'Invalid request profile'; end if;
+  if (prices->>'prompt')::numeric<=0 or (prices->>'completion')::numeric<=0 then raise exception 'Invalid request profile'; end if;
+ end if;
  select config into existing from shadow_agent.run_config where run_id=p_run;
  if found then
   if existing is distinct from p_config then raise exception 'Immutable runtime config'; end if;

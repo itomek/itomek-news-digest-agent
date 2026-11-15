@@ -58,9 +58,10 @@ export async function syncSource(selection,registry,store,upper){
   if(!result.accepted)throw Error('Lease rejected');
   const status=result.status??outcome;
   return {id,status,count:items.length,fetched:result.fetched??page.fetchedCount,new:result.new??0,duplicate:result.duplicate??0,last_successful_sync:result.last_success_at??null,covered_through:result.covered_through??null,lag_seconds:result.covered_through?Math.max(0,Math.floor((Date.parse(upper)-Date.parse(result.covered_through))/1000)):null,incomplete_catch_up:['partial','gap','failed','running','busy'].includes(status),coverage_gap:status==='gap'||page.coverageGap,earliest_available:page.earliestAvailableAt??null};
- }catch{
-  if(lease?.acquired){try{await store.finish({p_source_key:sourceKey,p_token:lease.token,p_items:[],p_outcome:'failed',p_cursor:lease.cursor??null,p_earliest_available:null,p_error_code:'source_or_persistence_failed',p_fetched:0});}catch{/* Preserve the lease for crash-safe expiry and retry. */}}
-  return {id,status:'failed',count:0,error:'source_or_persistence_failed',incomplete_catch_up:true,last_successful_sync:lease?.last_success_at??null,covered_through:lease?.covered_through??null,lag_seconds:lease?.covered_through?Math.max(0,Math.floor((Date.parse(upper)-Date.parse(lease.covered_through))/1000)):null};
+ }catch(error){
+  const code=/^source_(?:http_[1-5][0-9]{2}|content_type|timeout|network|body_limit|parse_failed)$/.test(error?.code??'')?error.code:'source_or_persistence_failed';
+  if(lease?.acquired){try{await store.finish({p_source_key:sourceKey,p_token:lease.token,p_items:[],p_outcome:'failed',p_cursor:lease.cursor??null,p_earliest_available:null,p_error_code:code,p_fetched:0});}catch{/* Preserve the lease for crash-safe expiry and retry. */}}
+  return {id,status:'failed',count:0,error:code,incomplete_catch_up:true,last_successful_sync:lease?.last_success_at??null,covered_through:lease?.covered_through??null,lag_seconds:lease?.covered_through?Math.max(0,Math.floor((Date.parse(upper)-Date.parse(lease.covered_through))/1000)):null};
  }
 }
 export async function syncSources(selections,registry,store,upper=new Date().toISOString()){

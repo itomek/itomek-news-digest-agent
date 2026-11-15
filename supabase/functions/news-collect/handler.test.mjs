@@ -17,3 +17,16 @@ test('duplicate source keys and multiple HN scanners reject before collection',a
  const response=await h.handle(req(),{WARPCORE_CRON_TOKEN:token,NEWS_SOURCE_CONFIG:JSON.stringify(selections)},{},options());assert.equal(response.status,503);
  }
 });
+test('authenticated recovery selects only existing configured source IDs',async()=>{
+ const sources=[{id:'a',adapter:'rss'},{id:'b',adapter:'rss'}];const calls=[];
+ const request=new Request('https://example.com',{method:'POST',headers:{'x-warpcore-token':token},body:JSON.stringify({source_ids:['b']})});
+ const response=await h.handle(request,{WARPCORE_CRON_TOKEN:token,NEWS_SOURCE_CONFIG:JSON.stringify(sources)},{rss:{collectPage:async()=>page([])}},options(async args=>{calls.push(args.p_source_key);return {accepted:true,status:args.p_outcome};}));
+ assert.equal(response.status,200);assert.deepEqual(calls,['rss:b']);
+});
+test('recovery rejects unknown source IDs, arbitrary configuration, duplicates and oversized bodies before persistence',async()=>{
+ for(const body of [JSON.stringify({source_ids:['missing']}),JSON.stringify({source_ids:['a','a']}),JSON.stringify({source_ids:[]}),JSON.stringify({source_ids:['a'],config:{url:'https://example.com'}}),' '.repeat(4097)]){
+  let called=false;const request=new Request('https://example.com',{method:'POST',headers:{'x-warpcore-token':token},body});
+  const response=await h.handle(request,{WARPCORE_CRON_TOKEN:token,NEWS_SOURCE_CONFIG:'[{"id":"a","adapter":"rss"}]'},{}, {store:{begin:async()=>{called=true;}}});
+  assert.equal(response.status,400);assert.equal(called,false);
+ }
+});

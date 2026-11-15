@@ -66,3 +66,11 @@ test('oversized snapshots and malformed evidence in later validation chunks cann
   assert.equal(f.finishes.length,1);assert.equal(f.finishes[0].p_outcome,'failed');assert.deepEqual(f.finishes[0].p_items,[]);
  }
 });
+test('only fixed diagnostic codes reach durable attempts and operations responses',async()=>{
+ for(const incoming of ['source_http_403','source_parse_failed','source_timeout','secret token https://private.example']){
+  const f=fixture();const expected=incoming.startsWith('secret')?'source_or_persistence_failed':incoming;
+  const result=await syncSources([selection],{fixture:{collectPage:async()=>{throw Object.assign(Error('private upstream details'),{code:incoming});}}},f.store,upper);
+  assert.equal(f.finishes[0].p_error_code,expected);assert.equal(result.sources[0].error,expected);
+  assert.doesNotMatch(JSON.stringify(result),/private|secret/);assert.equal(f.state.covered_through,null);
+ }
+});

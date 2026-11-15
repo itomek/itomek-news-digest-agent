@@ -38,14 +38,24 @@ export function parseOfficialHTML(html,config,now=Date.now(),window=null){
   seen.add(e.url);return [{id:e.url,url:e.url,text:[e.title,e.summary].filter(Boolean).join('\n').slice(0,18000),author:config.label,publishedAt:new Date(published).toISOString(),visibility:'public'}];
  });
 }
+function diagnostic(code){return Object.assign(new Error(code),{code});}
+function networkDiagnostic(error){return diagnostic(error?.name==='TimeoutError'||error?.name==='AbortError'?'source_timeout':'source_network');}
 export async function collectOfficialHTML(config,fetcher=fetch,now=Date.now(),window=null){
  if(!URLS.has(config?.url)||typeof config.label!=='string'||!config.label.trim())throw Error('Trusted labeled official index required');
- const r=await fetcher(config.url,{method:'GET',redirect:'error',signal:AbortSignal.timeout(8000),headers:{Accept:'text/html','User-Agent':'Mozilla/5.0 (compatible; WarpCorePublicNews/1.0)'}});
- if(!r.ok||!/^text\/html(?:;|$)/i.test(r.headers.get('content-type')||''))throw Error('Invalid official index response');
- const reader=r.body.getReader(),chunks=[];let size=0;
- try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>1000000)throw Error('Official index too large');chunks.push(value);}}finally{await reader.cancel();}
+ let r;
+ try{r=await fetcher(config.url,{method:'GET',redirect:'error',signal:AbortSignal.timeout(8000),headers:{Accept:'text/html','User-Agent':'Mozilla/5.0 (compatible; WarpCorePublicNews/1.0)'}});}
+ catch(error){throw networkDiagnostic(error);}
+ if(!r.ok)throw diagnostic(`source_http_${r.status}`);
+ if(!/^text\/html(?:;|$)/i.test(r.headers.get('content-type')||''))throw diagnostic('source_content_type');
+ const chunks=[];let size=0,reader;
+ try{
+  reader=r.body?.getReader();if(!reader)throw diagnostic('source_network');
+  while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>1000000)throw diagnostic('source_body_limit');chunks.push(value);}
+ }catch(error){if(error?.code==='source_body_limit'||error?.code==='source_network')throw error;throw networkDiagnostic(error);}
+ finally{if(reader)await reader.cancel().catch(()=>{});}
  const bytes=new Uint8Array(size);let offset=0;for(const c of chunks){bytes.set(c,offset);offset+=c.length;}
- return parseOfficialHTML(new TextDecoder().decode(bytes),config,now,window);
+ try{return parseOfficialHTML(new TextDecoder().decode(bytes),config,now,window);}
+ catch{throw diagnostic('source_parse_failed');}
 }
 
 // A finite snapshot scan cannot certify retained, late, or re-dated history.

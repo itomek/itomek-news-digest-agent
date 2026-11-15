@@ -29,3 +29,9 @@ On November 15, 2026, News Digest project `eedfyviypptfpghyffip` served collecto
 5. Query the service-only `warpcore_source_sync_health` view and `warpcore_source_sync_attempts` history for lag, incomplete catch-up, coverage gaps, and sanitized error codes. Never expose credentials or raw upstream failures in operations output.
 
 Rollback the collector bundle if needed; retain checkpoint tables and evidence. Never roll back by deleting acquisition or publication history.
+
+## Targeted recovery
+
+An authenticated POST may provide `{"source_ids":["hn_discovery"]}` to narrow collection to existing configured IDs. Empty requests retain scheduled full-roster behavior. Unknown IDs, arbitrary configuration, duplicate IDs, and bodies over 4 KB are rejected. Each invocation retains the same per-source lease, fixed window, atomic ingestion, and cursor protocol. Repeat only sources whose outcome remains `partial`; a completed finite snapshot still reports `gap`, not complete historical coverage.
+
+Failures distinguish sanitized HTTP status, content type, timeout/network, body limit, and parser categories. Raw source responses, error messages, URLs, and secrets never enter attempt errors.

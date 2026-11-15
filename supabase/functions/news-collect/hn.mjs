@@ -13,12 +13,12 @@ async function readJSON(path,fetcher){
  const buffer=new Uint8Array(bytes);let offset=0;for(const chunk of chunks){buffer.set(chunk,offset);offset+=chunk.byteLength;}
  return JSON.parse(new TextDecoder().decode(buffer));
 }
-export async function collectHN(config={},fetcher=fetch,now=Date.now()){
+export async function collectHN(config={},fetcher=fetch,now=Date.now(),window=null){
  const {terms,minScore=100,minComments=30,maxItems=20,maxAgeHours=48}=config;
  if(!Array.isArray(terms)||terms.length<1||terms.length>30||terms.some(t=>typeof t!=='string'||!t.trim()||t.length>80)||
  !Number.isSafeInteger(minScore)||minScore<0||!Number.isSafeInteger(minComments)||minComments<0||
  !Number.isInteger(maxItems)||maxItems<1||maxItems>20||!Number.isFinite(maxAgeHours)||maxAgeHours<=0||maxAgeHours>48||!Number.isFinite(now))throw new Error('Invalid HN config');
- const ids=await readJSON('topstories.json',fetcher);
+ const ids=window?.ids??await readJSON('topstories.json',fetcher);
  if(!Array.isArray(ids)||ids.some(id=>!Number.isSafeInteger(id)||id<=0))throw new Error('Invalid HN top IDs');
  const rows=[];const lowered=terms.map(t=>t.trim().toLowerCase());
  // Seven batches of at most three plus index: <=40 seconds of request time.
@@ -31,8 +31,9 @@ export async function collectHN(config={},fetcher=fetch,now=Date.now()){
   if(failed)throw failed.reason;
   for(let index=0;index<batch.length;index++){
   const id=batch[index],item=results[index].value;
+  if(window&&Number.isFinite(item?.time)&&item.time*1000<=now)window.earliest=Math.min(window.earliest??Infinity,item.time*1000);
   if(!item||item.id!==id||item.type!=='story'||item.deleted||item.dead||typeof item.title!=='string'||!item.title.trim()||
-   !Number.isFinite(item.time)||item.time*1000>now||now-item.time*1000>maxAgeHours*3600000||
+   !Number.isFinite(item.time)||item.time*1000>now||(window?item.time*1000<Date.parse(window.since):now-item.time*1000>maxAgeHours*3600000)||
    !Number.isFinite(item.score)||item.score<minScore||!Number.isFinite(item.descendants)||item.descendants<minComments||
    !lowered.some(term=>item.title.toLowerCase().includes(term)))continue;
   const discussion=`https://news.ycombinator.com/item?id=${id}`;
@@ -43,4 +44,24 @@ export async function collectHN(config={},fetcher=fetch,now=Date.now()){
   }
  }
  return rows;
+}
+
+// Top stories are a finite ranking snapshot, never a historical completeness API.
+export async function collectHNPage(config={},fetcher=fetch,window={}){
+ const since=Date.parse(window.since),until=Date.parse(window.until);
+ if(!Number.isFinite(since)||!Number.isFinite(until)||since>until)throw Error('Invalid HN sync window');
+ let ids,offset=0;
+ if(window.cursor!=null){
+  const c=window.cursor;
+  if(c.until!==window.until||c.since!==window.since||!Array.isArray(c.ids)||c.ids.length>1000||c.ids.some(id=>!Number.isSafeInteger(id)||id<=0)||!Number.isSafeInteger(c.offset)||c.offset<0||c.offset>c.ids.length)throw Error('Invalid HN cursor');
+  ids=c.ids;offset=c.offset;
+ }else{
+  ids=await readJSON('topstories.json',fetcher);
+  if(!Array.isArray(ids)||ids.length>1000||ids.some(id=>!Number.isSafeInteger(id)||id<=0))throw Error('Invalid HN top IDs');
+  ids=[...new Set(ids)];
+ }
+ const page=ids.slice(offset,offset+20),scan={since:new Date(0).toISOString(),ids:page};
+ const items=(await collectHN({...config,maxItems:20},fetcher,until,scan)).map(x=>({...x,nativeUrl:x.discussion_url}));
+ offset+=page.length;const complete=offset>=ids.length;
+ return {items,complete,cursor:complete?null:{ids,offset,since:window.since,until:window.until},earliestAvailableAt:Number.isFinite(scan.earliest)?new Date(scan.earliest).toISOString():null,coverageGap:true,gapReason:'finite_top_story_snapshot',fetchedCount:page.length};
 }

@@ -50,14 +50,25 @@ export function parseFeed(xml,config={},now=Date.now(),window=null){
  }
  return out;
 }
+const sourceError=(code,message)=>Object.assign(Error(message),{code});
+const networkError=error=>sourceError(['TimeoutError','AbortError'].includes(error?.name)?'source_timeout':'source_network','Source request failed');
 export async function collectRSS(config,fetcher=fetch,now=Date.now(),window=null){
  const url=safe(config?.url);if(!url||!FEEDS.has(url)||typeof config.label!=='string'||!config.label.trim())throw Error('Trusted labeled feed required');
- const r=await fetcher(url,{method:'GET',redirect:'error',signal:AbortSignal.timeout(8000),headers:{Accept:'application/rss+xml, application/atom+xml, application/xml, text/xml'}});
- if(!r.ok||!(/(xml|rss|atom)/i.test(r.headers.get('content-type')||'')||(url==='https://mistral.ai/news/rss'&&/^text\/plain(?:;|$)/i.test(r.headers.get('content-type')||''))))throw Error('Invalid feed response');
+ let r;
+ try{r=await fetcher(url,{method:'GET',redirect:'error',signal:AbortSignal.timeout(8000),headers:{Accept:'application/rss+xml, application/atom+xml, application/xml, text/xml'}});}
+ catch(error){throw networkError(error);}
+ if(!r.ok)throw sourceError(Number.isInteger(r.status)&&r.status>=100&&r.status<=599?`source_http_${r.status}`:'source_network','Invalid feed response');
+ if(!(/(xml|rss|atom)/i.test(r.headers.get('content-type')||'')||(url==='https://mistral.ai/news/rss'&&/^text\/plain(?:;|$)/i.test(r.headers.get('content-type')||''))))throw sourceError('source_content_type','Invalid feed response');
+ if(!r.body)throw sourceError('source_network','Missing source body');
  const reader=r.body.getReader(),chunks=[];let size=0;
- try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>1000000)throw Error('Feed too large');chunks.push(value);}}finally{await reader.cancel();}
+ try{while(true){
+  let result;try{result=await reader.read();}catch(error){throw networkError(error);}
+  const {done,value}=result;if(done)break;size+=value.length;
+  if(size>1000000)throw sourceError('source_body_limit','Feed too large');chunks.push(value);
+ }}finally{await reader.cancel().catch(()=>{});}
  const bytes=new Uint8Array(size);let offset=0;for(const c of chunks){bytes.set(c,offset);offset+=c.length;}
- return parseFeed(new TextDecoder().decode(bytes),config,now,window);
+ try{return parseFeed(new TextDecoder().decode(bytes),config,now,window);}
+ catch(error){throw Object.assign(error,{code:'source_parse_failed'});}
 }
 
 // A finite snapshot scan cannot certify retained, late, or re-dated history.

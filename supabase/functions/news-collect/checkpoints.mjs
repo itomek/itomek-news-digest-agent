@@ -35,29 +35,38 @@ export async function syncSource(selection,registry,store,upper){
   if(!adapter||typeof adapter.collectPage!=='function')throw Error('Checkpoint adapter unavailable');
   lease=await store.begin({p_source_key:sourceKey,p_source_type:selection.adapter,p_source_id:id,p_config_hash:await configurationHash(selection),p_bootstrap_since:new Date(Date.parse(upper)-7*DAY).toISOString(),p_upper:upper});
   if(!lease.acquired)return {id,status:'busy',count:0,incomplete_catch_up:true,last_successful_sync:lease.last_success_at??null,covered_through:lease.covered_through??null,lag_seconds:lease.covered_through?Math.max(0,Math.floor((Date.parse(upper)-Date.parse(lease.covered_through))/1000)):null};
-  const page=await adapter.collectPage(selection.config??{},{since:lease.window_since,until:lease.window_until,cursor:lease.cursor??null});
-  if(!page||!Array.isArray(page.items)||page.items.length>5000||typeof page.complete!=='boolean'||typeof page.coverageGap!=='boolean')throw Error('Invalid page');
-  if(!page.complete&&(page.cursor===null||page.cursor===undefined))throw Error('Missing continuation');
-  if(page.earliestAvailableAt!=null&&!Number.isFinite(Date.parse(page.earliestAvailableAt)))throw Error('Invalid earliest coverage');
-  if(!Number.isInteger(page.fetchedCount)||page.fetchedCount<page.items.length||page.fetchedCount>10000)throw Error('Invalid fetched count');
-  // Finite feeds may retain thousands of items within the adapter's 1 MB
-  // response bound. Reuse the existing 500-item validation batches without
-  // splitting persistence: all validated evidence and state commit together.
-  const validated=[];
-  for(let offset=0;offset<page.items.length;offset+=500){
-   const normalized=await runAdapters([selection],{[selection.adapter]:{collect:async()=>page.items.slice(offset,offset+500)}});
-   if(normalized.sources[0].status!=='ok')throw Error('Invalid candidates');
-   validated.push(...normalized.candidates);
+  const windows=[{since:lease.window_since,until:lease.window_until,cursor:lease.cursor??null}];
+  // Refresh the head during long historical scans so current news does not wait
+  // for archive exhaustion. Only the original backlog page controls coverage.
+  if(selection.adapter==='bluesky'&&lease.cursor!=null)windows.push({since:lease.window_since,until:upper,cursor:null});
+  const fetchedPages=await Promise.allSettled(windows.map(window=>adapter.collectPage(selection.config??{},window)));
+  const rejected=fetchedPages.find(result=>result.status==='rejected');if(rejected)throw rejected.reason;
+  const pages=fetchedPages.map(result=>result.value),page=pages[0],candidates=[];
+  let fetchedCount=0,coverageGap=false,earliestAvailableAt=null;
+  for(let index=0;index<pages.length;index++){
+   const current=pages[index];
+   if(!current||!Array.isArray(current.items)||current.items.length>5000||typeof current.complete!=='boolean'||typeof current.coverageGap!=='boolean')throw Error('Invalid page');
+   if(!current.complete&&(current.cursor===null||current.cursor===undefined))throw Error('Missing continuation');
+   if(current.earliestAvailableAt!=null&&!Number.isFinite(Date.parse(current.earliestAvailableAt)))throw Error('Invalid earliest coverage');
+   if(!Number.isInteger(current.fetchedCount)||current.fetchedCount<current.items.length||current.fetchedCount>10000)throw Error('Invalid fetched count');
+   fetchedCount+=current.fetchedCount;coverageGap ||= current.coverageGap;
+   if(current.earliestAvailableAt!=null&&(earliestAvailableAt===null||Date.parse(current.earliestAvailableAt)<Date.parse(earliestAvailableAt)))earliestAvailableAt=current.earliestAvailableAt;
+   // Retain the existing 500-item evidence validation and 5000-item transaction
+   // bound. Every page validates fully before any candidate write occurs.
+   for(let offset=0;offset<current.items.length;offset+=500){
+    const normalized=await runAdapters([selection],{[selection.adapter]:{collect:async()=>current.items.slice(offset,offset+500)}});
+    if(normalized.sources[0].status!=='ok')throw Error('Invalid candidates');
+    candidates.push(...normalized.candidates.filter(item=>Date.parse(item.created_at)<=Date.parse(windows[index].until)));
+   }
   }
-  // The upper bound is fixed across resumed invocations; late newer items will
-  // be collected in the next window, with a 24-hour overlap on successful runs.
-  const candidates=validated.filter(item=>Date.parse(item.created_at)<=Date.parse(lease.window_until));
-  const items=await Promise.all(candidates.map(candidateRow));
-  const outcome=!page.complete?'partial':page.coverageGap?'gap':page.fetchedCount?'complete':'empty';
-  const result=await store.finish({p_source_key:sourceKey,p_token:lease.token,p_items:items,p_outcome:outcome,p_cursor:page.complete?null:page.cursor,p_earliest_available:page.earliestAvailableAt??null,p_error_code:page.coverageGap?'upstream_history_unproven':null,p_fetched:page.fetchedCount});
+  const unique=[...new Map(candidates.map(candidate=>[candidate.uri,candidate])).values()];
+  if(unique.length>5000||fetchedCount>10000)throw Error('Combined page exceeds persistence bounds');
+  const items=await Promise.all(unique.map(candidateRow));
+  const outcome=!page.complete?'partial':coverageGap?'gap':fetchedCount?'complete':'empty';
+  const result=await store.finish({p_source_key:sourceKey,p_token:lease.token,p_items:items,p_outcome:outcome,p_cursor:page.complete?null:page.cursor,p_earliest_available:earliestAvailableAt,p_error_code:coverageGap?'upstream_history_unproven':null,p_fetched:fetchedCount});
   if(!result.accepted)throw Error('Lease rejected');
   const status=result.status??outcome;
-  return {id,status,count:items.length,fetched:result.fetched??page.fetchedCount,new:result.new??0,duplicate:result.duplicate??0,last_successful_sync:result.last_success_at??null,covered_through:result.covered_through??null,lag_seconds:result.covered_through?Math.max(0,Math.floor((Date.parse(upper)-Date.parse(result.covered_through))/1000)):null,incomplete_catch_up:['partial','gap','failed','running','busy'].includes(status),coverage_gap:status==='gap'||page.coverageGap,earliest_available:page.earliestAvailableAt??null};
+  return {id,status,count:items.length,fetched:result.fetched??fetchedCount,new:result.new??0,duplicate:result.duplicate??0,last_successful_sync:result.last_success_at??null,covered_through:result.covered_through??null,lag_seconds:result.covered_through?Math.max(0,Math.floor((Date.parse(upper)-Date.parse(result.covered_through))/1000)):null,incomplete_catch_up:['partial','gap','failed','running','busy'].includes(status),coverage_gap:status==='gap'||coverageGap,earliest_available:earliestAvailableAt};
  }catch(error){
   const code=/^source_(?:http_[1-5][0-9]{2}|content_type|timeout|network|body_limit|parse_failed)$/.test(error?.code??'')?error.code:'source_or_persistence_failed';
   if(lease?.acquired){try{await store.finish({p_source_key:sourceKey,p_token:lease.token,p_items:[],p_outcome:'failed',p_cursor:lease.cursor??null,p_earliest_available:null,p_error_code:code,p_fetched:0});}catch{/* Preserve the lease for crash-safe expiry and retry. */}}

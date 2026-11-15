@@ -51,3 +51,18 @@ test('handler production path persists checkpoints and never falls back to gener
  assert.equal(response.status,200);assert.equal(f.finishes[0].p_outcome,'empty');assert.equal((await response.json()).sources[0].covered_through,upper);
  const rejected=fixture();rejected.store.finish=async()=>({accepted:false});const result=await syncSources([selection],{fixture:{collectPage:async()=>({items:[],complete:true,coverageGap:false,cursor:null,fetchedCount:0})}},rejected.store,upper);assert.equal(result.sources[0].status,'failed');assert.equal(rejected.state.covered_through,null);
 });
+test('retained feed snapshots exceeding 500 candidates persist atomically without truncation',async()=>{
+ const f=fixture();const rows=Array.from({length:1387},(_,index)=>item(index));
+ const result=await syncSources([selection],{fixture:{collectPage:async()=>({items:rows,complete:true,coverageGap:true,cursor:null,fetchedCount:rows.length})}},f.store,upper);
+ assert.equal(result.sources[0].status,'gap');assert.equal(result.sources[0].count,1387);
+ assert.equal(f.finishes.length,1);assert.equal(f.finishes[0].p_outcome,'gap');assert.equal(f.finishes[0].p_items.length,1387);
+ assert.equal(new Set(f.finishes[0].p_items.map(row=>row.uri)).size,1387);assert.equal(f.state.covered_through,null);
+});
+test('oversized snapshots and malformed evidence in later validation chunks cannot persist candidates or advance coverage',async()=>{
+ for(const rows of [Array.from({length:5001},(_,index)=>item(index)),[...Array.from({length:600},(_,index)=>item(index)),{...item(600),visibility:'private'}]]){
+  const f=fixture();const prior='2026-11-10T00:00:00Z';f.state.covered_through=prior;
+  const result=await syncSources([selection],{fixture:{collectPage:async()=>({items:rows,complete:true,coverageGap:true,cursor:null,fetchedCount:rows.length})}},f.store,upper);
+  assert.equal(result.sources[0].status,'failed');assert.equal(f.state.covered_through,prior);
+  assert.equal(f.finishes.length,1);assert.equal(f.finishes[0].p_outcome,'failed');assert.deepEqual(f.finishes[0].p_items,[]);
+ }
+});

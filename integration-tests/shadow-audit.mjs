@@ -29,6 +29,15 @@ try{
  for(const file of ['shadow-state.sql','shadow-paged.sql','shadow-audit.sql'])await db.exec(await fs.readFile(new URL(`../supabase/functions/news-agent/sql/${file}`,import.meta.url),'utf8'));
  await db.exec('set role service_role');
  const requestProfile={version:'discovery-spike-v1',provider:{only:['fixture/provider'],order:['fixture/provider'],allow_fallbacks:false,require_parameters:true,max_price:{prompt:0.5,completion:1.5,request:0}},responseFormat:'discovery-json-schema-v1'};
+ const reasonedProfile={...requestProfile,version:'discovery-spike-v1.2',reasoning:{effort:'none'}};
+ const reasoned=await fixture(1,{...config,requestProfile:reasonedProfile});
+ assert.equal(await reasoned.bind({...config,requestProfile:reasonedProfile}),true);
+ for(const reasoning of [null,[],{},'none',{effort:'low'},{effort:'none',exclude:true},{effort:'none',max_tokens:100},{exclude:true},{max_tokens:0}])
+  await assert.rejects(()=>reasoned.bind({...config,requestProfile:{...reasonedProfile,reasoning}}),/Invalid/);
+ await admin(()=>q("update shadow_agent.runs set lease_until=clock_timestamp()-interval '1 second' where id=$1",[reasoned.run]));
+ const reasonedResume=await scalar('select shadow_agent.claim($1,60) as value',[reasoned.run]);
+ assert.equal(await scalar('select shadow_agent.paged_bind_config($1,$2,$3) as value',[reasoned.run,reasonedResume,{...config,requestProfile:reasonedProfile}]),true);
+ await assert.rejects(()=>scalar('select shadow_agent.paged_bind_config($1,$2,$3) as value',[reasoned.run,reasonedResume,{...config,requestProfile:{...requestProfile,version:reasonedProfile.version}}]),/Immutable/);
  const profiled=await fixture(1,{...config,requestProfile});
  assert.equal(await profiled.bind({...config,requestProfile:structuredClone(requestProfile)}),true);
  await assert.rejects(()=>profiled.bind(config),/Immutable/);

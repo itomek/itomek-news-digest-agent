@@ -8,7 +8,7 @@ Prepare fixture.sql, then shadow-state.sql, shadow-paged.sql, shadow-audit.sql, 
 
 Deploy news-agent-spike using a dedicated producer token plus platform JWT. The spike requires its explicit project ref, rejects the production ref, forwards only pinned Supabase RPCs and fabricates all model responses locally. Never fetch OpenRouter or source URLs. Use one page/batch per invocation and record exact deployedcommit, auth denials, 405-candidate coverage, overlap, leases, ledger and zero publishing rows.
 
-Separate approval remains needed for target provisioning/deployment under the recorded gate. Existing proposed $2/24-call real-model pilot remains unapproved; no charge or account topup is authorized by this file.
+The owner approved the isolated free project/deployment and the $2-total/24-call pilot on November 15. No paid upgrade or account topup is authorized. Creation was attempted at the refreshed zero-monthly-cost quote and refused because the account already has two active free projects. No existing project was paused or changed. A separate decision is pending on freeing a slot.
 
 ## Prepared artifacts and checks
 
@@ -27,3 +27,17 @@ normal `news-agent` entrypoint remains hardcoded disabled.
 Local checks: 262 JavaScript tests, Deno checks for both entrypoints and the
 embedded fixture tests pass; independent spike review has no outstanding findings.
 These are preparation results, not deployed or unattended-operation evidence.
+
+## Approved attempt checkpoint — November 15
+
+The isolated project was not created: Supabase reported the account-wide free
+project quota. Only the itomek organization is available. News Digest and
+cyberai-staging-bridge remain active and untouched. The owner is deciding whether
+to pause the staging bridge temporarily or retain both active projects. No paid
+upgrade or reuse of an unrelated project is permitted by the current approval.
+
+A credential-presence preflight found no OpenRouter key in this shell or the known
+workspace environment files; no secret value was printed. A dedicated capped
+pilot credential must be provisioned before actual model testing. No model call,
+charge or deployment occurred. The [attempt record](evidence/2026-11-15-hosted-spike/attempt.json)
+keeps the approved limits separate from actions actually performed.

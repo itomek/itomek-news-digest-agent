@@ -191,7 +191,7 @@ test('researched model profile is derived server-side, bound immutably and hashe
  const fetcher=async(...args)=>{body=JSON.parse(args[1].body);const response=await f.fetcher(...args);return Response.json({...await response.json(),model});};
  const cfg={...config,model,allowedModels:[model],requireModelProfile:true,requestProfile:{secret:'must-not-be-bound'}};
  await runPagedShadowInvocation({runId,config:cfg,...f,fetcher},{pageSteps:2});
- assert.equal(f.bindings[0].requestProfile.version,'2026-11-15.1');assert.equal(JSON.stringify(f.bindings).includes('must-not-be-bound'),false);
+ assert.equal(f.bindings[0].requestProfile.version,'2026-11-15.2');assert.equal(JSON.stringify(f.bindings).includes('must-not-be-bound'),false);
  await runPagedShadowInvocation({runId,config:cfg,...f,fetcher});
  assert.deepEqual(body.provider.only,['anthropic']);assert.deepEqual(body.provider.order,['anthropic']);assert.equal(body.provider.max_price.request,0);
  assert.equal(Object.hasOwn(body,'temperature'),false);assert.equal(body.response_format.type,'json_schema');

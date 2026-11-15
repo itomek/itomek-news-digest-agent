@@ -12,7 +12,12 @@ export function validateProviderPolicy(provider){
  if(!exactKeys(provider,['only','order','allow_fallbacks','require_parameters','max_price'])||!Array.isArray(provider.only)||provider.only.length!==1||typeof provider.only[0]!=='string'||provider.only[0].length>128||!/^[a-z0-9]+(?:[-/][a-z0-9]+)*$/.test(provider.only[0])||!Array.isArray(provider.order)||provider.order.length!==1||provider.order[0]!==provider.only[0]||provider.allow_fallbacks!==false||provider.require_parameters!==true||!exactKeys(provider.max_price,['prompt','completion','request'])||!Number.isFinite(provider.max_price.prompt)||provider.max_price.prompt<=0||!Number.isFinite(provider.max_price.completion)||provider.max_price.completion<=0||provider.max_price.request!==0)throw Error('Invalid discovery provider policy');
  return structuredClone(provider);
 }
+export function validateReasoningControl(reasoning){
+ if(!exactKeys(reasoning,['effort'])||reasoning.effort!=='none')throw Error('Invalid discovery reasoning control');
+ return {effort:'none'};
+}
 export function validateRequestProfile(profile){
- if(!exactKeys(profile,['version','provider','responseFormat'])||profile.version!=='2026-11-15.1'||profile.responseFormat!=='discovery-json-schema-v1')throw Error('Invalid discovery request profile');
- return {version:profile.version,provider:validateProviderPolicy(profile.provider),responseFormat:profile.responseFormat};
+ const hasReasoning=object(profile)&&Object.hasOwn(profile,'reasoning');
+ if(!exactKeys(profile,hasReasoning?['version','provider','responseFormat','reasoning']:['version','provider','responseFormat'])||profile.version!=='2026-11-15.2'||profile.responseFormat!=='discovery-json-schema-v1')throw Error('Invalid discovery request profile');
+ return {version:profile.version,provider:validateProviderPolicy(profile.provider),responseFormat:profile.responseFormat,...(hasReasoning?{reasoning:validateReasoningControl(profile.reasoning)}:{})};
 }

@@ -108,3 +108,11 @@ test('caller mutation after dispatch cannot alter transmitted schema, provider, 
  assert.equal(result.decisions[0].id,'a');assert.equal(transmitted.provider.only[0],'test-provider');assert.equal(transmitted.provider.max_price.request,0);
  assert.deepEqual(transmitted.response_format.json_schema.schema.properties.decisions.items.properties.action.enum,['skip','verify']);
 });
+test('exact none reasoning is serialized while unknown reasoning controls fail before HTTP',async()=>{
+ const r={...request(),reasoning:{effort:'none'}};
+ await reviewWithOpenRouter(r,config(),async(_url,options)=>{assert.deepEqual(JSON.parse(options.body).reasoning,{effort:'none'});r.reasoning.effort='high';return response();});
+ for(const reasoning of [null,undefined,{effort:'high'},{effort:'none',exclude:true},{max_tokens:0},{effort:'none',max_tokens:0}]){
+  let calls=0;await assert.rejects(reviewWithOpenRouter({...request(),reasoning},config(),async()=>{calls++;return response();}),e=>e.outcome==='not_started');assert.equal(calls,0);
+  assert.throws(()=>serializeReviewBody({...request(),reasoning}),e=>e.outcome==='not_started');
+ }
+});

@@ -153,3 +153,12 @@ Reasoning controls, native billed-token reservation proof, actual returned
 provider identity and hosted acceptance still require follow-up before paid use.
 The two-credit pilot remains proposed, not authorized by the general request to
 fix the issue. No deployment or paid request occurred.
+
+## November 15 owner approval
+
+The owner approved creating/deploying the isolated free spike and the researched
+pilot capped at 2 USD-equivalent credits and 24 paid calls, with no paid project
+upgrade or account topup. This supersedes the earlier pending-approval labels;
+research recommendations still do not prove actual model performance. The new
+project attempt was refused by the free-project quota. No call or charge has
+occurred; see docs/warpcore-hosted-spike.md for the execution checkpoint.

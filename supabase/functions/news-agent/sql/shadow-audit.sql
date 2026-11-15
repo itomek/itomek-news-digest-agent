@@ -36,12 +36,14 @@ begin
  if p_config ? 'requestProfile' then
   profile:=p_config->'requestProfile';
   if jsonb_typeof(profile) is distinct from 'object'
-  or (profile-'version'-'provider'-'responseFormat')<>'{}'::jsonb
+  or (profile-'version'-'provider'-'responseFormat'-'reasoning')<>'{}'::jsonb
   or jsonb_typeof(profile->'version') is distinct from 'string'
   or profile->>'version' !~ '^[A-Za-z0-9._-]{1,64}$'
   or profile->'responseFormat' is distinct from '"discovery-json-schema-v1"'::jsonb
   or jsonb_typeof(profile->'provider') is distinct from 'object'
   then raise exception 'Invalid request profile'; end if;
+  if profile ? 'reasoning' and profile->'reasoning' is distinct from '{"effort":"none"}'::jsonb
+  then raise exception 'Invalid request profile reasoning'; end if;
   provider:=profile->'provider';
   if (provider-'only'-'order'-'allow_fallbacks'-'require_parameters'-'max_price')<>'{}'::jsonb
   or jsonb_typeof(provider->'only') is distinct from 'array'

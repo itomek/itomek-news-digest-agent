@@ -90,8 +90,16 @@ test('discovery builder omits unsupported temperature and requests strict closed
 });
 test('server request profile clones provider policy and refuses extra or incompatible controls',()=>{
  const provider={only:['test-provider'],order:['test-provider'],allow_fallbacks:false,require_parameters:true,max_price:{prompt:0.2,completion:1.2,request:0}};
- const requestProfile={version:'2026-11-15.1',provider,responseFormat:'discovery-json-schema-v1'};
+ const requestProfile={version:'2026-11-15.2',provider,responseFormat:'discovery-json-schema-v1'};
  const cfg={model:'test/model',allowedModels:['test/model'],maxOutputTokens:2000,requestProfile};
  const r=buildReviewRequest(cases,cfg);assert.deepEqual(r.provider,provider);r.provider.only[0]='other';assert.equal(provider.only[0],'test-provider');
  for(const invalid of [{...requestProfile,version:'future'},{...requestProfile,responseFormat:'json_object'},{...requestProfile,temperature:0},{...requestProfile,provider:{...provider,max_price:{...provider.max_price,request:1}}},null])assert.throws(()=>buildReviewRequest(cases,{...cfg,requestProfile:invalid}));
+});
+test('profile reasoning is copied exactly and unknown reasoning controls are refused',()=>{
+ const provider={only:['test-provider'],order:['test-provider'],allow_fallbacks:false,require_parameters:true,max_price:{prompt:0.2,completion:1.2,request:0}};
+ const requestProfile={version:'2026-11-15.2',provider,responseFormat:'discovery-json-schema-v1',reasoning:{effort:'none'}};
+ const cfg={model:'test/model',allowedModels:['test/model'],maxOutputTokens:2000,requestProfile};
+ const r=buildReviewRequest(cases,cfg);assert.deepEqual(r.reasoning,{effort:'none'});r.reasoning.effort='high';assert.equal(requestProfile.reasoning.effort,'none');
+ for(const reasoning of [null,undefined,{effort:'high'},{effort:'none',exclude:true},{max_tokens:0},{effort:'none',max_tokens:0}])assert.throws(()=>buildReviewRequest(cases,{...cfg,requestProfile:{...requestProfile,reasoning}}));
+ assert.equal(Object.hasOwn(buildReviewRequest(cases,{...cfg,requestProfile:undefined}),'reasoning'),false);
 });

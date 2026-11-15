@@ -1,7 +1,7 @@
-import {collectOfficialHTML} from './official-html.mjs';
-import {collectRSS} from './rss.mjs';
-import {collectHN} from './hn.mjs';
-import {collect,validateConfig} from '../bluesky-collect/core.mjs';
+import {collectOfficialHTML,collectOfficialHTMLPage} from './official-html.mjs';
+import {collectRSS,collectRSSPage} from './rss.mjs';
+import {collectHN,collectHNPage} from './hn.mjs';
+import {collect,validateConfig,collectBlueskyPage} from '../bluesky-collect/core.mjs';
 // Adapter availability is not activation. No accounts or terms are selected here.
 export function createBlueskyAdapter(collector=collect){return {collect:async config=>{
  validateConfig(config);
@@ -17,4 +17,9 @@ export function createBlueskyAdapter(collector=collect){return {collect:async co
    url:c.links.find(x=>{try{const u=new URL(x);return u.protocol==='https:'&&!u.username&&!u.password;}catch{return false;}}) || nativeUrl};
  });
 }};}
-export const registry={official_html:{collect:collectOfficialHTML},bluesky:createBlueskyAdapter(),rss:{collect:collectRSS},hn:{collect:async config=>(await collectHN(config)).map(x=>({...x,nativeUrl:x.discussion_url}))}};
+export const registry={
+ official_html:{collect:collectOfficialHTML,collectPage:(config,window)=>collectOfficialHTMLPage(config,fetch,window)},
+ bluesky:{...createBlueskyAdapter(),collectPage:(config,window)=>collectBlueskyPage(config,fetch,window)},
+ rss:{collect:collectRSS,collectPage:(config,window)=>collectRSSPage(config,fetch,window)},
+ hn:{collect:async config=>(await collectHN(config)).map(x=>({...x,nativeUrl:x.discussion_url})),collectPage:async(config,window)=>{const page=await collectHNPage(config,fetch,window);return {...page,items:page.items.map(x=>({...x,nativeUrl:x.discussion_url}))};}},
+};

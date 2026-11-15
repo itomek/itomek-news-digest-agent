@@ -73,3 +73,25 @@ test('request builder accepts unlabeled production discovery inputs',()=>{
  const inputs=cases.map(({expectedAction,ownerRationale,provenance,...c})=>c);
  assert.equal(JSON.parse(buildReviewRequest(inputs,{model:'test/model',allowedModels:['test/model'],maxOutputTokens:2000}).messages[1].content).candidates.length,cases.length);
 });
+test('discovery builder omits unsupported temperature and requests strict closed JSON Schema',()=>{
+ const request=buildReviewRequest(cases,{model:'test/model',allowedModels:['test/model'],maxOutputTokens:2000});
+ assert.equal(Object.hasOwn(request,'temperature'),false);
+ const format=request.response_format;
+ assert.equal(format.type,'json_schema');assert.equal(format.json_schema.strict,true);
+ const schema=format.json_schema.schema;
+ assert.deepEqual(schema.required,['decisions']);assert.equal(schema.additionalProperties,false);
+ const item=schema.properties.decisions.items;
+ assert.deepEqual(item.required,['id','action','reason']);assert.equal(item.additionalProperties,false);
+ assert.deepEqual(item.properties.action.enum,['skip','verify']);
+ assert.equal(item.properties.id.type,'string');assert.equal(item.properties.reason.type,'string');
+ // A caller's request mutation must never change the next trusted schema.
+ item.properties.action.enum.push('publish');
+ assert.deepEqual(buildReviewRequest(cases,{model:'test/model',allowedModels:['test/model'],maxOutputTokens:2000}).response_format.json_schema.schema.properties.decisions.items.properties.action.enum,['skip','verify']);
+});
+test('server request profile clones provider policy and refuses extra or incompatible controls',()=>{
+ const provider={only:['test-provider'],order:['test-provider'],allow_fallbacks:false,require_parameters:true,max_price:{prompt:0.2,completion:1.2,request:0}};
+ const requestProfile={version:'2026-11-15.1',provider,responseFormat:'discovery-json-schema-v1'};
+ const cfg={model:'test/model',allowedModels:['test/model'],maxOutputTokens:2000,requestProfile};
+ const r=buildReviewRequest(cases,cfg);assert.deepEqual(r.provider,provider);r.provider.only[0]='other';assert.equal(provider.only[0],'test-provider');
+ for(const invalid of [{...requestProfile,version:'future'},{...requestProfile,responseFormat:'json_object'},{...requestProfile,temperature:0},{...requestProfile,provider:{...provider,max_price:{...provider.max_price,request:1}}},null])assert.throws(()=>buildReviewRequest(cases,{...cfg,requestProfile:invalid}));
+});

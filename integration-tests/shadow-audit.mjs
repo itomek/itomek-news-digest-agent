@@ -11,12 +11,12 @@ const candidate={id:'a'.repeat(64),sourceUrl:'https://example.com/a',sourceType:
 const config={model:'fixture/offline-model',maxOutputTokens:100,maxCostCredits:0.1,timeoutMs:1000,maxResponseBytes:20000,policyVersion:newPagedShadowRun({runId:randomUUID(),scanStartedAt:'2026-11-14T20:00:00Z'}).policyVersion,routing:'openrouter-no-fallback'};
 const usage={promptTokens:10,completionTokens:5,totalTokens:15,costCredits:0.04};
 const decision=[{id:candidate.id,action:'skip',reason:'Synthetic decision.'}];
-async function fixture(cap=1){
+async function fixture(cap=1,boundConfig=config){
  const run=randomUUID(),state=newPagedShadowRun({runId:run,scanStartedAt:'2026-11-14T20:00:00Z'});
  await admin(()=>q('insert into shadow_agent.runs(id,state,limit_credits) values ($1,$2,$3)',[run,state,cap]));
  const lease=await scalar('select shadow_agent.claim($1,60) as value',[run]);
  const bind=c=>scalar('select shadow_agent.paged_bind_config($1,$2,$3) as value',[run,lease,c]);
- await bind(config);
+ await bind(boundConfig);
  await scalar('select shadow_agent.paged_append($1,$2,0,$3) as value',[run,lease,[candidate]]);
  await scalar('select shadow_agent.paged_append($1,$2,1,$3) as value',[run,lease,[]]);
  await scalar('select shadow_agent.paged_begin($1,$2,2,25) as value',[run,lease]);
@@ -28,6 +28,38 @@ try{
  await db.exec('create role anon;create role authenticated;create role service_role;');
  for(const file of ['shadow-state.sql','shadow-paged.sql','shadow-audit.sql'])await db.exec(await fs.readFile(new URL(`../supabase/functions/news-agent/sql/${file}`,import.meta.url),'utf8'));
  await db.exec('set role service_role');
+ const requestProfile={version:'discovery-spike-v1',provider:{only:['fixture/provider'],order:['fixture/provider'],allow_fallbacks:false,require_parameters:true,max_price:{prompt:0.5,completion:1.5,request:0}},responseFormat:'discovery-json-schema-v1'};
+ const profiled=await fixture(1,{...config,requestProfile});
+ assert.equal(await profiled.bind({...config,requestProfile:structuredClone(requestProfile)}),true);
+ await assert.rejects(()=>profiled.bind(config),/Immutable/);
+ await assert.rejects(()=>profiled.bind({...config,requestProfile:{...requestProfile,version:'v2'}}),/Immutable/);
+ await assert.rejects(()=>profiled.bind({...config,requestProfile:{...requestProfile,provider:{...requestProfile.provider,max_price:{...requestProfile.provider.max_price,prompt:0.6}}}}),/Immutable/);
+ const invalidProfiles=[null,[],{},
+  {...requestProfile,apiKey:'never-store'},
+  {...requestProfile,version:'bad version'},
+  {...requestProfile,version:'x'.repeat(65)},
+  {...requestProfile,responseFormat:'json_object'},
+  {...requestProfile,provider:{...requestProfile.provider,headers:{Authorization:'secret'}}},
+  {...requestProfile,provider:{...requestProfile.provider,only:['fixture/provider','other/provider']}},
+  {...requestProfile,provider:{...requestProfile.provider,order:['other/provider']}},
+  {...requestProfile,provider:{...requestProfile.provider,only:['BAD/provider'],order:['BAD/provider']}},
+  {...requestProfile,provider:{...requestProfile.provider,allow_fallbacks:true}},
+  {...requestProfile,provider:{...requestProfile.provider,require_parameters:false}},
+  {...requestProfile,provider:{...requestProfile.provider,max_price:{prompt:0,completion:1,request:0}}},
+  {...requestProfile,provider:{...requestProfile.provider,max_price:{prompt:'0.5',completion:1,request:0}}},
+  {...requestProfile,provider:{...requestProfile.provider,max_price:{prompt:0.5,completion:-1,request:0}}},
+  {...requestProfile,provider:{...requestProfile.provider,max_price:{prompt:0.5,completion:1,request:0.1}}},
+  {...requestProfile,provider:{...requestProfile.provider,max_price:{prompt:0.5,completion:1,request:0,secret:'bad'}}},
+ ];
+ for(const profile of invalidProfiles)await assert.rejects(()=>profiled.bind({...config,requestProfile:profile}),/Invalid/);
+ await assert.rejects(()=>profiled.bind({...config,model:'x'.repeat(8200),requestProfile}),/Invalid/);
+ const oversizedProfileJson=JSON.stringify({...config,requestProfile}).replace('\"prompt\":0.5','\"prompt\":'+'1'.repeat(9000));
+ await assert.rejects(()=>profiled.bind(oversizedProfileJson),/Invalid/);
+ await admin(()=>q("update shadow_agent.runs set lease_until=clock_timestamp()-interval '1 second' where id=$1",[profiled.run]));
+ const resumedLease=await scalar('select shadow_agent.claim($1,60) as value',[profiled.run]);
+ assert.notEqual(resumedLease,profiled.lease);
+ assert.equal(await scalar('select shadow_agent.paged_bind_config($1,$2,$3) as value',[profiled.run,resumedLease,{...config,requestProfile}]),true);
+ await assert.rejects(()=>scalar('select shadow_agent.paged_bind_config($1,$2,$3) as value',[profiled.run,resumedLease,{...config,requestProfile:{...requestProfile,version:'changed-after-resume'}}]),/Immutable/);
  const missing=await fixture();
  const deferred=await missing.reserve();assert.equal(deferred.status,'deferred');assert.equal(deferred.reason,'missing_daily_budget');
  assert.equal(deferred.state.phase,'review');assert.equal(deferred.state.revision,4);assert.equal(deferred.state.activeBatch,null);

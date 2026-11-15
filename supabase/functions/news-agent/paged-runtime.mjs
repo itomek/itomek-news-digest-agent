@@ -1,3 +1,4 @@
+import {requestProfileForModel} from './model-profiles.mjs';
 import {POLICY_VERSION} from './policy.mjs';
 import {buildReviewRequest} from './evaluation.mjs';
 import {reviewWithOpenRouter,serializeReviewBody,OpenRouterAttemptError} from './openrouter.mjs';
@@ -34,6 +35,11 @@ function projectCandidates(page,cursor){
 export async function runPagedShadowInvocation({runId,config={},query,fetcher,fetchPage,now=()=>performance.now()}={},options={}){
  if(config.enabled!==true)return {status:'disabled',...flags};
  const cfg=structuredClone(config),{pageSteps=1,reviewBatchSize=25}=options;
+ // Profiles are code-owned; source/caller metadata cannot replace routing or prices.
+ delete cfg.requestProfile;
+ const requestProfile=requestProfileForModel(cfg.model);
+ if(requestProfile)cfg.requestProfile=requestProfile;
+ else if(cfg.requireModelProfile===true)throw Error('Researched model profile required');
  const leaseSeconds=cfg.leaseSeconds??60,timeoutMs=cfg.timeoutMs??10000,maxResponseBytes=cfg.maxResponseBytes??200000;
  if(!uuid.test(runId??'')||typeof query!=='function'||typeof fetcher!=='function'||typeof now!=='function'||!Array.isArray(cfg.allowedModels)||!cfg.allowedModels.includes(cfg.model)||!integer(cfg.maxOutputTokens,1,16384)||!Number.isFinite(cfg.maxCostCredits)||cfg.maxCostCredits<=0||cfg.maxCostCredits>=1000000||typeof cfg.apiKey!=='string'||!cfg.apiKey.trim()||/[\r\n]/.test(cfg.apiKey)||!integer(leaseSeconds,1,300)||!integer(timeoutMs,1,30000)||!integer(maxResponseBytes,1,200000)||leaseSeconds*1000<timeoutMs+5000||!integer(pageSteps,1,10)||!integer(reviewBatchSize,1,100))throw Error('Invalid paged runtime configuration');
  let lastTime=now();if(!Number.isFinite(lastTime))throw Error('Invalid monotonic clock');
@@ -48,7 +54,7 @@ export async function runPagedShadowInvocation({runId,config={},query,fetcher,fe
   const lease=await call('claim',[runId,leaseSeconds]);if(lease===null)return {status:'busy',...flags};
   if(typeof lease!=='string'||!lease)throw Error('Invalid lease');
   let state=validateState(await call('load',[runId]),runId);
-  const binding={model:cfg.model,maxOutputTokens:cfg.maxOutputTokens,maxCostCredits:cfg.maxCostCredits,timeoutMs,maxResponseBytes,policyVersion:POLICY_VERSION,routing:'openrouter-no-fallback'};
+  const binding={model:cfg.model,maxOutputTokens:cfg.maxOutputTokens,maxCostCredits:cfg.maxCostCredits,timeoutMs,maxResponseBytes,policyVersion:POLICY_VERSION,routing:'openrouter-no-fallback',...(requestProfile?{requestProfile}: {})};
   if(await call('paged_bind_config',[runId,lease,binding])!==true)throw Error('Configuration binding unconfirmed');
   const adopt=(value,patch)=>{
    const next=validateState(value,runId),expected={...state,...patch,revision:state.revision+1};

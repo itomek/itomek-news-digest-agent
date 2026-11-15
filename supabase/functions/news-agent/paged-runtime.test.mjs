@@ -186,3 +186,17 @@ test('stale or empty nonterminal preview fails without freezing a batch',async()
   assert.equal(f.events.includes('http'),false);
  }
 });
+test('researched model profile is derived server-side, bound immutably and hashes pinned HTTP bytes',async()=>{
+ const f=fixture({count:1}),model='anthropic/claude-haiku-5.5';let body;
+ const fetcher=async(...args)=>{body=JSON.parse(args[1].body);const response=await f.fetcher(...args);return Response.json({...await response.json(),model});};
+ const cfg={...config,model,allowedModels:[model],requireModelProfile:true,requestProfile:{secret:'must-not-be-bound'}};
+ await runPagedShadowInvocation({runId,config:cfg,...f,fetcher},{pageSteps:2});
+ assert.equal(f.bindings[0].requestProfile.version,'2026-11-15.1');assert.equal(JSON.stringify(f.bindings).includes('must-not-be-bound'),false);
+ await runPagedShadowInvocation({runId,config:cfg,...f,fetcher});
+ assert.deepEqual(body.provider.only,['anthropic']);assert.deepEqual(body.provider.order,['anthropic']);assert.equal(body.provider.max_price.request,0);
+ assert.equal(Object.hasOwn(body,'temperature'),false);assert.equal(body.response_format.type,'json_schema');
+ assert.deepEqual(f.bindings[0].requestProfile,f.bindings[1].requestProfile);
+});
+test('hosted profile requirement refuses unknown models before database or model work',async()=>{
+ const f=fixture();await assert.rejects(()=>runPagedShadowInvocation({runId,config:{...config,requireModelProfile:true},...f}));assert.equal(f.events.length,0);
+});

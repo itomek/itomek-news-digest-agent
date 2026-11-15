@@ -36,10 +36,12 @@ The actual request builder/serializer at merged commit 5713078 was measured usin
 Node 22. The eight recorded cases produce 10,891 HTTP bytes. The short 405-copy
 scaling fixture takes five paged requests; the large 405-case fixture takes 14,
 with 2,641,984 total request bytes. These are measured byte counts, not native
-token counts or 405 independent real stories. Reproduce with:
+token counts or 405 independent real stories. The measurement script accepts an optional checkout/archive directory. To reproduce
+the historical numbers, point it at source from commit `5713078`; running without
+an argument measures the current checkout, whose corrected schema changes bytes.
 
 ```
-npx --yes --package=node@22 node docs/evidence/2026-11-14-model-research/measure-workload.mjs
+npx --yes --package=node@22 node docs/evidence/2026-11-14-model-research/measure-workload.mjs /path/to/5713078-source
 ```
 
 [Saved measurements](evidence/2026-11-14-model-research/workload-measurements.json)
@@ -139,3 +141,15 @@ guarded publication integration or rendered Bluesky quality.
 | Hosted limits and project-secret reach | Cited official docs | Hosted runtime behavior still unmeasured |
 | Haiku-first shortlist and separate project | Recommendation/inference | Based on sourced prices/capabilities/isolation, not an achieved result |
 | Two-credit/24-call ceiling | Proposed authorization | Not yet approved or spent |
+
+## November 15 compatibility correction
+
+The follow-up branch removes unconditional temperature, adds strict discovery
+JSON Schema, derives provider allowlists/price ceilings from code-owned versioned
+profiles, and binds that profile in the immutable run configuration. The inactive
+entrypoint requires a researched profile before any future activation. These are
+software contract fixes; actual provider/schema/model behavior is still untested.
+Reasoning controls, native billed-token reservation proof, actual returned
+provider identity and hosted acceptance still require follow-up before paid use.
+The two-credit pilot remains proposed, not authorized by the general request to
+fix the issue. No deployment or paid request occurred.

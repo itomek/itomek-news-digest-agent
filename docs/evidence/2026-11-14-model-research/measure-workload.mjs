@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-const root=fileURLToPath(new URL('../../../',import.meta.url)).replace(/\/$/,'');
+const root=(process.argv[2]??fileURLToPath(new URL('../../../',import.meta.url))).replace(/\/$/,'');
 const {buildReviewRequest}=await import(pathToFileURL(root+'/supabase/functions/news-agent/evaluation.mjs'));
 const {serializeReviewBody}=await import(pathToFileURL(root+'/supabase/functions/news-agent/openrouter.mjs'));
 const cases=JSON.parse(await fs.readFile(root+'/supabase/functions/news-agent/real-story-cases.json','utf8'));

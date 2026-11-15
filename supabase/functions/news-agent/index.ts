@@ -8,7 +8,7 @@ Deno.serve((req:Request)=>{
  const getService=()=>service??=createAgentService({
   projectUrl:Deno.env.get('SUPABASE_URL'),
   serviceKey:Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),
-  runtimeConfig:{enabled:true,
+  runtimeConfig:{enabled:true,requireModelProfile:true,
    model:Deno.env.get('WARPCORE_AGENT_MODEL'),
    allowedModels:[Deno.env.get('WARPCORE_AGENT_MODEL')],
    maxOutputTokens:Number(Deno.env.get('WARPCORE_AGENT_MAX_OUTPUT_TOKENS')),

@@ -41,3 +41,44 @@ workspace environment files; no secret value was printed. A dedicated capped
 pilot credential must be provisioned before actual model testing. No model call,
 charge or deployment occurred. The [attempt record](evidence/2026-11-15-hosted-spike/attempt.json)
 keeps the approved limits separate from actions actually performed.
+
+## November 16: Strix Halo replaces the new cloud project
+
+The owner chose the Strix Halo if feasible and otherwise asked to skip the
+project. A live probe found Docker 29.10.0 running, despite an older inventory
+entry saying no daemon was installed. The machine was reserved before use.
+No Supabase project, paid upgrade, production schema or service was changed.
+
+A private Docker stack on the Halo completed the synthetic campaign over real
+HTTP/PostgREST/PostgreSQL: 405 captured candidates, 405 unique decisions, 24
+naturally leased advances and 17 settled/audited fabricated model batches. It
+finished in 255,344 ms using ten-second test leases and eleven-second cadence,
+without administrative lease expiry. Deno was restarted at 75 decisions and
+resumed the same run at 100. The terminal empty-page gate, final candidate, ten
+negative request/auth checks and five overlapping triggers were checked.
+
+A second test dropped settlement before the database. One new synthetic run
+remained uncertain with one dispatched attempt and its 0.01 synthetic-credit
+hold. Repeated requests, including after natural lease expiry, stayed idle
+without replay; the completed 405-story history remained intact. This models
+unconfirmed settlement, not an actual provider timeout or billed inference.
+Publication/inbox stand-ins remained empty. Actual spend and paid calls are zero.
+
+Docker 29 suppressed host publishing on an internal-only network. A separate
+loopback ingress network fixed access at 127.0.0.1:58089; database ports stayed
+private, and Deno's destination allowlist still excluded model/source HTTP.
+GET without authentication returned 405; POST without authentication returned 401.
+
+[Execution manifest](evidence/2026-11-16-strix-halo-shadow/execution.json),
+[full campaign](evidence/2026-11-16-strix-halo-shadow/result.json), and
+[failure hold](evidence/2026-11-16-strix-halo-shadow/fault-result.json) record exact
+source commits and image digests. Both JSON artifacts were hash-checked after
+transfer. Owned containers, networks, database volume and disposable secrets
+were removed; the reservation was released and status confirmed FREE. This was
+a temporary test deployment, not a persistent service left on the shared host.
+
+The self-hosted testbed is feasible, so a new Supabase cloud project is no longer
+needed for this spike. It does not establish Supabase cloud Edge behavior, real
+OpenRouter/provider billing or editorial quality. The approved 2-dollar/24-call
+pilot remains unused and still needs a dedicated credential and its remaining
+billing preflight before actual inference. Production remains unchanged.

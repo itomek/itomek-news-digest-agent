@@ -1,0 +1,359 @@
+{
+  "campaign": "halo-natural-lease-shadow-v1",
+  "startedAt": "2026-11-16T23:10:54.621Z",
+  "publishingEnabled": false,
+  "modelCalls": "fabricated-in-process",
+  "events": [
+    {
+      "type": "fixture_installed",
+      "at": "2026-11-16T23:10:54.656Z",
+      "syntheticStories": 405,
+      "producerEnabled": false
+    },
+    {
+      "type": "authorization_rejected",
+      "at": "2026-11-16T23:10:55.696Z",
+      "case": "missing_authorization",
+      "status": 401
+    },
+    {
+      "type": "authorization_rejected",
+      "at": "2026-11-16T23:10:55.698Z",
+      "case": "malformed_authorization",
+      "status": 401
+    },
+    {
+      "type": "authorization_rejected",
+      "at": "2026-11-16T23:10:55.700Z",
+      "case": "wrong_signature",
+      "status": 401
+    },
+    {
+      "type": "authorization_rejected",
+      "at": "2026-11-16T23:10:55.700Z",
+      "case": "expired_authorization",
+      "status": 401
+    },
+    {
+      "type": "authorization_rejected",
+      "at": "2026-11-16T23:10:55.701Z",
+      "case": "wrong_role",
+      "status": 401
+    },
+    {
+      "type": "authorization_rejected",
+      "at": "2026-11-16T23:10:55.703Z",
+      "case": "wrong_producer_token",
+      "status": 401
+    },
+    {
+      "type": "authorization_rejected",
+      "at": "2026-11-16T23:10:55.704Z",
+      "case": "missing_producer_token",
+      "status": 401
+    },
+    {
+      "type": "authorization_rejected",
+      "at": "2026-11-16T23:10:55.705Z",
+      "case": "wrong_method",
+      "status": 405
+    },
+    {
+      "type": "authorization_rejected",
+      "at": "2026-11-16T23:10:55.706Z",
+      "case": "body_authority_override",
+      "status": 400
+    },
+    {
+      "type": "authorization_rejected",
+      "at": "2026-11-16T23:10:55.707Z",
+      "case": "oversized_body",
+      "status": 400
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:10:55.827Z",
+      "step": 1,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 1,
+      "phase": "scan",
+      "candidateCount": 100,
+      "reviewedCount": 0
+    },
+    {
+      "type": "overlap_checked",
+      "at": "2026-11-16T23:10:55.827Z",
+      "requests": 5,
+      "advanced": 1
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:11:06.867Z",
+      "step": 2,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 2,
+      "phase": "scan",
+      "candidateCount": 200,
+      "reviewedCount": 0
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:11:17.909Z",
+      "step": 3,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 3,
+      "phase": "scan",
+      "candidateCount": 300,
+      "reviewedCount": 0
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:11:29.178Z",
+      "step": 4,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 4,
+      "phase": "scan",
+      "candidateCount": 400,
+      "reviewedCount": 0
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:11:40.216Z",
+      "step": 5,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 5,
+      "phase": "scan",
+      "candidateCount": 405,
+      "reviewedCount": 0
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:11:51.277Z",
+      "step": 6,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 6,
+      "phase": "review",
+      "candidateCount": 405,
+      "reviewedCount": 0
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:12:02.321Z",
+      "step": 7,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 8,
+      "phase": "review",
+      "candidateCount": 405,
+      "reviewedCount": 25
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:12:13.364Z",
+      "step": 8,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 10,
+      "phase": "review",
+      "candidateCount": 405,
+      "reviewedCount": 50
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:12:24.400Z",
+      "step": 9,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 12,
+      "phase": "review",
+      "candidateCount": 405,
+      "reviewedCount": 75
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:12:35.433Z",
+      "step": 10,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 14,
+      "phase": "review",
+      "candidateCount": 405,
+      "reviewedCount": 100
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:12:46.467Z",
+      "step": 11,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 16,
+      "phase": "review",
+      "candidateCount": 405,
+      "reviewedCount": 125
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:12:57.548Z",
+      "step": 12,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 18,
+      "phase": "review",
+      "candidateCount": 405,
+      "reviewedCount": 150
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:13:08.585Z",
+      "step": 13,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 20,
+      "phase": "review",
+      "candidateCount": 405,
+      "reviewedCount": 175
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:13:19.613Z",
+      "step": 14,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 22,
+      "phase": "review",
+      "candidateCount": 405,
+      "reviewedCount": 200
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:13:30.648Z",
+      "step": 15,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 24,
+      "phase": "review",
+      "candidateCount": 405,
+      "reviewedCount": 225
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:13:41.680Z",
+      "step": 16,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 26,
+      "phase": "review",
+      "candidateCount": 405,
+      "reviewedCount": 250
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:13:52.717Z",
+      "step": 17,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 28,
+      "phase": "review",
+      "candidateCount": 405,
+      "reviewedCount": 275
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:14:03.753Z",
+      "step": 18,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 30,
+      "phase": "review",
+      "candidateCount": 405,
+      "reviewedCount": 300
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:14:14.786Z",
+      "step": 19,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 32,
+      "phase": "review",
+      "candidateCount": 405,
+      "reviewedCount": 325
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:14:25.826Z",
+      "step": 20,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 34,
+      "phase": "review",
+      "candidateCount": 405,
+      "reviewedCount": 350
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:14:36.860Z",
+      "step": 21,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 36,
+      "phase": "review",
+      "candidateCount": 405,
+      "reviewedCount": 375
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:14:47.895Z",
+      "step": 22,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 38,
+      "phase": "review",
+      "candidateCount": 405,
+      "reviewedCount": 400
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:14:58.932Z",
+      "step": 23,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 40,
+      "phase": "review",
+      "candidateCount": 405,
+      "reviewedCount": 405
+    },
+    {
+      "type": "advanced",
+      "at": "2026-11-16T23:15:09.962Z",
+      "step": 24,
+      "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+      "revision": 41,
+      "phase": "complete",
+      "candidateCount": 405,
+      "reviewedCount": 405
+    }
+  ],
+  "scanPageSizes": [
+    100,
+    100,
+    100,
+    100,
+    5,
+    0
+  ],
+  "advances": 24,
+  "observedInitialLeaseRemainingSeconds": 9.888315,
+  "status": "passed",
+  "completedAt": "2026-11-16T23:15:09.965Z",
+  "elapsedMs": 255344,
+  "intervalMs": 11000,
+  "naturalLeaseExpiryOnly": true,
+  "counts": {
+    "runs": 1,
+    "slots": 1,
+    "candidates": 405,
+    "decisions": 405,
+    "unique_decisions": 405,
+    "attempts": 17,
+    "audits": 17,
+    "settled_zero_cost_attempts": 17,
+    "zero_cost_audits": 17,
+    "inbox": 0,
+    "publications": 0,
+    "exact_candidate_decisions": 405,
+    "held_credits": 0,
+    "spent_credits": 0
+  },
+  "lastReviewedId": "0000000000000000000000000000000000000000000000000000000000000195",
+  "finalCheckpoint": {
+    "runId": "4c8a455d-8141-4533-936b-f441d93147f2",
+    "revision": 41,
+    "phase": "complete",
+    "candidateCount": 405,
+    "reviewedCount": 405
+  }
+}

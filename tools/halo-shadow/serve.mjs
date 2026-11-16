@@ -40,6 +40,9 @@ export async function handleHaloShadow(req,env={},fetcher=fetch){
    const localDB=(raw,options)=>{
     const url=new URL(raw);
     if(url.origin!==ORIGIN||url.username||url.password||url.search||url.hash||!/^\/rest\/v1\/rpc\/warpcore_shadow_[a-z_]+$/.test(url.pathname))throw Error('Local shadow destination refused');
+    // Trusted local-only fault injection: prove an unconfirmed accounting write
+    // retains the dispatched hold without changing any cloud/provider path.
+    if(env.HALO_SHADOW_TEST_DROP_SETTLEMENT==='true'&&url.pathname==='/rest/v1/rpc/warpcore_shadow_paged_settle')return Response.json({error:'synthetic_local_settlement_drop'},{status:503});
     return fetcher(new URL(url.pathname.slice('/rest/v1'.length),'http://postgrest:3000'),options);
    };
    const leaseSeconds=env.HALO_SHADOW_LEASE_SECONDS===undefined?10:Number(env.HALO_SHADOW_LEASE_SECONDS);

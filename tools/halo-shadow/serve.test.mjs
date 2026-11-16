@@ -70,3 +70,39 @@ test('trusted local lease override reaches claim and rejects invalid values befo
  const out=await handleHaloShadow(req(token),{...env,HALO_SHADOW_LEASE_SECONDS:'20'},fetcher);assert.equal(out.status,200);assert.equal(calls,2);
  for(const value of ['9','301','bad','10.5']){const before=calls;const denied=await handleHaloShadow(req(token),{...env,HALO_SHADOW_LEASE_SECONDS:value},fetcher);assert.equal(denied.status,502);assert.equal(calls,before);}
 });
+
+test('trusted local settlement-drop hook preserves dispatched hold and prevents replay',async()=>{
+ const runId='00000000-0000-4000-8000-000000000789';
+ const candidate={id:'c'.repeat(64),sourceUrl:'https://example.com/synthetic-hook',sourceType:'rss',sourceCreatedAt:'2026-11-14T20:00:00Z',discoveryText:'Synthetic fixture for uncertain accounting.'};
+ let state={...newPagedShadowRun({runId,scanStartedAt:'2026-11-14T20:00:00Z'}),phase:'review',candidateCount:1,cursor:candidate.id};
+ const token=await jwt(),faultEnv={...env,HALO_SHADOW_TEST_DROP_SETTLEMENT:'true'},calls=[];
+ let reservations=0,dispatches=0;
+ const fetcher=async(url,options)=>{
+  assert.equal(url.origin,'http://postgrest:3000');
+  const op=url.pathname.slice('/rpc/warpcore_shadow_'.length);calls.push(op);
+  switch(op){
+   case 'select_run':return Response.json(state.phase==='uncertain'?null:runId);
+   case 'claim':return Response.json('synthetic-lease');
+   case 'load':return Response.json(state);
+   case 'paged_bind_config':return Response.json(true);
+   case 'paged_preview':return Response.json([candidate]);
+   case 'paged_begin':state={...state,phase:'reviewing',activeBatch:[candidate.id],revision:state.revision+1};return Response.json({state,batch:[candidate]});
+   case 'paged_reserve':reservations++;return Response.json({status:'reserved',attemptId:'synthetic-uncertain-attempt'});
+   case 'dispatch':dispatches++;return Response.json(true);
+   case 'paged_uncertain':state={...state,phase:'uncertain',revision:state.revision+1};return Response.json(state);
+   case 'paged_settle':throw Error('Fault hook must intercept settlement before database transport');
+   default:throw Error('Unexpected database RPC');
+  }
+ };
+ // Fault selection remains trusted environment configuration, never request data.
+ assert.equal((await handleHaloShadow(req(null),faultEnv,fetcher)).status,401);
+ assert.equal((await handleHaloShadow(req(token,'{}','wrong'),faultEnv,fetcher)).status,401);
+ assert.equal((await handleHaloShadow(req(token,JSON.stringify({HALO_SHADOW_TEST_DROP_SETTLEMENT:false})),faultEnv,fetcher)).status,400);
+ assert.equal(calls.length,0);
+ const failed=await handleHaloShadow(req(token),faultEnv,fetcher);
+ assert.equal(failed.status,502);assert.deepEqual(await failed.json(),{error:'agent_run_failed',publishing_enabled:false});
+ assert.equal(state.phase,'uncertain');assert.equal(state.reviewedCount,0);assert.deepEqual(state.activeBatch,[candidate.id]);
+ assert.equal(reservations,1);assert.equal(dispatches,1);assert.equal(calls.includes('paged_settle'),false,'Settlement never reached the database');
+ const retry=await handleHaloShadow(req(token),faultEnv,fetcher);
+ assert.deepEqual(await retry.json(),{mode:'idle',publishing_enabled:false});assert.equal(reservations,1);assert.equal(dispatches,1);
+});

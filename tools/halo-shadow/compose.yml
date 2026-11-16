@@ -35,7 +35,7 @@ services:
       - run
       - --no-prompt
       - --allow-net=0.0.0.0:8000,postgrest:3000
-      - --allow-env=JWT_SECRET,WARPCORE_AGENT_PRODUCER_TOKEN,HALO_SHADOW_ENABLED,HALO_SHADOW_LEASE_SECONDS
+      - --allow-env=JWT_SECRET,WARPCORE_AGENT_PRODUCER_TOKEN,HALO_SHADOW_ENABLED,HALO_SHADOW_LEASE_SECONDS,HALO_SHADOW_TEST_DROP_SETTLEMENT
       - tools/halo-shadow/index.ts
     environment:
       JWT_SECRET: ${JWT_SECRET}
@@ -43,11 +43,15 @@ services:
       DENO_DIR: /tmp/deno-cache
       HALO_SHADOW_ENABLED: 'true'
       HALO_SHADOW_LEASE_SECONDS: '10'
+      HALO_SHADOW_TEST_DROP_SETTLEMENT: "${HALO_SHADOW_TEST_DROP_SETTLEMENT:-false}"
     volumes:
       - ../../:/code:ro
     ports: ['127.0.0.1:58089:8000']
     depends_on: [postgrest]
-    networks: [isolated]
+    # Docker29 suppresses host publishing on an internal-only network.
+    # This second network enables the loopback port; Deno still denies all
+    # outbound destinations except the fixed private PostgREST service.
+    networks: [isolated, loopback_ingress]
     read_only: true
     tmpfs: [/tmp:size=32m]
     cap_drop: [ALL]
@@ -76,5 +80,6 @@ services:
     profiles: [test]
 networks:
   isolated: {internal: true}
+  loopback_ingress: {}
 volumes:
   pgdata:

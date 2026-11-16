@@ -8,6 +8,8 @@ const operations=new Set(['select_run','candidate_page','claim','load','paged_ap
 // cannot forward a model request or fetch source URLs. It never looks up secrets.
 export function createSpikeService(config={},fetcher=fetch){
  const {projectRef,projectUrl,serviceKey}=config;
+ const leaseSeconds=config.leaseSeconds===undefined?60:config.leaseSeconds;
+ if(!Number.isSafeInteger(leaseSeconds)||leaseSeconds<10||leaseSeconds>300)throw Error('Invalid isolated spike lease');
  let project;
  try{project=new URL(projectUrl);}catch{throw Error('Invalid isolated spike project');}
  if(typeof projectRef!=='string'||!/^[a-z0-9]{20}$/.test(projectRef)||projectRef===PRODUCTION_REF||project.origin!==`https://${projectRef}.supabase.co`||project.username||project.password||project.pathname!=='/'||project.search||project.hash||project.port||typeof serviceKey!=='string'||!serviceKey||/[\r\n]/.test(serviceKey)||typeof fetcher!=='function')throw Error('Invalid isolated spike project');
@@ -32,6 +34,6 @@ export function createSpikeService(config={},fetcher=fetch){
  return createAgentService({projectUrl:project.origin,serviceKey,runtimeConfig:{
   enabled:config.enabled===true,model:MODEL,allowedModels:[MODEL],apiKey:DUMMY_KEY,
   requireModelProfile:false,maxOutputTokens:2000,maxCostCredits:0.01,
-  timeoutMs:1000,maxResponseBytes:200000,leaseSeconds:60,
+  timeoutMs:1000,maxResponseBytes:200000,leaseSeconds,
  },invocationOptions:{pageSteps:1,reviewBatchSize:25}},transport);
 }

@@ -59,3 +59,11 @@ test('review fabricates model output and never forwards OpenRouter or source URL
  const result=await service.runInvocation(runId);assert.equal(result.status,'advanced');assert.equal(result.state.reviewedCount,1);assert.equal(result.publishingEnabled,false);assert.equal(result.modelQualityProven,false);
  assert.deepEqual(calls.map(c=>c.op),['claim','load','paged_bind_config','paged_preview','paged_begin','paged_reserve','dispatch','paged_settle','paged_commit']);
 });
+test('server-owned spike lease is bounded and a ten-second lease reaches claim',async()=>{
+ for(const leaseSeconds of [null,9,301,10.5,'10',NaN])assert.throws(()=>createSpikeService({...config,leaseSeconds}),/spike/i);
+ let claims=0;
+ const service=createSpikeService({...config,leaseSeconds:10},async(url,options)=>{
+  assert.equal(url.pathname,'/rest/v1/rpc/warpcore_shadow_claim');assert.equal(JSON.parse(options.body).p_seconds,10);claims++;return Response.json(null);
+ });
+ assert.equal((await service.runInvocation(runId)).status,'busy');assert.equal(claims,1);
+});

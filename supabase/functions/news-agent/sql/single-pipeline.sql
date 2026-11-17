@@ -11,10 +11,10 @@ create table shadow_agent.pipeline_dispatch_slots(
  stage text primary key check(stage in ('collect','agent','curate','publish')),
  slot timestamptz not null,queued_at timestamptz not null,request_id bigint,
  -- Owner may seed only a real legacy collector enqueue, never pretend it is coverage.
- legacy_job_id bigint,legacy_run_id bigint,
+ legacy_job_id bigint,legacy_run_id bigint,completed_at timestamptz,
  check((request_id is not null and legacy_job_id is null and legacy_run_id is null)
   or (stage='collect' and request_id is null and legacy_job_id is not null and legacy_job_id=3 and legacy_run_id is not null)),
- check(slot=date_trunc(case when stage='collect' then 'hour' else 'minute' end,queued_at at time zone 'utc') at time zone 'utc')
+ check(slot=(case when stage='collect' then date_trunc('hour',queued_at at time zone 'utc')+floor(extract(minute from queued_at at time zone 'utc')/30)*interval '30 minutes' else date_trunc('minute',queued_at at time zone 'utc') end) at time zone 'utc')
 );
 alter table shadow_agent.pipeline_dispatch_slots enable row level security;
 revoke all on shadow_agent.pipeline_dispatch_slots from public,anon,authenticated,service_role;
@@ -33,8 +33,10 @@ begin
   where s.stage=p_stage and s.queued_at>stamp-interval '180 seconds'
   and (r.id is null or r.timed_out is true or r.status_code is null)
  ) then return null;end if;
- bucket:=date_trunc(case when p_stage='collect' then 'hour' else 'minute' end,stamp at time zone 'utc') at time zone 'utc';
- if exists(select 1 from shadow_agent.pipeline_dispatch_slots where stage=p_stage and slot>=bucket) then return null;end if;
+ bucket:=(case when p_stage='collect' then date_trunc('hour',stamp at time zone 'utc')+floor(extract(minute from stamp at time zone 'utc')/30)*interval '30 minutes' else date_trunc('minute',stamp at time zone 'utc') end) at time zone 'utc';
+ if exists(select 1 from shadow_agent.pipeline_dispatch_slots s where s.stage=p_stage and s.slot>=bucket
+  and not (p_stage='agent' and exists(select 1 from net._http_response r where r.id=s.request_id and r.status_code is not null and not coalesce(r.timed_out,false))
+   and exists(select 1 from shadow_agent.pipeline_dispatch_slots c where c.stage='collect' and c.completed_at>s.queued_at))) then return null;end if;
  if p_stage='agent' then
   request_id:=shadow_agent.alerting_enqueue();
  else
@@ -51,7 +53,7 @@ begin
  end if;
  if request_id is null then return null;end if;
  insert into shadow_agent.pipeline_dispatch_slots(stage,slot,queued_at,request_id) values(p_stage,bucket,stamp,request_id)
- on conflict(stage) do update set slot=excluded.slot,queued_at=excluded.queued_at,request_id=excluded.request_id,legacy_job_id=null,legacy_run_id=null;
+ on conflict(stage) do update set slot=excluded.slot,queued_at=excluded.queued_at,request_id=excluded.request_id,legacy_job_id=null,legacy_run_id=null,completed_at=null;
  return request_id;
 exception when others then
  -- No SQLERRM/body/credential logging; next tick sees the original durable queue.
@@ -59,7 +61,7 @@ exception when others then
 end $$;
 create function shadow_agent.pipeline_collection_pending() returns boolean
 language sql stable security definer set search_path='' as $$
- select exists(select 1 from shadow_agent.pipeline_dispatch_slots s where stage='collect' and request_id is not null
+ select exists(select 1 from shadow_agent.pipeline_dispatch_slots s where stage='collect' and request_id is not null and completed_at is null
  and queued_at<=clock_timestamp() and queued_at>clock_timestamp()-interval '180 seconds'
  and not exists(select 1 from net._http_response r where r.id=s.request_id))
 $$;
@@ -88,5 +90,14 @@ begin
  if exists(select 1 from public.warpcore_publications where account_did='did:plc:pfq2p7n2oiiy2k4pv6xnsgdk' and approved_at is not null and state in ('prepared','sending','uncertain')) then
   perform shadow_agent.pipeline_enqueue('publish');end if;
 end $$;
+-- Collection saves all source results before waking the item worker. No timer gap.
+create function public.warpcore_collection_finished() returns bigint
+language plpgsql security definer set search_path='' as $$
+begin
+ update shadow_agent.pipeline_dispatch_slots set completed_at=clock_timestamp() where stage='collect';
+ return shadow_agent.pipeline_enqueue('agent');
+end $$;
+revoke all on function public.warpcore_collection_finished() from public,anon,authenticated;
+grant execute on function public.warpcore_collection_finished() to service_role;
 revoke all on function shadow_agent.pipeline_enqueue(text),shadow_agent.pipeline_collection_pending(),shadow_agent.pipeline_queue_changed(),shadow_agent.pipeline_tick() from public,anon,authenticated,service_role;
 commit;

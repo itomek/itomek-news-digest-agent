@@ -207,11 +207,12 @@ try {
   await query(observer,await fs.readFile(new URL('../supabase/functions/news-agent/sql/shadow-ranking.sql',import.meta.url),'utf8'));
   await query(observer,await fs.readFile(new URL('../supabase/functions/news-agent/sql/shadow-producer.sql',import.meta.url),'utf8'));
   await query(observer,'update shadow_agent.producer_settings set enabled=true,run_limit_credits=1,policy_version=$1',[cfg.policyVersion]);
+  await query(observer,'select public.warpcore_ingest($1::jsonb)',[JSON.stringify([{uri:'fixture:simple-queue-concurrency',story_key:'f'.repeat(64),source_type:'rss',source_id:'fixture',actor:'fixture',text:'Synthetic new item for concurrent selector',source_created_at:new Date().toISOString(),source_url:'https://example.com/simple-queue',source_links:['https://example.com/simple-queue']}])]);
   await query(a,'begin');
   const selected=await scalar(a,'select public.warpcore_shadow_select_run() as value');assert.ok(selected);
   const selectorRace=outcome(scalar(b,'select public.warpcore_shadow_select_run() as value'));assert.equal(await waitsOnLock(bPid),true);
   await query(a,'commit');const selectedAgain=await selectorRace;assert.ifError(selectedAgain.error);assert.equal(selectedAgain.value,selected);
-  assert.equal(await scalar(observer,'select count(*)::int as value from shadow_agent.producer_slots'),1);
+  assert.equal(await scalar(observer,'select count(*)::int as value from shadow_agent.producer_slots'),0);
   const selectedClaims=await Promise.all([claim(a,selected),claim(b,selected)]);assert.equal(selectedClaims.filter(Boolean).length,1);
   // A finalizer races on the same run-row lock and cannot persist twice.
   const ranked=randomUUID();

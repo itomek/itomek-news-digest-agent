@@ -21,8 +21,12 @@ export async function handle(req, env, registry, options={}) {
  }catch{return Response.json({error:'invalid_source_selection'},{status:400});}
  if(!selections.length)return Response.json({mode:'idle',publishing_enabled:false,candidates_submitted:0});
  try{
-  const result=await syncSources(selections,registry,options.store??createCheckpointStore(env),options.upper);
+  const store=options.store??createCheckpointStore(env);
+  const result=await syncSources(selections,registry,store,options.upper);
+  let processing_dispatch='deferred';
+  try{if(typeof store.collected==='function'&&await store.collected())processing_dispatch='queued';}catch{/* Saved items remain available for the next scheduled tick. */}
+  const summary={sources_checked:result.sources.length,entries_fetched:result.sources.reduce((n,s)=>n+(s.fetched??0),0),new_items:result.sources.reduce((n,s)=>n+(s.new??0),0),duplicate_entries:result.sources.reduce((n,s)=>n+(s.duplicate??0),0)};
   const allFailed=result.sources.every(source=>source.status==='failed');
-  return Response.json({mode:'review_only',publishing_enabled:false,...result,...(allFailed?{error:'all_sources_failed'}:{})},{status:allFailed?502:200});
+  return Response.json({mode:'review_only',publishing_enabled:false,...result,summary,processing_dispatch,...(allFailed?{error:'all_sources_failed'}:{})},{status:allFailed?502:200});
  }catch{return Response.json({error:'checkpoint_persistence_unavailable'},{status:502});}
 }

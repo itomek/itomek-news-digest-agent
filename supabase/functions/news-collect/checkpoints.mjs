@@ -20,7 +20,7 @@ export function createCheckpointStore(env,fetcher=fetch){
   if(!response.ok)throw Error('Checkpoint persistence failed');
   return response.json();
  };
- return {begin:args=>rpc('warpcore_sync_begin',args),finish:args=>rpc('warpcore_sync_finish',args)};
+ return {begin:args=>rpc('warpcore_sync_begin',args),finish:args=>rpc('warpcore_sync_finish',args),collected:()=>rpc('warpcore_collection_finished',{})};
 }
 
 // No candidate writes occur outside finish: ingestion and checkpoint movement are

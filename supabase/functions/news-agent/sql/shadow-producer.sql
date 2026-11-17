@@ -78,9 +78,9 @@ end $$;
 revoke all on function shadow_agent.advance_gemma_discovery_failures() from public,anon,authenticated,service_role;
 create function public.warpcore_shadow_select_run() returns jsonb
 language plpgsql security definer set search_path='' as $$
-declare settings shadow_agent.producer_settings; r shadow_agent.runs; run_id uuid; stamp timestamptz; slot timestamptz; verification_ready boolean;
+declare settings shadow_agent.producer_settings; r shadow_agent.runs; run_id uuid; stamp timestamptz; verification_ready boolean; batch jsonb; item jsonb; position integer:=0;
 begin
- -- Serializes slot creation and selection across scheduled triggers. Claim is
+ -- Serializes waiting-list selection across scheduled triggers. Claim is
  -- independently fenced; callers receiving one ID still compete for one lease.
  select * into settings from shadow_agent.producer_settings where singleton for update;
  if not found or not settings.enabled then return null; end if;
@@ -96,7 +96,7 @@ begin
   if r.lease_until>clock_timestamp() then return null; end if;
   return to_jsonb(r.id);
  end if;
- -- Complete selected work before allocating another discovery hour. Optional
+ -- Complete selected work before taking another waiting-list batch. Optional
  -- verifier tables are installed later; dynamic SQL preserves that install order.
  if to_regclass('shadow_agent.verification_settings') is not null
  and to_regclass('shadow_agent.verification_jobs') is not null
@@ -139,18 +139,26 @@ begin
   if r.lease_until>clock_timestamp() then return null;end if;
   return to_jsonb(r.id);
  end if;
- if to_regprocedure('shadow_agent.pipeline_collection_pending()') is not null then
-  if shadow_agent.pipeline_collection_pending() then return null;end if;
- end if;
- stamp:=clock_timestamp();slot:=date_trunc('hour',stamp at time zone 'utc') at time zone 'utc';
- if exists(select 1 from shadow_agent.producer_slots where utc_hour=slot) then return null; end if;
+ -- Take a small immutable batch directly from the durable waiting list. There
+ -- is no hourly scan backlog: unfinished runs resume above, and committed
+ -- decisions below remove finished items from future batches.
+ stamp:=clock_timestamp();
+ select coalesce(jsonb_agg(value order by value->>'story_key'),'[]'::jsonb) into batch
+ from (select value from jsonb_array_elements(public.warpcore_shadow_candidate_page(stamp,null))
+       order by value->>'story_key' limit 16) pending;
+ if jsonb_array_length(batch)=0 then return null;end if;
  run_id:=gen_random_uuid();
  insert into shadow_agent.runs(id,state,limit_credits) values(run_id,jsonb_build_object(
   'storageKind','paged-v1','runId',run_id::text,
   'scanStartedAt',to_char(stamp at time zone 'utc','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
-  'policyVersion',settings.policy_version,'revision',0,'phase','scan','cursor',null,
-  'candidateCount',0,'reviewedCount',0,'activeBatch',null,'publishingEnabled',false),settings.run_limit_credits);
- insert into shadow_agent.producer_slots(utc_hour,run_id) values(slot,run_id);
+  'policyVersion',settings.policy_version,'revision',0,'phase','review','cursor',batch->-1->>'story_key',
+  'candidateCount',jsonb_array_length(batch),'reviewedCount',0,'activeBatch',null,'publishingEnabled',false),settings.run_limit_credits);
+ for item in select value from jsonb_array_elements(batch) loop
+  insert into shadow_agent.candidates(run_id,ordinal,candidate_id,candidate) values(run_id,position,item->>'story_key',
+   jsonb_build_object('id',item->>'story_key','sourceUrl',item->>'source_url','sourceType',item->>'source_type',
+                     'sourceCreatedAt',item->>'source_created_at','discoveryText',item->>'excerpt'));
+  position:=position+1;
+ end loop;
  return to_jsonb(run_id);
 end $$;
 create function public.warpcore_shadow_candidate_page(p_started timestamptz,p_cursor text) returns jsonb
@@ -170,6 +178,12 @@ begin
    and (p_cursor is null or s.story_key>p_cursor)
    and not exists(select 1 from public.warpcore_curator_inbox i where i.story_key=s.story_key)
    and not exists(select 1 from public.warpcore_publications p where p.story_key=s.story_key)
+   -- An assessed item is finished even when the decision was to skip it.
+   and not exists(select 1 from shadow_agent.candidates seen join shadow_agent.decisions d
+     on d.run_id=seen.run_id and d.ordinal=seen.ordinal where seen.candidate_id=s.story_key)
+   -- Unknown paid requests remain held; a fresh batch must never replay them.
+   and not exists(select 1 from shadow_agent.candidates held join shadow_agent.attempts a on a.run_id=held.run_id
+     where held.candidate_id=s.story_key and a.status in ('reserved','dispatched','uncertain'))
   order by s.story_key,c.source_created_at desc,c.uri
  ), page as (
   select story_key,source_type,source_url,excerpt,
@@ -178,6 +192,42 @@ begin
  ) select coalesce(jsonb_agg(to_jsonb(page) order by story_key),'[]'::jsonb) into result from page;
  return result;
 end $$;
+-- Compact private tracing: counts only, never source text, credentials or payloads.
+create function shadow_agent.queue_summary() returns jsonb
+language plpgsql stable security definer set search_path='' as $$
+declare cutoff timestamptz;stamp timestamptz:=statement_timestamp();result jsonb;pending_verification bigint:=0;
+begin
+ select first_seen_since into cutoff from shadow_agent.producer_settings where singleton;
+ with waiting as (
+  select s.story_key,s.collected_at from public.warpcore_stories s
+  where s.status='unverified_review_required' and (cutoff is null or s.collected_at>=cutoff) and s.collected_at<=stamp
+  and exists(select 1 from public.warpcore_candidates c where c.story_key=s.story_key and c.collected_at<=stamp
+   and c.source_created_at between stamp-interval '7 days' and stamp+interval '5 minutes')
+  and not exists(select 1 from public.warpcore_curator_inbox i where i.story_key=s.story_key)
+  and not exists(select 1 from public.warpcore_publications p where p.story_key=s.story_key)
+  and not exists(select 1 from shadow_agent.candidates seen join shadow_agent.decisions d
+   on d.run_id=seen.run_id and d.ordinal=seen.ordinal where seen.candidate_id=s.story_key)
+  and not exists(select 1 from shadow_agent.candidates held join shadow_agent.attempts a on a.run_id=held.run_id
+   where held.candidate_id=s.story_key and a.status in ('reserved','dispatched','uncertain'))
+ ), assessed as (
+  select d.decision from shadow_agent.decisions d join shadow_agent.runs r on r.id=d.run_id
+  where cutoff is null or (r.state->>'scanStartedAt')::timestamptz>=cutoff
+ ) select jsonb_build_object(
+  'sinceReset',cutoff,'asOf',stamp,
+  'waiting',(select count(*) from waiting),'oldestWaitingAt',(select min(collected_at) from waiting),
+  'reviewed',(select count(*) from assessed),'skipped',(select count(*) from assessed where decision->>'action'='skip'),
+  'qualified',(select count(*) from assessed where decision->>'action'='verify'),
+  'activeBatches',(select count(*) from shadow_agent.runs where state->>'storageKind'='paged-v1' and state->>'phase' in ('scan','review','reviewing')),
+  'uncertainBatches',(select count(*) from shadow_agent.runs where state->>'storageKind'='paged-v1' and state->>'phase'='uncertain'),
+  'published',(select count(*) from public.warpcore_publications where state='published' and (cutoff is null or prepared_at>=cutoff))) into result;
+ if to_regclass('shadow_agent.verification_jobs') is not null then
+  execute $pending$select count(*) from shadow_agent.verification_jobs v join shadow_agent.runs r on r.id=v.ranking_run_id
+   where not v.quarantined and (v.status='pending' or (v.status='verified' and v.handoff_status='pending'))
+   and ($1 is null or (r.state->>'scanStartedAt')::timestamptz>=$1)$pending$ into pending_verification using cutoff;
+ end if;
+ return result||jsonb_build_object('pendingVerification',pending_verification);
+end $$;
+revoke all on function shadow_agent.queue_summary() from public,anon,authenticated,service_role;
 create function public.warpcore_shadow_claim(p_run uuid,p_seconds integer) returns jsonb
 language sql security definer set search_path='' as $$
  select to_jsonb(shadow_agent.claim(p_run,p_seconds))

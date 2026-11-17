@@ -25,21 +25,31 @@ try{
  await assert.rejects(()=>select(),/configuration/);
  await q('update shadow_agent.producer_settings set run_limit_credits=1,policy_version=$1',[POLICY_VERSION]);
  await db.exec('set role service_role');
- await db.exec('reset role');await db.exec("create function shadow_agent.pipeline_collection_pending() returns boolean language sql as 'select true'");await db.exec('set role service_role');assert.equal(await select(),null,'Pending collection prevents only a new fixed scan');await db.exec('reset role');await db.exec('drop function shadow_agent.pipeline_collection_pending()');await db.exec('set role service_role');
+ await db.exec('reset role');await db.exec("create function shadow_agent.pipeline_collection_pending() returns boolean language sql as 'select true'");await db.exec('set role service_role');assert.equal(await select(),null,'Empty waiting list creates no work even during collection');await db.exec('reset role');await db.exec('drop function shadow_agent.pipeline_collection_pending()');await db.exec('set role service_role');
+ await db.exec('reset role');
+ await q("insert into public.warpcore_stories values ($1,'unverified_review_required',clock_timestamp());",[key(999)]);
+ await q("insert into public.warpcore_candidates values ('waiting-999',$1,'rss',clock_timestamp(),'https://example.com/new','New waiting item',clock_timestamp())",[key(999)]);
+ await db.exec('set role service_role');
+ await db.exec('reset role');await db.exec("create function shadow_agent.pipeline_collection_pending() returns boolean language sql as 'select true'");await db.exec('set role service_role');
  const first=await select();assert.match(first,/^[a-f0-9-]{36}$/);
+ await db.exec('reset role');await db.exec('drop function shadow_agent.pipeline_collection_pending()');await db.exec('set role service_role');
  assert.equal(await select(),first,'Repeat trigger selects same resumable run');
  const state=await scalar('select public.warpcore_shadow_load($1) as value',[first]);
- assert.equal(state.storageKind,'paged-v1');assert.equal(state.policyVersion,POLICY_VERSION);assert.equal(state.candidateCount,0);assert.equal(state.publishingEnabled,false);
+ assert.equal(state.storageKind,'paged-v1');assert.equal(state.policyVersion,POLICY_VERSION);assert.equal(state.candidateCount,1);assert.equal(state.phase,'review');assert.equal(state.publishingEnabled,false);
  assert.ok(Number.isFinite(Date.parse(state.scanStartedAt)));
  const lease=await scalar('select public.warpcore_shadow_claim($1,60) as value',[first]);
  assert.equal(await select(),null,'Leased incomplete run blocks creation');
- assert.equal((await scalar('select public.warpcore_shadow_paged_append($1,$2,0,$3) as value',[first,lease,[]])).phase,'review');
- assert.equal((await scalar('select public.warpcore_shadow_paged_begin($1,$2,1,25) as value',[first,lease])).state.phase,'complete');
- assert.equal(await select(),null,'One run per UTC-hour slot even after completion');
  await db.exec('reset role');
+ // Administrative completed fixture; no fabricated paid attempt is needed here.
+ await db.exec('alter table shadow_agent.decisions disable trigger paged_require_audit');
+ await q("insert into shadow_agent.decisions values($1,0,$2)",[first,{id:key(999),action:'skip',reason:'Synthetic completed item'}]);
+ await db.exec('alter table shadow_agent.decisions enable trigger paged_require_audit');
+ await q("update shadow_agent.runs set state=state||'{\"phase\":\"complete\",\"reviewedCount\":1}'::jsonb where id=$1",[first]);
+ assert.equal(await select(),null,'Finished item never becomes a new empty scan');
  assert.equal((await q('select count(*)::int as n from shadow_agent.budgets'))[0].n,0,'Selector cannot create budgets');
- // Simulate an elapsed hour with administrative-only fixture mutation.
- await q("update shadow_agent.producer_slots set utc_hour=utc_hour-interval '1 hour'");
+ assert.equal((await q('select count(*)::int as n from shadow_agent.producer_slots'))[0].n,0,'No whole-scan hourly queue');
+ await q("insert into public.warpcore_stories values ($1,'unverified_review_required',clock_timestamp())",[key(1000)]);
+ await q("insert into public.warpcore_candidates values ('waiting-1000',$1,'rss',clock_timestamp(),'https://example.com/newer','Newer waiting item',clock_timestamp())",[key(1000)]);
  await db.exec('set role service_role');
  const second=await select();assert.notEqual(second,first);assert.equal(await select(),second);
  await db.exec('reset role');
@@ -72,7 +82,7 @@ try{
   await assert.rejects(()=>scalar('select public.warpcore_shadow_load($1) as value',[first]),/permission denied/);
   await assert.rejects(()=>scalar('select public.warpcore_shadow_candidate_page($1,$2) as value',[stamp,null]),/permission denied/);
  }
- console.log('PASS: disabled administrative selector, durable UTC-hour idempotency/resume/lease/uncertainty holds, guarded RPC wrappers and complete fixed-cutoff candidate pagination');
+ console.log('PASS: disabled administrative selector, small durable waiting batches/resume/lease/uncertainty holds, guarded RPC wrappers and fixed-cutoff candidate pagination');
 }finally{await db.close();}
 
 // Real source tables; only verifier tables are minimal isolated shape stubs.
@@ -89,7 +99,9 @@ try{
  for(const file of ['shadow-state.sql','shadow-paged.sql','shadow-audit.sql','shadow-ranking.sql','shadow-producer.sql'])await precedence.exec(await fs.readFile(new URL(`../supabase/functions/news-agent/sql/${file}`,import.meta.url),'utf8'));
  const pq=async(s,a=[])=>(await precedence.query(s,a)).rows;
  const pick=async()=> (await pq('select public.warpcore_shadow_select_run() v'))[0].v;
- await precedence.exec(`update shadow_agent.producer_settings set enabled=true,run_limit_credits=1,policy_version='2026-11-14.1';
+ await precedence.exec(`insert into public.warpcore_stories values(repeat('b',64),'unverified_review_required',clock_timestamp());
+ insert into public.warpcore_candidates values('waiting-b',repeat('b',64),'rss',clock_timestamp(),'https://example.com/waiting','Synthetic waiting item',clock_timestamp());
+ update shadow_agent.producer_settings set enabled=true,run_limit_credits=1,policy_version='2026-11-14.1';
  create table shadow_agent.verification_settings(singleton boolean,enabled boolean,submit_enabled boolean,job_limit_credits numeric,backfill_enabled boolean default false,ranking_finalized_since timestamptz);
  insert into shadow_agent.verification_settings(singleton,enabled,submit_enabled,job_limit_credits) values(true,true,false,.157287);
  create table shadow_agent.verification_jobs(id uuid default gen_random_uuid(),ranking_run_id uuid,story_key text,child_run_id uuid,status text,receipt_id uuid,handoff_status text,quarantined boolean default false);

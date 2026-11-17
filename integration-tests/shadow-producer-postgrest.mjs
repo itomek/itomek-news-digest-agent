@@ -13,7 +13,7 @@ const db=new Client({connectionString:url.href}),base='http://127.0.0.1:3000';le
 try{
  await db.connect();
  assert.equal((await db.query("select to_regnamespace('shadow_agent') as n")).rows[0].n,null,'Fresh fixture required; never reuse an active shadow schema');
- for(const name of ['shadow-state.sql','shadow-paged.sql','shadow-audit.sql','shadow-producer.sql']){
+ for(const name of ['shadow-state.sql','shadow-paged.sql','shadow-audit.sql','shadow-ranking.sql','shadow-producer.sql']){
   await db.query(await fs.readFile(new URL(`../supabase/functions/news-agent/sql/${name}`,import.meta.url),'utf8'));installed=true;
  }
  await db.query("notify pgrst,'reload schema'");
@@ -62,6 +62,12 @@ try{
  }
  assert.equal(complete,true);assert.equal(markerSeen,true);assert.ok(modelCalls>0);assert.equal(await publicationCount(),before);
  const audited=(await db.query('select count(*)::int as n from shadow_agent.attempt_audit')).rows[0].n;assert.equal(audited,modelCalls);
+ const selection=await fetch(base+'/rpc/warpcore_shadow_selection',{method:'POST',headers:{Authorization:`Bearer ${serviceKey}`,'Content-Type':'application/json'},body:JSON.stringify({p_run:runId})});
+ assert.equal(selection.status,200);assert.equal(await selection.json(),null,'Historical unranked run has no ranking authority');
+ for(const role of ['anon','authenticated']){
+  const denied=await fetch(base+'/rpc/warpcore_shadow_selection',{method:'POST',headers:{Authorization:`Bearer ${jwt(role)}`,'Content-Type':'application/json'},body:JSON.stringify({p_run:runId})});
+  assert.ok([401,403,404].includes(denied.status));
+ }
  const table=await fetch(base+'/runs',{headers:{Authorization:`Bearer ${serviceKey}`}});assert.ok([401,403,404].includes(table.status));
  console.log('PASS: actual PostgREST producer RPCs, dedicated handler auth, normalized continuation/audit, denied roles and zero publication writes; model responses fabricated');
 }finally{

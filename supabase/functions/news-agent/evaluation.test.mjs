@@ -103,3 +103,21 @@ test('profile reasoning is copied exactly and unknown reasoning controls are ref
  for(const reasoning of [null,undefined,{effort:'high'},{effort:'none',exclude:true},{max_tokens:0},{effort:'none',max_tokens:0}])assert.throws(()=>buildReviewRequest(cases,{...cfg,requestProfile:{...requestProfile,reasoning}}));
  assert.equal(Object.hasOwn(buildReviewRequest(cases,{...cfg,requestProfile:undefined}),'reasoning'),false);
 });
+test('ranked profile adds absolute anchors without exposing labels and old profile stays v1',async()=>{
+ const {requestProfileForModel}=await import('./model-profiles.mjs');
+ const {DISCOVERY_RANKED_RESPONSE_FORMAT,DISCOVERY_RESPONSE_FORMAT}=await import('./review-contract.mjs');
+ const options={model:'openai/gpt-oss-120b',allowedModels:['openai/gpt-oss-120b'],maxOutputTokens:2000};
+ const ranked=buildReviewRequest(cases,{...options,requestProfile:requestProfileForModel(options.model)});
+ assert.deepEqual(ranked.response_format,DISCOVERY_RANKED_RESPONSE_FORMAT);
+ assert.match(ranked.messages[0].content,/absolute/i);
+ assert.match(ranked.messages[0].content,/exceptional major change/i);
+ assert.equal(JSON.stringify(ranked).includes('expectedAction'),false);
+ const old=buildReviewRequest(cases,{...options,requestProfile:requestProfileForModel(options.model,'2026-11-16.2')});
+ assert.deepEqual(old.response_format,DISCOVERY_RESPONSE_FORMAT);
+ assert.doesNotMatch(old.messages[0].content,/exceptional major change/i);
+});
+test('offline evaluation accepts complete ranked results and rejects malformed or mixed scores',()=>{
+ const decisions=cases.map(c=>({id:c.id,action:c.expectedAction,reason:'Recorded test',importance:c.expectedAction==='skip'?0:3,relevance:c.expectedAction==='skip'?0:2}));
+ assert.equal(evaluateDecisions(cases,decisions).complete,true);
+ for(const change of [d=>d.importance=5,d=>d.relevance=1.5,d=>delete d.importance]){const bad=structuredClone(decisions);change(bad[0]);assert.throws(()=>evaluateDecisions(cases,bad));}
+});

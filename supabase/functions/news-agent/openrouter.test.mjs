@@ -194,3 +194,16 @@ test('completion audit accompanies malformed or incomplete decisions only after 
   await assert.rejects(reviewWithOpenRouter(request(),config(),async()=>Response.json(p)),e=>e.code==='invalid_completion'&&!Object.hasOwn(e,'completionAudit'));
  }
 });
+test('ranked decisions retain scores and reject bad scores with billed usage',async()=>{
+ const {DISCOVERY_RANKED_RESPONSE_FORMAT}=await import('./review-contract.mjs');
+ assert.ok(DISCOVERY_RANKED_RESPONSE_FORMAT);
+ const r={...request(),response_format:structuredClone(DISCOVERY_RANKED_RESPONSE_FORMAT)};
+ const decision={id:'a',action:'verify',reason:'Material feature',importance:4,relevance:3};
+ const answer=d=>{const p=payload();p.choices[0].message.content=JSON.stringify({decisions:d});return Response.json(p);};
+ assert.deepEqual((await reviewWithOpenRouter(r,config(),async()=>answer([decision]))).decisions,[decision]);
+ for(const d of [{...decision,importance:5},{...decision,relevance:1.5},{...decision,importance:-1},{...decision,importance:0},{...decision,action:'skip'},{id:'a',action:'verify',reason:'Missing scores'},{...decision,relevance:'3'}]){
+  await assert.rejects(reviewWithOpenRouter(r,config(),async()=>answer([d])),e=>e.code==='invalid_decisions'&&e.usage.costCredits===0.001&&e.completionAudit.generationId==='gen-test');
+ }
+ await assert.rejects(reviewWithOpenRouter(r,config(),async()=>answer([])),e=>e.code==='incomplete_decisions'&&e.usage.costCredits===0.001);
+ assert.equal((await reviewWithOpenRouter(r,config(),async()=>answer([{...decision,action:'skip',importance:0,relevance:0}]))).decisions[0].importance,0);
+});

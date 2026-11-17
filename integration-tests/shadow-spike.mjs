@@ -32,7 +32,7 @@ try{
  }
  await assert.rejects(()=>db.exec(fixture),/Refusing spike fixture install/);await db.exec('rollback');
  assert.equal((await q('select count(*)::integer as n from public.warpcore_stories'))[0].n,405);
- for(const name of ['shadow-state.sql','shadow-paged.sql','shadow-audit.sql','shadow-producer.sql'])await db.exec(await fs.readFile(new URL(`../supabase/functions/news-agent/sql/${name}`,import.meta.url),'utf8'));
+ for(const name of ['shadow-state.sql','shadow-paged.sql','shadow-audit.sql','shadow-ranking.sql','shadow-producer.sql'])await db.exec(await fs.readFile(new URL(`../supabase/functions/news-agent/sql/${name}`,import.meta.url),'utf8'));
  assert.equal((await q('select enabled from shadow_agent.producer_settings'))[0].enabled,false);
  assert.equal((await q('select count(*)::integer as n from shadow_agent.budgets'))[0].n,0,'Fixture must not authorize spending');
  // Synthetic accounting values are test-only administrative setup, not real money.

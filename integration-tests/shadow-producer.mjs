@@ -14,7 +14,7 @@ try{
  create table public.warpcore_candidates(uri text primary key,story_key text,source_type text,source_created_at timestamptz,source_url text,text text,collected_at timestamptz);
  create table public.warpcore_curator_inbox(story_key text,state text);
  create table public.warpcore_publications(story_key text,state text);`);
- for(const file of ['shadow-state.sql','shadow-paged.sql','shadow-audit.sql','shadow-producer.sql'])await db.exec(await fs.readFile(new URL(`../supabase/functions/news-agent/sql/${file}`,import.meta.url),'utf8'));
+ for(const file of ['shadow-state.sql','shadow-paged.sql','shadow-audit.sql','shadow-ranking.sql','shadow-producer.sql'])await db.exec(await fs.readFile(new URL(`../supabase/functions/news-agent/sql/${file}`,import.meta.url),'utf8'));
  await db.exec('set role service_role');
  const select=()=>scalar('select public.warpcore_shadow_select_run() as value');
  assert.equal(await select(),null,'Disabled by default');

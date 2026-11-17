@@ -59,7 +59,7 @@ try{
   await assert.rejects(()=>rebind({...gemmaConfig,requestProfile:{...withoutZdr,version:'2026-11-15.2'}}),/Immutable/);
   await assert.rejects(()=>rebind({...gemmaConfig,requestProfile:{...profile,version:'2026-11-15.2'}}),/Invalid/);
  }
- const ossModel='openai/gpt-oss-120b',ossProfile=requestProfileForModel(ossModel);
+ const ossModel='openai/gpt-oss-120b',ossProfile=requestProfileForModel(ossModel,'2026-11-16.2');
  assert.equal(ossProfile?.version,'2026-11-16.2');assert.deepEqual(ossProfile.reasoning,{effort:'low'});
  const ossConfig={...config,model:ossModel,requestProfile:ossProfile,expectedProvider:'Groq',reviewBatchSize:4};
  const oss=await fixture(1,ossConfig);

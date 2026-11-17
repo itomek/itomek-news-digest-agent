@@ -1,3 +1,4 @@
+import {RANKING_RUBRIC_VERSION} from './ranking-rubric.mjs';
 // Research-derived allowlist, not paid-call authorization or a model-quality verdict.
 // Sources/snapshots: docs/warpcore-model-validation-research.md. Price ceilings
 // use the listed long-context tier for Haiku/Luna; Gemini promotion changes fail
@@ -14,7 +15,13 @@ const profiles=freeze({
  'google/gemma-4-31b-it':openProfile('deepinfra/fp8',0.20,0.40),
  'openai/gpt-oss-120b':freeze({version:'2026-11-16.2',reasoning:{effort:'low'},responseFormat:'discovery-json-schema-v1',provider:{only:['groq'],order:['groq'],allow_fallbacks:false,require_parameters:true,max_price:{prompt:0.15,completion:0.60,request:0},zdr:true}}),
 });
-export function requestProfileForModel(model){return typeof model==='string'&&Object.hasOwn(profiles,model)?profiles[model]:undefined;}
+const rankedGptOss=freeze({...profiles['openai/gpt-oss-120b'],version:'2026-11-16.3',responseFormat:'discovery-ranked-json-schema-v2',rankingRubricVersion:RANKING_RUBRIC_VERSION});
+export function requestProfileForModel(model,version){
+ if(typeof model!=='string'||!Object.hasOwn(profiles,model))return undefined;
+ const current=model==='openai/gpt-oss-120b'?rankedGptOss:profiles[model];
+ if(version===undefined||version===current.version)return current;
+ return version===profiles[model].version?profiles[model]:undefined;
+}
 
 // Exact reviewed upstream display identities; historical profiles remain optional.
 const expectedProviders=freeze({'google/gemma-4-26b-a4b-it':'PrimeIntellect','google/gemma-4-31b-it':'DeepInfra','openai/gpt-oss-120b':'Groq'});

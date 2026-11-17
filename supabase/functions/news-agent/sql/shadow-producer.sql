@@ -137,4 +137,10 @@ revoke all on function public.warpcore_shadow_dispatch(uuid,uuid) from public,an
 grant execute on function public.warpcore_shadow_dispatch(uuid,uuid) to service_role;
 revoke all on function public.warpcore_shadow_paged_settle(uuid,uuid,text,numeric,jsonb) from public,anon,authenticated,service_role;
 grant execute on function public.warpcore_shadow_paged_settle(uuid,uuid,text,numeric,jsonb) to service_role;
+create function public.warpcore_shadow_selection(p_run uuid) returns jsonb
+language sql security definer set search_path='' as $$
+ select shadow_agent.selection_summary(p_run)
+$$;
+revoke all on function public.warpcore_shadow_selection(uuid) from public,anon,authenticated,service_role;
+grant execute on function public.warpcore_shadow_selection(uuid) to service_role;
 commit;

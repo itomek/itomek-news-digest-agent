@@ -43,3 +43,16 @@ test('GPT-OSS low reasoning and pinned Groq ZDR policy survive exact request ser
  const r=buildReviewRequest([{id:'a',sourceUrl:'https://example.com/story',discoveryText:'Public discovery'}],{model,allowedModels:[model],maxOutputTokens:2048,requestProfile});
  const body=JSON.parse(serializeReviewBody(r));assert.deepEqual(body.provider,requestProfile.provider);assert.deepEqual(body.reasoning,{effort:'low'});assert.equal(body.max_tokens,2048);assert.equal(Object.hasOwn(body,'temperature'),false);
 });
+test('only exact canonical discovery v1 and ranked v2 formats are accepted',async()=>{
+ const {DISCOVERY_RESPONSE_FORMAT:v1,DISCOVERY_RANKED_RESPONSE_FORMAT:v2,matchesDiscoveryFormat,isRankedDiscoveryFormat}=await import('./review-contract.mjs');
+ assert.ok(matchesDiscoveryFormat(structuredClone(v1)));assert.ok(matchesDiscoveryFormat(structuredClone(v2)));
+ assert.equal(isRankedDiscoveryFormat(v1),false);assert.equal(isRankedDiscoveryFormat(v2),true);
+ assert.deepEqual(v2.json_schema.schema.properties.decisions.items.required,['id','action','reason','importance','relevance']);
+ for(const mutate of [x=>x.json_schema.strict=false,x=>x.json_schema.schema.properties.decisions.items.properties.importance.maximum=5,x=>x.json_schema.schema.properties.decisions.items.required.pop(),x=>x.extra=true]){const bad=structuredClone(v2);mutate(bad);assert.equal(matchesDiscoveryFormat(bad),false);}
+ assert.ok(Object.isFrozen(v2.json_schema.schema.properties.decisions.items.properties.importance));
+});
+test('ranked profiles bind rubric, schema, privacy and low reasoning exactly',()=>{
+ const current=requestProfileForModel('openai/gpt-oss-120b');assert.deepEqual(validateRequestProfile(current),current);
+ for(const mutate of [p=>delete p.rankingRubricVersion,p=>p.rankingRubricVersion='future',p=>p.responseFormat='discovery-json-schema-v1',p=>p.reasoning.effort='none',p=>delete p.provider.zdr]){const bad=structuredClone(current);mutate(bad);assert.throws(()=>validateRequestProfile(bad));}
+ const old=structuredClone(requestProfileForModel('openai/gpt-oss-120b','2026-11-16.2'));old.rankingRubricVersion='2026-11-16.1';assert.throws(()=>validateRequestProfile(old));
+});

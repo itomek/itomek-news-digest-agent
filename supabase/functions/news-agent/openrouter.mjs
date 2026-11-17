@@ -1,4 +1,4 @@
-import {matchesDiscoveryFormat,validateProviderPolicy,validateReasoningControl} from './review-contract.mjs';
+import {isRankedDiscoveryFormat,matchesDiscoveryFormat,validateProviderPolicy,validateReasoningControl} from './review-contract.mjs';
 // OpenRouter Chat Completions contract:
 // https://openrouter.ai/docs/api_reference/overview
 // This adapter owns one HTTP attempt, NOT spend authorization or a durable ledger.
@@ -82,15 +82,18 @@ function parseResult(data,request,ids,reservation){
  let parsed;
  try{parsed=JSON.parse(data.choices[0].message.content);}catch{decisionFailure('invalid_decision_json');}
  if(!parsed||Object.keys(parsed).length!==1||!Array.isArray(parsed.decisions)||parsed.decisions.length!==ids.size)decisionFailure('incomplete_decisions');
+ const ranked=isRankedDiscoveryFormat(request.response_format);
+ const fields=ranked?['id','action','reason','importance','relevance']:['id','action','reason'];
  const seen=new Set();
  for(const [index,d] of parsed.decisions.entries()){
   let issue;
   if(!d||typeof d!=='object'||Array.isArray(d))issue='invalid_shape';
-  else if(Object.keys(d).some(k=>!['id','action','reason'].includes(k)))issue='unexpected_fields';
+  else if(Object.keys(d).some(k=>!fields.includes(k)))issue='unexpected_fields';
   else if(!ids.has(d.id))issue='unknown_id';
   else if(seen.has(d.id))issue='duplicate_id';
   else if(!['skip','verify'].includes(d.action))issue='invalid_action';
   else if(typeof d.reason!=='string'||!d.reason.trim()||d.reason.length>1000)issue='invalid_reason';
+  if(issue===undefined&&ranked&&(!Number.isInteger(d.importance)||!Number.isInteger(d.relevance)|| (d.action==='skip'?(d.importance!==0||d.relevance!==0):(d.importance<1||d.importance>4||d.relevance<1||d.relevance>4))))issue='invalid_scores';
   if(issue!==undefined)decisionFailure('invalid_decisions',issue,index);
   seen.add(d.id);
  }
@@ -111,7 +114,7 @@ export async function reviewWithOpenRouter(request,config={},fetcher){
  const timeoutMs=config.timeoutMs??10000,maxResponseBytes=config.maxResponseBytes??200000;
  if(!boundedInteger(timeoutMs,30000)||!boundedInteger(maxResponseBytes,200000))fail('invalid_limits');
  const body=serializeReviewBody(request);
- const pinnedRequest={model:request.model,...(Object.hasOwn(config,'expectedProvider')?{expectedProvider:config.expectedProvider}:{})};
+ const pinnedRequest={model:request.model,response_format:structuredClone(request.response_format),...(Object.hasOwn(config,'expectedProvider')?{expectedProvider:config.expectedProvider}:{})};
  const pinnedReservation={maxCostCredits:config.reservation.maxCostCredits};
  const controller=new AbortController();let timer,httpDiagnostics={};
  const deadline=new Promise((_resolve,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Object.assign(new OpenRouterAttemptError('timeout','uncertain'),httpDiagnostics));},timeoutMs);});

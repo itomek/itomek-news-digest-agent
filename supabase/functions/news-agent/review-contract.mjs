@@ -1,13 +1,21 @@
+import {RANKING_RUBRIC_VERSION} from './ranking-rubric.mjs';
 // Trusted discovery request controls. No model, price or provider default is selected.
 function freeze(value){if(value&&typeof value==='object'){Object.values(value).forEach(freeze);Object.freeze(value);}return value;}
 export const DISCOVERY_RESPONSE_FORMAT=freeze({type:'json_schema',json_schema:{name:'discovery_review',strict:true,schema:{type:'object',properties:{decisions:{type:'array',items:{type:'object',properties:{id:{type:'string'},action:{type:'string',enum:['skip','verify']},reason:{type:'string'}},required:['id','action','reason'],additionalProperties:false}}},required:['decisions'],additionalProperties:false}}});
+const rankedFormat=structuredClone(DISCOVERY_RESPONSE_FORMAT);
+rankedFormat.json_schema.name='discovery_ranked_review';
+Object.assign(rankedFormat.json_schema.schema.properties.decisions.items.properties,{importance:{type:'integer',minimum:0,maximum:4},relevance:{type:'integer',minimum:0,maximum:4}});
+rankedFormat.json_schema.schema.properties.decisions.items.required.push('importance','relevance');
+export const DISCOVERY_RANKED_RESPONSE_FORMAT=freeze(rankedFormat);
 const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const exactKeys=(value,keys)=>object(value)&&Object.keys(value).length===keys.length&&keys.every(k=>Object.hasOwn(value,k));
-export function matchesDiscoveryFormat(value,expected=DISCOVERY_RESPONSE_FORMAT){
- if(Array.isArray(expected))return Array.isArray(value)&&value.length===expected.length&&expected.every((v,i)=>matchesDiscoveryFormat(value[i],v));
- if(object(expected))return exactKeys(value,Object.keys(expected))&&Object.keys(expected).every(k=>matchesDiscoveryFormat(value[k],expected[k]));
+function matchesExact(value,expected){
+ if(Array.isArray(expected))return Array.isArray(value)&&value.length===expected.length&&expected.every((v,i)=>matchesExact(value[i],v));
+ if(object(expected))return exactKeys(value,Object.keys(expected))&&Object.keys(expected).every(k=>matchesExact(value[k],expected[k]));
  return value===expected;
 }
+export const isRankedDiscoveryFormat=value=>matchesExact(value,DISCOVERY_RANKED_RESPONSE_FORMAT);
+export const matchesDiscoveryFormat=value=>matchesExact(value,DISCOVERY_RESPONSE_FORMAT)||isRankedDiscoveryFormat(value);
 export function validateProviderPolicy(provider){
  const hasZdr=object(provider)&&Object.hasOwn(provider,'zdr');
  if(!exactKeys(provider,hasZdr?['only','order','allow_fallbacks','require_parameters','max_price','zdr']:['only','order','allow_fallbacks','require_parameters','max_price'])||(hasZdr&&provider.zdr!==true)||!Array.isArray(provider.only)||provider.only.length!==1||typeof provider.only[0]!=='string'||provider.only[0].length>128||!/^[a-z0-9]+(?:[-/][a-z0-9]+)*$/.test(provider.only[0])||!Array.isArray(provider.order)||provider.order.length!==1||provider.order[0]!==provider.only[0]||provider.allow_fallbacks!==false||provider.require_parameters!==true||!exactKeys(provider.max_price,['prompt','completion','request'])||!Number.isFinite(provider.max_price.prompt)||provider.max_price.prompt<=0||!Number.isFinite(provider.max_price.completion)||provider.max_price.completion<=0||provider.max_price.request!==0)throw Error('Invalid discovery provider policy');
@@ -19,9 +27,10 @@ export function validateReasoningControl(reasoning){
 }
 export function validateRequestProfile(profile){
  const hasReasoning=object(profile)&&Object.hasOwn(profile,'reasoning');
- if(!exactKeys(profile,hasReasoning?['version','provider','responseFormat','reasoning']:['version','provider','responseFormat'])||!['2026-11-15.2','2026-11-16.1','2026-11-16.2'].includes(profile.version)||profile.responseFormat!=='discovery-json-schema-v1')throw Error('Invalid discovery request profile');
- if(['2026-11-16.1','2026-11-16.2'].includes(profile.version)&&profile.provider?.zdr!==true||profile.version==='2026-11-15.2'&&Object.hasOwn(profile.provider??{},'zdr'))throw Error('Incompatible discovery ZDR policy');
- const requiredEffort=profile.version==='2026-11-16.2'?'low':'none';
+ const ranked=profile?.version==='2026-11-16.3';
+ if(!exactKeys(profile,ranked?['version','provider','responseFormat','reasoning','rankingRubricVersion']:hasReasoning?['version','provider','responseFormat','reasoning']:['version','provider','responseFormat'])||!['2026-11-15.2','2026-11-16.1','2026-11-16.2','2026-11-16.3'].includes(profile.version)||profile.responseFormat!==(ranked?'discovery-ranked-json-schema-v2':'discovery-json-schema-v1')||(ranked&&profile.rankingRubricVersion!==RANKING_RUBRIC_VERSION))throw Error('Invalid discovery request profile');
+ if(['2026-11-16.1','2026-11-16.2','2026-11-16.3'].includes(profile.version)&&profile.provider?.zdr!==true||profile.version==='2026-11-15.2'&&Object.hasOwn(profile.provider??{},'zdr'))throw Error('Incompatible discovery ZDR policy');
+ const requiredEffort=(ranked||profile.version==='2026-11-16.2')?'low':'none';
  if((profile.version!=='2026-11-15.2'&&!hasReasoning)||(hasReasoning&&profile.reasoning?.effort!==requiredEffort))throw Error('Incompatible discovery reasoning policy');
- return {version:profile.version,provider:validateProviderPolicy(profile.provider),responseFormat:profile.responseFormat,...(hasReasoning?{reasoning:validateReasoningControl(profile.reasoning)}:{})};
+ return {...(ranked?{rankingRubricVersion:RANKING_RUBRIC_VERSION}:{}),version:profile.version,provider:validateProviderPolicy(profile.provider),responseFormat:profile.responseFormat,...(hasReasoning?{reasoning:validateReasoningControl(profile.reasoning)}:{})};
 }

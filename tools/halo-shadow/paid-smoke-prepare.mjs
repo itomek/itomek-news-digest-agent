@@ -38,13 +38,16 @@ async function main(){
   if(mode==='prepare'){
    if(typeof env.JWT_SECRET!=='string'||env.JWT_SECRET.length<32)throw Error('Disposable JWT signing secret required');
    const cases=JSON.parse(await fs.readFile(new URL('supabase/functions/news-agent/real-story-cases.json',root),'utf8'));
-   const plan=buildSmokePlan({runId:randomUUID(),model:env.HALO_PAID_MODEL??'google/gemma-4-31b-it',reservationUsd:Number(env.HALO_PAID_RESERVATION_USD??'0.058983'),cases});
+   const plan=buildSmokePlan({runId:randomUUID(),model:env.HALO_PAID_MODEL??'openai/gpt-oss-120b',reservationUsd:Number(env.HALO_PAID_RESERVATION_USD??'0.058983'),cases});
    // Refuse overwrite BEFORE installing or changing any database object.
    for(const file of ['plan.json','plan.env']){try{await fs.lstat(path.join(dir,file));throw Error('Plan already exists');}catch(error){if(error.code!=='ENOENT')throw error;}}
    if(!await value("select to_regnamespace('shadow_agent') is null and not exists(select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and left(c.relname,9)='warpcore_') as value"))throw Error('Fresh disposable database required');
-   for(const file of ['supabase/functions/news-agent-spike/fixture.sql',...['shadow-state.sql','shadow-paged.sql','shadow-audit.sql','shadow-producer.sql'].map(n=>'supabase/functions/news-agent/sql/'+n)])await client.query(await fs.readFile(new URL(file,root),'utf8'));
+   for(const file of ['supabase/functions/news-agent-spike/fixture.sql',...['shadow-state.sql','shadow-paged.sql','shadow-audit.sql','shadow-ranking.sql','shadow-producer.sql'].map(n=>'supabase/functions/news-agent/sql/'+n)])await client.query(await fs.readFile(new URL(file,root),'utf8'));
    await client.query('begin');
    try{
+    // Structural unverified identities only: public text stays in the private
+    // captured shadow rows. Do not weaken synthetic candidate URL/text guards.
+    for(const candidate of plan.candidates)await q("insert into public.warpcore_stories(story_key,status,collected_at) values ($1,'unverified_review_required',clock_timestamp())",[candidate.id]);
     await q("insert into shadow_agent.budgets(day,limit_credits) values ((clock_timestamp() at time zone 'utc')::date,$1)",[plan.reservationUsd]);
     await q('insert into shadow_agent.runs(id,state,limit_credits) values ($1,$2,$3)',[plan.runId,newPagedShadowRun({runId:plan.runId,scanStartedAt:new Date().toISOString()}),plan.reservationUsd]);
     const lease=await value('select shadow_agent.claim($1,1) as value',[plan.runId]);

@@ -50,15 +50,15 @@ begin
  if p_config ? 'requestProfile' then
   profile:=p_config->'requestProfile';
   if jsonb_typeof(profile) is distinct from 'object'
-  or (profile-'version'-'provider'-'responseFormat'-'reasoning')<>'{}'::jsonb
+  or (profile-'version'-'provider'-'responseFormat'-'reasoning'-'rankingRubricVersion')<>'{}'::jsonb
   or jsonb_typeof(profile->'version') is distinct from 'string'
   or profile->>'version' !~ '^[A-Za-z0-9._-]{1,64}$'
-  or profile->'responseFormat' is distinct from '"discovery-json-schema-v1"'::jsonb
+  or not coalesce((profile->>'responseFormat'='discovery-json-schema-v1' and profile->>'version'<>'2026-11-16.3' and not(profile ? 'rankingRubricVersion') or profile->>'responseFormat'='discovery-ranked-json-schema-v2' and profile->>'version'='2026-11-16.3' and profile->>'rankingRubricVersion'='2026-11-16.1'),false)
   or jsonb_typeof(profile->'provider') is distinct from 'object'
   then raise exception 'Invalid request profile'; end if;
-  if (profile->>'version'='2026-11-16.2' and profile->'reasoning' is distinct from '{"effort":"low"}'::jsonb)
+  if (profile->>'version' in ('2026-11-16.2','2026-11-16.3') and profile->'reasoning' is distinct from '{"effort":"low"}'::jsonb)
   or (profile->>'version'='2026-11-16.1' and profile->'reasoning' is distinct from '{"effort":"none"}'::jsonb)
-  or (profile->>'version' not in ('2026-11-16.1','2026-11-16.2') and profile ? 'reasoning' and profile->'reasoning' is distinct from '{"effort":"none"}'::jsonb)
+  or (profile->>'version' not in ('2026-11-16.1','2026-11-16.2','2026-11-16.3') and profile ? 'reasoning' and profile->'reasoning' is distinct from '{"effort":"none"}'::jsonb)
   then raise exception 'Invalid request profile reasoning'; end if;
   provider:=profile->'provider';
   if (provider-'only'-'order'-'allow_fallbacks'-'require_parameters'-'max_price'-'zdr')<>'{}'::jsonb
@@ -72,7 +72,7 @@ begin
   -- required in v16.1/v16.2 and forbidden in historical code-owned v15.2.
   -- Existing bound configuration remains immutable across lease/resume.
   if (provider ? 'zdr' and provider->'zdr' is distinct from 'true'::jsonb)
-  or (profile->>'version' in ('2026-11-16.1','2026-11-16.2') and provider->'zdr' is distinct from 'true'::jsonb)
+  or (profile->>'version' in ('2026-11-16.1','2026-11-16.2','2026-11-16.3') and provider->'zdr' is distinct from 'true'::jsonb)
   or (profile->>'version'='2026-11-15.2' and provider ? 'zdr')
   then raise exception 'Invalid request profile ZDR policy'; end if;
   if jsonb_array_length(provider->'only')<>1
@@ -86,6 +86,7 @@ begin
   or prices->'request' is distinct from '0'::jsonb then raise exception 'Invalid request profile'; end if;
   if (prices->>'prompt')::numeric<=0 or (prices->>'completion')::numeric<=0 then raise exception 'Invalid request profile'; end if;
  end if;
+ if profile->>'responseFormat'='discovery-ranked-json-schema-v2' and to_regprocedure('shadow_agent.ranking_bind(uuid)') is null then raise exception 'Ranking contract required'; end if;
  select config into existing from shadow_agent.run_config where run_id=p_run;
  if found then
   if existing is distinct from p_config then raise exception 'Immutable runtime config'; end if;
@@ -93,6 +94,7 @@ begin
  end if;
  if r.lease_until<=clock_timestamp() then return false; end if;
  insert into shadow_agent.run_config(run_id,config) values(p_run,p_config);
+ if profile->>'responseFormat'='discovery-ranked-json-schema-v2' then perform shadow_agent.ranking_bind(p_run); end if;
  if r.lease_until<=clock_timestamp() then raise exception 'Lease lost during config binding'; end if;
  return true;
 end $$;

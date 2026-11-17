@@ -23,12 +23,14 @@ try{
  assert.equal(blocked,true,'second session must actually contend on first transaction');
  await a.query('commit');assert.equal((await second).rowCount,0,'loser rechecks prepared state after lock');
 
+ await a.query(await fs.readFile(new URL('../supabase/migrations/20261117162306_warpcore_login_batch_budget.sql',import.meta.url),'utf8'));
+ for(let i=0;i<4;i++)assert.equal((await a.query('select warpcore_reserve_login($1) as ok',[did])).rows[0].ok,true);
  await a.query('begin');
  assert.equal((await a.query('select warpcore_reserve_login($1) as ok',[did])).rows[0].ok,true);
  const loginLoser=b.query('select warpcore_reserve_login($1) as ok',[did]);
  let loginBlocked=false;for(let i=0;i<40;i++){const r=await observer.query('select wait_event_type from pg_stat_activity where pid=$1',[pid]);if(r.rows[0]?.wait_event_type==='Lock'){loginBlocked=true;break;}await new Promise(r=>setTimeout(r,50));}
  assert.equal(loginBlocked,true,'login reservation must actually contend');
- await a.query('commit');assert.equal((await loginLoser).rows[0].ok,false,'second login reservation denied');
- console.log('PASS: independent sessions observed publication and login lock contention; exactly one claimant each');
+ await a.query('commit');assert.equal((await loginLoser).rows[0].ok,false,'concurrent sixth login reservation denied after fifth commits');
+ console.log('PASS: independent sessions observed publication and login lock contention; single publication claimant and five-login hourly ceiling');
 
 }finally{await Promise.all(clients.map(c=>c.end().catch(()=>{})));}

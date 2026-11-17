@@ -4,9 +4,9 @@ const root='00000000-0000-4000-8000-000000000001',key='a'.repeat(64),hash='b'.re
 try{
  await db.exec('create role anon;create role authenticated;create role service_role;');
  await db.exec(await fs.readFile(new URL('../supabase/functions/news-agent/sql/shadow-state.sql',import.meta.url),'utf8'));
- await db.exec(`create table shadow_agent.ranking_runs(run_id uuid primary key,finalized_at timestamptz);create table shadow_agent.candidates(run_id uuid,ordinal bigint,candidate_id text);create table shadow_agent.decisions(run_id uuid,ordinal bigint,decision jsonb);create table public.warpcore_stories(story_key text,status text);create table public.warpcore_publications(story_key text);create table shadow_agent.selection_items(run_id uuid,ordinal bigint,rank int);
- create table public.warpcore_curator_inbox(id uuid primary key default gen_random_uuid(),verification_receipt_id uuid unique,story_key text,run_id uuid,actor_kind text);create schema agent_verification;create table agent_verification.receipts(id uuid primary key,material jsonb);create function agent_verification.receipt_current(uuid) returns boolean language sql as 'select true';`);
- await q("insert into shadow_agent.runs(id,state,limit_credits) values($1,'{\"phase\":\"complete\"}',1)",[root]);await q('insert into shadow_agent.ranking_runs values($1,now())',[root]);await q('insert into shadow_agent.candidates values($1,0,$2)',[root,key]);await q('insert into shadow_agent.selection_items values($1,0,1)',[root]);
+ await db.exec(`create table shadow_agent.ranking_runs(run_id uuid primary key,finalized_at timestamptz,assessed_count bigint default 0);create table shadow_agent.candidates(run_id uuid,ordinal bigint,candidate_id text);create table shadow_agent.decisions(run_id uuid,ordinal bigint,decision jsonb);create table public.warpcore_stories(story_key text,status text);create table public.warpcore_publications(story_key text,state text);create table shadow_agent.selection_items(run_id uuid,ordinal bigint,rank int);
+ create table public.warpcore_curator_inbox(id uuid primary key default gen_random_uuid(),verification_receipt_id uuid unique,story_key text,run_id uuid,actor_kind text,state text default 'pending');create schema agent_verification;create table agent_verification.receipts(id uuid primary key,material jsonb);create function agent_verification.receipt_current(uuid) returns boolean language sql as 'select true';`);
+ await q("insert into shadow_agent.runs(id,state,limit_credits) values($1,'{\"phase\":\"complete\"}',1)",[root]);await q('insert into shadow_agent.ranking_runs(run_id,finalized_at) values($1,now())',[root]);await q('insert into shadow_agent.candidates values($1,0,$2)',[root,key]);await q('insert into shadow_agent.selection_items values($1,0,1)',[root]);await q('insert into shadow_agent.decisions values($1,0,$2)',[root,{action:'verify',importance:3,relevance:4}]);await q("insert into public.warpcore_stories values($1,'unverified_review_required')",[key]);
  await db.exec(`create function public.warpcore_agent_submit(p_id uuid) returns uuid language sql as 'insert into public.warpcore_curator_inbox(verification_receipt_id,story_key,run_id,actor_kind) select p_id,material->>''storyKey'',(material->>''runId'')::uuid,''agent'' from agent_verification.receipts where id=p_id returning id';`);
  await db.exec(await fs.readFile(new URL('../supabase/functions/news-agent/sql/verification-jobs.sql',import.meta.url),'utf8'));
  const claim=()=>value('select public.warpcore_verification_claim() v');assert.equal(await claim(),null);assert.equal((await q('select count(*)::int n from shadow_agent.budgets'))[0].n,0);
@@ -53,7 +53,7 @@ try{
  assert.equal((await q('select count(*)::int n from shadow_agent.verification_jobs'))[0].n,1);
  // Administrator fixture reconciliation releases a known-settled expired job.
  await db.exec("update shadow_agent.verification_jobs set status='deferred' where status='uncertain'");
- async function nextStory(char,ordinal){await q('insert into shadow_agent.candidates values($1,$2,$3)',[root,ordinal,char.repeat(64)]);await q('insert into shadow_agent.selection_items values($1,$2,$3)',[root,ordinal,ordinal+1]);return claim();}
+ async function nextStory(char,ordinal){await q('insert into shadow_agent.candidates values($1,$2,$3)',[root,ordinal,char.repeat(64)]);await q('insert into shadow_agent.selection_items values($1,$2,$3)',[root,ordinal,ordinal+1]);await q('insert into shadow_agent.decisions values($1,$2,$3)',[root,ordinal,{action:'verify',importance:3,relevance:4}]);await q("insert into public.warpcore_stories values($1,'unverified_review_required')",[char.repeat(64)]);return claim();}
  const fresh=await nextStory('c',1);assert.equal(fresh.storyKey,'c'.repeat(64));
  const meta={model:'openai/gpt-oss-120b',profileVersion:'2026-11-16.verify.1',expectedProvider:'Groq'};
  await value('select public.warpcore_verification_reserve($1,$2,$3,0.058983,$4) v',[fresh.jobId,fresh.lease,'d'.repeat(64),meta]);
@@ -130,31 +130,31 @@ try{
  // Frozen-score fallthrough uses existing jobs as the durable attempted set.
  await db.exec('begin');
  const backfillRun='00000000-0000-4000-8000-000000000050';
- await q("insert into shadow_agent.runs(id,state,limit_credits) values($1,'{\"phase\":\"complete\"}',1)",[backfillRun]);await q("insert into shadow_agent.ranking_runs values($1,'2000-01-01')",[backfillRun]);
+ await q("insert into shadow_agent.runs(id,state,limit_credits) values($1,'{\"phase\":\"complete\"}',1)",[backfillRun]);await q("insert into shadow_agent.ranking_runs(run_id,finalized_at) values($1,'2000-01-01')",[backfillRun]);
  for(let n=1;n<=8;n++){
   const story=n.toString(16).padStart(64,'0');await q('insert into shadow_agent.candidates values($1,$2,$3)',[backfillRun,n,story]);
   await q('insert into shadow_agent.decisions values($1,$2,$3)',[backfillRun,n,{action:'verify',importance:n===6?3:4,relevance:n<=5?4:1}]);await q("insert into public.warpcore_stories values($1,'unverified_review_required')",[story]);
   if(n<=5){await q('insert into shadow_agent.selection_items values($1,$2::bigint,$2::int)',[backfillRun,n]);const child=(await q("insert into shadow_agent.runs(id,state,limit_credits) values(gen_random_uuid(),'{}',1) returning id"))[0].id;await q("insert into shadow_agent.verification_jobs(ranking_run_id,story_key,child_run_id,status) values($1,$2,$3,'deferred')",[backfillRun,story,child]);}
  }
  const next=()=>q('select * from shadow_agent.next_verification_candidate()');
- assert.deepEqual(await next(),[],'Disabled backfill never extends original immutable shortlist');
+ assert.equal((await next())[0]?.story_key,'7'.padStart(64,'0'),'Actual verify decisions flow even when the historical backfill flag is false');
  await db.exec('update shadow_agent.verification_settings set backfill_enabled=true');
  assert.equal((await next())[0]?.story_key,'7'.padStart(64,'0'),'Frozen importance before relevance, deterministic story ID tie');
- await q('insert into public.warpcore_publications values($1)',['7'.padStart(64,'0')]);assert.equal((await next())[0]?.story_key,'8'.padStart(64,'0'),'Already published stories excluded');
+ await q('insert into public.warpcore_publications(story_key) values($1)',['7'.padStart(64,'0')]);assert.equal((await next())[0]?.story_key,'8'.padStart(64,'0'),'Already published stories excluded');
  await q('insert into public.warpcore_curator_inbox(story_key) values($1)',['8'.padStart(64,'0')]);assert.equal((await next())[0]?.story_key,'6'.padStart(64,'0'),'Already queued stories excluded');
  await db.exec("update shadow_agent.verification_jobs set status='deferred' where status='uncertain'");const sixth=await claim();assert.equal(sixth.storyKey,'6'.padStart(64,'0'),'Claim shares exact live-excluded helper candidate');
  assert.deepEqual(await next(),[],'Finite live-eligible unattempted candidate pool is exhausted independently of qualified cap');
  assert.equal((await q("select count(*)::int n from shadow_agent.verification_jobs where ranking_run_id=$1 and status='verified'",[backfillRun]))[0].n,0,'Exhaustion is not five-qualified completion');
  await q('update shadow_agent.verification_settings set ranking_finalized_since=(select finalized_at from shadow_agent.ranking_runs where run_id=$1)',[backfillRun]);
  await q("update shadow_agent.verification_jobs set status='verified',handoff_status='deferred' where ranking_run_id=$1 and story_key<>$2",[backfillRun,sixth.storyKey]);
- assert.deepEqual(await next(),[],'With cohort pinned, five verified stories including stale historical handoffs still consume the full run cap');
- await db.exec('savepoint cap_check');await assert.rejects(()=>value("select public.warpcore_verification_finish($1,$2,'verified',$3) v",[sixth.jobId,sixth.lease,receipt]),/qualified limit/);await db.exec('rollback to cap_check');
+ assert.deepEqual(await next(),[],'With cohort pinned, the attempted pool remains exhausted without a separate qualified cap');
+ await db.exec('savepoint cap_check');await assert.rejects(()=>value("select public.warpcore_verification_finish($1,$2,'verified',$3) v",[sixth.jobId,sixth.lease,receipt]),/Settled verification attempt/);await db.exec('rollback to cap_check');
  assert.equal((await q('select count(*)::int n from shadow_agent.selection_items where run_id=$1',[backfillRun]))[0].n,5,'Original proposals remain five unchanged');
  await db.exec('rollback');
  // Cohort filtering affects only new jobs; durable historical work survives.
  await db.exec('begin');
  const cohortRuns=['00000000-0000-4000-8000-000000000060','00000000-0000-4000-8000-000000000061','00000000-0000-4000-8000-000000000062'],boundary='2026-11-17T07:10:11.123456Z';
- for(const [n,id] of cohortRuns.entries()){await q("insert into shadow_agent.runs(id,state,limit_credits) values($1,'{\"phase\":\"complete\"}',1)",[id]);await q("insert into shadow_agent.ranking_runs values($1,$2::timestamptz+($3::int-1)*interval '1 microsecond')",[id,boundary,n]);await q('insert into shadow_agent.candidates values($1,0,$2)',[id,(100+n).toString(16).padStart(64,'0')]);await q('insert into shadow_agent.selection_items values($1,0,1)',[id]);}
+ for(const [n,id] of cohortRuns.entries()){await q("insert into shadow_agent.runs(id,state,limit_credits) values($1,'{\"phase\":\"complete\"}',1)",[id]);await q("insert into shadow_agent.ranking_runs(run_id,finalized_at) values($1,$2::timestamptz+($3::int-1)*interval '1 microsecond')",[id,boundary,n]);await q('insert into shadow_agent.candidates values($1,0,$2)',[id,(100+n).toString(16).padStart(64,'0')]);await q('insert into shadow_agent.selection_items values($1,0,1)',[id]);await q('insert into shadow_agent.decisions values($1,0,$2)',[id,{action:'verify',importance:3,relevance:4}]);await q("insert into public.warpcore_stories values($1,'unverified_review_required')",[(100+n).toString(16).padStart(64,'0')]);}
  const cohortNext=()=>q('select * from shadow_agent.next_verification_candidate()');
  assert.equal((await cohortNext())[0].ranking_run_id,cohortRuns[0],'NULL preserves oldest historical eligible run');
  await q('update shadow_agent.verification_settings set ranking_finalized_since=(select finalized_at from shadow_agent.ranking_runs where run_id=$1)',[cohortRuns[1]]);

@@ -90,7 +90,7 @@ begin
  perform shadow_agent.advance_gemma_discovery_failures();
  if exists(select 1 from shadow_agent.runs where state->>'storageKind'='paged-v1' and state->>'phase' in ('reviewing','uncertain')) then return null; end if;
  select * into r from shadow_agent.runs where state->>'storageKind'='paged-v1'
- and state->>'phase' in ('scan','review') order by (state->>'scanStartedAt')::timestamptz,id limit 1;
+ and state->>'phase'='scan' order by (state->>'scanStartedAt')::timestamptz,id limit 1;
  if found then
   if r.lease_until>clock_timestamp() then return null; end if;
   return to_jsonb(r.id);
@@ -103,7 +103,7 @@ begin
   execute $priority$
    with cfg as (select * from shadow_agent.verification_settings where singleton and enabled and job_limit_credits is not null),
    handoff as (
-    select v.* from shadow_agent.verification_jobs v,cfg where cfg.submit_enabled
+    select v.* from shadow_agent.verification_jobs v,cfg where cfg.submit_enabled and shadow_agent.verification_queue_has_capacity()
     and v.status='verified' and not v.quarantined and v.handoff_status='pending'
     and not exists(select 1 from public.warpcore_curator_inbox i where i.verification_receipt_id=v.receipt_id)
     order by v.id limit 1
@@ -122,7 +122,7 @@ begin
       where v.status='pending' and not v.quarantined and r.lease_until<=clock_timestamp()
       and exists(select 1 from shadow_agent.attempts a where a.run_id=r.id))
      and (exists(select 1 from pending p join shadow_agent.runs r on r.id=p.child_run_id
-       where (r.lease_until is null or r.lease_until<=clock_timestamp())
+       where shadow_agent.verification_queue_has_capacity() and (r.lease_until is null or r.lease_until<=clock_timestamp())
        and not exists(select 1 from shadow_agent.attempts a where a.run_id=r.id))
       or (not exists(select 1 from pending) and exists(
        select 1 from shadow_agent.next_verification_candidate()
@@ -131,6 +131,15 @@ begin
    )
   $priority$ into verification_ready;
   if verification_ready then return null; end if;
+ end if;
+ select * into r from shadow_agent.runs where state->>'storageKind'='paged-v1' and state->>'phase'='review'
+ order by (state->>'scanStartedAt')::timestamptz,id limit 1;
+ if found then
+  if r.lease_until>clock_timestamp() then return null;end if;
+  return to_jsonb(r.id);
+ end if;
+ if to_regprocedure('shadow_agent.pipeline_collection_pending()') is not null then
+  if shadow_agent.pipeline_collection_pending() then return null;end if;
  end if;
  stamp:=clock_timestamp();slot:=date_trunc('hour',stamp at time zone 'utc') at time zone 'utc';
  if exists(select 1 from shadow_agent.producer_slots where utc_hour=slot) then return null; end if;

@@ -32,7 +32,7 @@ begin
 end $$;
 create function shadow_agent.ranking_finalize(p_run uuid,p_lease uuid,p_revision bigint) returns jsonb
 language plpgsql security definer set search_path='' as $$
-declare r shadow_agent.runs; ranking shadow_agent.ranking_runs; n bigint; eligible bigint; selected integer; result jsonb;
+declare r shadow_agent.runs; ranking shadow_agent.ranking_runs; n bigint; eligible bigint; result jsonb;
 begin
  r:=shadow_agent.paged_lock(p_run,p_lease,p_revision,'review');
  if r.id is null then return null; end if;
@@ -48,19 +48,14 @@ begin
  perform 1 from public.warpcore_stories limit 0;
  perform 1 from public.warpcore_curator_inbox limit 0;
  perform 1 from public.warpcore_publications limit 0;
- with eligible as (
- select c.ordinal,c.candidate_id,d.decision from shadow_agent.candidates c join shadow_agent.decisions d using(run_id,ordinal)
+ -- Every durable score remains available to rolling verification; completion
+ -- records coverage/eligibility only, never sorts or creates a top-five gate.
+ select count(*) into eligible from shadow_agent.candidates c join shadow_agent.decisions d using(run_id,ordinal)
  join public.warpcore_stories s on s.story_key=c.candidate_id
  where c.run_id=p_run and d.decision->>'action'='verify' and s.status='unverified_review_required'
  and not exists(select 1 from public.warpcore_curator_inbox i where i.story_key=c.candidate_id)
- and not exists(select 1 from public.warpcore_publications p where p.story_key=c.candidate_id)
- ), ordered as (
- select ordinal,row_number() over(order by (decision->>'importance')::integer desc,(decision->>'relevance')::integer desc,candidate_id) as rank,
- count(*) over() as total from eligible
- ), added as (
- insert into shadow_agent.selection_items(run_id,rank,ordinal) select p_run,rank,ordinal from ordered where rank<=5 returning rank
- ) select coalesce((select max(total) from ordered),0),(select count(*) from added) into eligible,selected;
- update shadow_agent.ranking_runs set eligible_count=eligible,selected_count=selected,finalized_revision=p_revision+1,finalized_at=clock_timestamp() where run_id=p_run;
+ and not exists(select 1 from public.warpcore_publications p where p.story_key=c.candidate_id);
+ update shadow_agent.ranking_runs set eligible_count=eligible,selected_count=0,finalized_revision=p_revision+1,finalized_at=clock_timestamp() where run_id=p_run;
  result:=shadow_agent.paged_write(p_run,p_lease,p_revision,r.state||jsonb_build_object('revision',p_revision+1,'phase','complete','activeBatch','null'::jsonb));
  return result;
 end $$;

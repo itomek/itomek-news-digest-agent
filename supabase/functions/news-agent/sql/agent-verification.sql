@@ -249,7 +249,6 @@ begin
  p_editorial:=receipt.material->'editorial';p_run_id:=(receipt.material->>'runId')::uuid;
  update public.warpcore_curator_inbox set state='rejected',completed_at=now(),reason='expired_or_attempt_limit' where (state='pending' or (state='leased' and lease_expires_at<=now())) and (created_at<now()-interval '24 hours' or attempts>=3);
  if (select count(*) from public.warpcore_curator_inbox where state in ('pending','leased'))>=24 then raise exception 'Curator backlog limit';end if;
- if not exists(select 1 from public.warpcore_curator_inbox where agent_id='warpcore-news-agent-v1' and run_id=p_run_id and story_key=p_story) and (select count(distinct story_key) from public.warpcore_curator_inbox where agent_id='warpcore-news-agent-v1' and run_id=p_run_id)>=5 then raise exception 'Curator run limit'; end if;
  select st.status into status from public.warpcore_stories st where st.story_key=p_story for update;
  if status is distinct from 'unverified_review_required' then raise exception 'Story unavailable'; end if;
  s:=public.warpcore_curator_snapshot(p_story);

@@ -47,7 +47,7 @@ try{
   lease=await scalar('select shadow_agent.claim($1,300) as value',[run]);
   assert.equal(await scalar('select shadow_agent.paged_begin($1,$2,$3,$4) as value',[run,old,state.revision,batchSize]),null);
  }
- // Live exclusions cause fallthrough to the next globally ranked eligible item.
+ // Completion records the live eligible count without constructing a shortlist.
  await admin(async()=>{
   await q('insert into public.warpcore_curator_inbox values($1)',[key(1)]);
   await q('insert into public.warpcore_publications values($1)',[key(2)]);
@@ -58,18 +58,18 @@ try{
  await assert.rejects(()=>scalar('select shadow_agent.paged_begin($1,$2,$3,$4) as value',[run,lease,state.revision,batchSize]),/does not exist/);
  assert.deepEqual((await summary()).items,[]);
  await admin(()=>db.exec('alter table public.fixture_hidden_publications rename to warpcore_publications'));
- // Lose the lease after shortlist insertion begins: the entire finalization rolls back.
+ // Lose the lease during completion metadata update: the entire audit rolls back.
  await admin(()=>db.exec(`create function shadow_agent.fixture_expire_finalizer() returns trigger language plpgsql as $$
- begin update shadow_agent.runs set lease_until=clock_timestamp()-interval '1 second' where id=new.run_id;return new;end $$;
- create trigger fixture_expire_finalizer before insert on shadow_agent.selection_items for each row execute function shadow_agent.fixture_expire_finalizer();`));
+ begin if new.finalized_at is not null then update shadow_agent.runs set lease_until=clock_timestamp()-interval '1 second' where id=new.run_id;end if;return new;end $$;
+ create trigger fixture_expire_finalizer before update on shadow_agent.ranking_runs for each row execute function shadow_agent.fixture_expire_finalizer();`));
  await assert.rejects(()=>scalar('select shadow_agent.paged_begin($1,$2,$3,$4) as value',[run,lease,state.revision,batchSize]),/lease lost/i);
  assert.deepEqual((await summary()).items,[]);assert.equal((await summary()).finalizedAt,null);
- await admin(()=>db.exec('drop trigger fixture_expire_finalizer on shadow_agent.selection_items;drop function shadow_agent.fixture_expire_finalizer();'));
+ await admin(()=>db.exec('drop trigger fixture_expire_finalizer on shadow_agent.ranking_runs;drop function shadow_agent.fixture_expire_finalizer();'));
  const rev=state.revision;
  state=(await scalar('select shadow_agent.paged_begin($1,$2,$3,$4) as value',[run,lease,rev,batchSize])).state;
  assert.equal(state.phase,'complete');
  const result=await summary();assert.equal(result.assessedCount,405);assert.equal(result.eligibleCount,402);
- assert.deepEqual(result.items.map(i=>i.candidate.id),[405,4,5,6,7].map(key));
+ assert.deepEqual(result.items,[]);assert.equal(result.selectedCount,0,'Completion is a coverage audit, never a new top-five publication gate');
  assert.ok(result.items.every(i=>i.status==='requires_verification'&&!i.factsVerified&&!i.publicationApproved));
  assert.equal(await scalar('select shadow_agent.ranking_finalize($1,$2,$3) as value',[run,lease,rev]).catch(()=>null),null);
  // Empty and all-skip runs finalize with zero proposals, without filler calls.
@@ -94,5 +94,5 @@ try{
  }
  for(const table of ['ranking_runs','selection_items'])await assert.rejects(()=>q(`select * from shadow_agent.${table}`),/permission denied/);
  for(const role of ['anon','authenticated']){await db.exec(`set role ${role}`);await assert.rejects(summary,/permission denied/);}
- console.log('PASS: 405 assessments, strongest last, stable global ties, restart/lease fencing, score rejection, no early proposals, live exclusion fallthrough and private RPC');
+ console.log('PASS: 405 durable assessments, no final shortlist, restart/lease fencing, score rejection, no early proposals, live exclusion fallthrough and private RPC');
 }finally{await db.close();}

@@ -10,11 +10,11 @@ This is the central current reference for Warp Core. The checkpoint below is an 
 |---|---|
 | Collector | Version 17, hourly at minute `:17`, active; 43 configured public sources |
 | Source acquisition health | Earlier recorded two-hour window: all 43 sources attempted; 37 historical gaps, five partial traversals and one Perplexity HTTP 403 failure; these are distinct outcomes, not 43 collection outages |
-| Curation drain | Version 6, every minute, active as the receipt-aware database drain; retained legacy inbox work is not deleted |
-| Publisher | Version 11, hourly at `:27`, active with its existing account, queue and guards |
-| Autonomous producer | `news-agent` version 22, using Gemma 4 26B / PrimeIntellect and verification V8, with a 60-second model deadline and 180-second lease; producer, verification, submission and minute continuation cron enabled. Reviewed shared-pool 429 continuation is installed; generic unknown failures still require owner recovery |
+| Curation drain | Version 6, dispatched when an agent inbox row arrives, with single-tick recovery as the receipt-aware database drain; retained legacy inbox work is not deleted |
+| Publisher | Version 12, dispatched when an approved record is prepared, with single-tick recovery with its existing account, queue and guards |
+| Autonomous producer | `news-agent` version 23, using Gemma 4 26B / PrimeIntellect and verification V8, with a 60-second model deadline and 180-second lease; producer, verification, submission and minute continuation cron enabled. Reviewed shared-pool 429 continuation is installed; generic unknown failures still require owner recovery |
 | Retained discovery evidence | Two Together discovery cycles completed 650/650 and 651/651 assessments for 0.06916930 and 0.06925995 credits. A cloud-scheduled Cerebras cycle also completed 652/652 for 0.17891190 credits. Earlier unknown holds remain preserved; full coverage does not establish editorial quality |
-| Latest Gemma discovery cycle | Run `755c7c94-ca0b-4e58-8d71-c98e46bcf6f7` failed on timeout after 64/654 assessments, revision 18; 0.0060952 spent and 0.036045 unknown held. Owner-CAS workflow quarantine advanced it to revision 19, deferred/blocked, without releasing money. No complete Gemma scan is claimed |
+| Earlier Gemma discovery cycle | Run `755c7c94-ca0b-4e58-8d71-c98e46bcf6f7` failed on timeout after 64/654 assessments, revision 18; 0.0060952 spent and 0.036045 unknown held. Owner-CAS workflow quarantine advanced it to revision 19, deferred/blocked, without releasing money. No complete Gemma scan is claimed |
 | Active model contract | `google/gemma-4-26b-a4b-it`, pinned `primeintellect/bf16`, discovery profile `2026-11-17.8`, no provider fallback, ZDR and reasoning `none`; 4096 output tokens and a 0.036045-credit reservation. Future active selection is restricted to GPT-oss or Gemma; NVIDIA/Meta history remains retained for accounting |
 | Verification and admission | Receipt, verification-job and shared five-item guards installed; verification, backfill and submission enabled. `exclusive_agent=true` fences new Dot submissions; existing jobs, queues and financial history remain intact |
 | First published results | Publisher request 842 returned HTTP 200 with two processed records, both `published`: a 240-character GLM post and a Verano native repost. Exact ordinary AppView/UI and native public-PDS readback evidence is recorded in the [cutover report](evidence/2026-11-17-scheduled-discovery-quality.md#gemma-cutover-and-first-publications) |
@@ -44,26 +44,28 @@ The reader is documented in [web/README.md](../web/README.md). The older [GAIA/L
 
 ```mermaid
 flowchart TD
-    Sources[Configured public sources] --> Collector[Active collector]
+    Tick[One pipeline schedule] --> Collector[Active collector]
+    Sources[Configured public sources] --> Collector
+    Tick --> Discovery
     Collector --> Evidence[Captured candidates and frozen evidence]
-    Evidence -.-> Dot[Legacy Dot task: owner reports off]
-    Dot -.-> Fence[New Dot submissions fenced]
-    Evidence --> Discovery[Active full-scan discovery]
-    Discovery --> Ranking[Complete global ranking and bounded fallthrough]
-    Ranking --> Verify[Public retrieval and model-supported verification]
+    Evidence --> Discovery[Review incoming batches]
+    Discovery --> Verify[Verify qualifying committed stories]
+    Discovery --> Background[Continue reviewing the remaining feed]
     Verify --> Preview[Durable source-bound receipt]
     Preview --> Admission[Submission gate and shared capacity guard]
     Admission --> Inbox[Guarded curator inbox]
-    Inbox --> Curator[Existing curator: exact prepared record]
+    Inbox -->|ready event| Curator[Existing curator: exact prepared record]
+    Tick -->|recover queued work| Curator
     Curator --> Queue[Immutable publication queue]
-    Queue --> Publisher[Existing guarded publisher]
+    Queue -->|ready event| Publisher[Existing guarded publisher]
+    Tick -->|recover queued work| Publisher
     Publisher --> Readback[Exact public record readback]
 ```
 
 The agent is the sole enabled new editorial producer at this checkpoint. Owner-reported Dot task retirement and the database exclusivity fence are separate controls. A ranking proposal is not verified news, a verification receipt is not a publication, and an inbox ID is not public-readback evidence.
 
 1. **Collection:** the configured roster supplies public discovery material. Each source has durable attempt/checkpoint state. A fresh successful retrieval can still have a historical coverage gap; a `gap` is not automatically an outage or proof of complete upstream history. See [source acquisition checkpoints](warpcore-source-checkpoints.md).
-2. **Discovery:** one fixed scan timestamp and a keyset cursor cover every eligible candidate. Bounded pages and batches control each invocation, not total review coverage. Committed assessments survive restart. Global ordering happens only after complete coverage, using importance, relevance and a deterministic story-ID tie break. Ranked fallthrough can continue past deferred original proposals using the same frozen decisions; the per-run bound is five verified stories, while the shared pending queue remains globally bounded.
+2. **Discovery:** one fixed scan timestamp and a keyset cursor cover every eligible candidate. Bounded pages and batches control each invocation, not total review coverage. Committed assessments survive restart. Qualifying committed decisions can enter verification before the full review finishes. One early verification per committed batch interleaves with continued review, so posting and coverage both make progress. Completion validates full coverage and records counts; it performs no global sort or new final-shortlist writes. There is no separate five-stories-per-parent-run ceiling; the shared pending queue and account/hour publication-attempt bound remain five.
 3. **Verification:** exact captured URLs or a fixed public Bluesky API route provide bounded public evidence. DNS/IP-pinned TLS retrieval rejects private destinations and redirects. Source text and model output remain untrusted. Trusted code binds hashes, exact quotations, original identities and dates; whether a quotation supports a natural-language claim remains an explicitly recorded model judgment.
 4. **Preview and receipt:** current evidence and complete publication/pending-work history bind a durable receipt. Verification can finish while submission remains disabled for owner review. Stale evidence, changed history or expired receipts prevent transfer.
 5. **Admission and curation:** a distinct agent identity enters the existing guarded inbox only through the submission gate. It does not impersonate a Dot. The shared admission boundary keeps combined pending editorial/publication work within five distinct stories, including legacy writers. The curator reconstructs and checks the exact frozen packet and publication job.
@@ -124,4 +126,16 @@ Every new record remains subject to public-source/native identity, freshness, co
 
 Repeated 30-second Gemma discovery timeouts were an operational defect, not an editorial-quality failure. The follow-up raises the bounded model deadline to 60 seconds with a 180-second lease and adds narrowly scoped automatic quarantine for exact recorded Gemma discovery timeouts and strictly identified PrimeIntellect shared-pool 429s after lease expiry plus five minutes, capped at ten combined recoveries per UTC day; a longer bounded Retry-After is respected. Full unknown holds and failed coverage remain recorded, and old workflows cannot replay. Later scans use the normal UTC-hour slots. See the [bounded timeout recovery evidence](evidence/2026-11-17-gemma-timeout-recovery.md). Source/history deadlines and publication guards remain intact.
 
-The receipt-aware curation drain now runs every minute (same existing job and v6 code), because the earlier hourly wait allowed three guarded receipts to become stale. Those three inbox records were safely rejected and retained, not counted as publications. The publisher stays hourly at :27 with all existing account/login/send guards.
+The receipt-aware curation drain now runs every minute (same existing job and v6 code), because the earlier hourly wait allowed three guarded receipts to become stale. Those three inbox records were safely rejected and retained, not counted as publications. That earlier checkpoint is superseded by the rolling event-driven handoff below; account and send guards remain.
+
+## Rolling publication
+
+The owner replaced the batch-first publication requirement with find, verify and publish. Up to ten existing capture pages run in one bounded invocation; larger scans still resume with their keyset cursor. Already committed eligible decisions can be verified while remaining candidates continue through review. A full queue yields to background review instead of paying for more verification.
+
+One recurring pipeline tick replaces the separate collector, agent, curator and publisher schedules. Durable inbox/approval events dispatch the next existing worker immediately, and the tick recovers queued work. The guarded publisher reads its actual pending queue before reserving a login. Empty checks use no login attempt. Its self-imposed authentication budget is five atomic attempts per account/UTC hour, including failed attempts; existing used slots are preserved. The independent five-publication-attempt/hour limit, immutable records, pinned identity and uncertain-write readback are unchanged. No session cache or new credential store is introduced.
+
+Historical ranking rows are retained; the obsolete end-of-scan sort and shortlist creation are removed. Published stories qualify as they are reviewed rather than competing for a final best-five batch. Every candidate still receives review, and source, history, freshness, duplicate, factual-attribution and spending gates remain in force. Collection remains on its existing source schedule; publication follows qualification rather than waiting for another fixed-hour batch.
+
+### One schedule and immediate handoff
+
+The single private pipeline tick enqueues normal hourly collection and bounded agent work, then recovers durable curator/publication queues when needed. A newly enqueued collection temporarily defers only allocation of a new fixed discovery scan; existing review and verification can proceed. Agent inbox rows dispatch the curator after commit; approved prepared records dispatch the publisher after commit. Fixed routes, existing Vault authentication, private helpers and minute/hour coalescing keep this dispatch narrow. Failed enqueue does not roll back a valid queue record; the next tick retries the existing guarded path. The old four stage schedules are removed at cutover.

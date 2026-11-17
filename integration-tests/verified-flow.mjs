@@ -51,13 +51,12 @@ try{
  await scalar("select shadow_agent.paged_settle($1,$2,'settled',.01,$3) value",[discovery.attemptId,lease,audit(.01)]);
  state=await scalar('select shadow_agent.paged_commit($1,$2,$3,$4) value',[run,lease,state.revision,[1,7,8,9,10,11].map(n=>({id:key(n),action:'verify',reason:'Synthetic meaningful release.',importance:n===1?3:4,relevance:4}))]);
  state=(await scalar('select shadow_agent.paged_begin($1,$2,$3,6) value',[run,lease,state.revision])).state;assert.equal(state.phase,'complete');
- const selection=await scalar('select public.warpcore_shadow_selection($1) value',[run]);assert.equal(selection.items.length,5);assert.equal(selection.items[0].factsVerified,false);
+ const selection=await scalar('select public.warpcore_shadow_selection($1) value',[run]);assert.equal(selection.items.length,0);assert.equal(selection.selectedCount,0);
  const originalSelection=JSON.stringify(selection);
  for(let n=7;n<=11;n++){
   const deferred=await scalar('select public.warpcore_verification_claim() value');assert.equal(deferred.storyKey,key(n));
   assert.equal(await scalar("select public.warpcore_verification_finish($1,$2,'deferred',null) value",[deferred.jobId,deferred.lease]),true,'Initial candidate can defer without paid attempt after inaccessible-source fixture');
  }
- assert.equal(await scalar('select public.warpcore_verification_claim() value'),null,'Default disabled backfill stops after original five');
  await admin(()=>q('update shadow_agent.verification_settings set backfill_enabled=true,ranking_finalized_since=(select finalized_at from shadow_agent.ranking_runs where run_id=$1)',[run]));
  assert.equal(await queueCount(),4,'Pre-cohort existing Dot queue still consumes four global slots');
  const job=await scalar('select public.warpcore_verification_claim() value');assert.equal(job.storyKey,key(1));assert.equal(job.rankingRunId,run);
@@ -68,7 +67,7 @@ try{
  await scalar("select public.warpcore_verification_settle($1,$2,'settled',.02,$3) value",[job.jobId,job.lease,audit(.02)]);
  const material={version:'agent-verification-v1',agentId:'warpcore-news-agent-v1',runId:run,storyKey:key(1),evidenceHash:s.evidence_hash,editorial:editorial(s),model,policyVersion:state.policyVersion,requestProfileVersion:meta.profileVersion,requestSha256:requestHash,judgment:{method:'model-supported-primary-evidence',factsSupported:true,scopeApproved:true,meaningfulChange:true,dedupClear:true,checkedAt:new Date().toISOString(),claims:[{claim:'The official release adds a useful capability.',evidenceId:s.evidence[0].id,url:s.evidence[0].url,contentSha256:hash(body),quote,quoteStart:2,quoteEnd:Array.from(body).length}],publicationDate:date,scopeReason:'Direct engineering relevance.',changeReason:'New release capability.',dedupReason:'Fabricated model found no duplicate in complete captured history.',historyHash:h.snapshotHash},sources:[{evidenceId:s.evidence[0].id,url:s.evidence[0].url,contentSha256:hash(body),fetchedAt:new Date().toISOString(),body}]};
  for(const mutate of [m=>m.judgment.claims[0].quoteStart=3,m=>m.judgment.historyHash='0'.repeat(64)]){const bad=structuredClone(material);bad.requestSha256=hash(randomUUID());mutate(bad);await assert.rejects(()=>scalar('select public.warpcore_agent_issue_receipt($1) value',[bad]),/quote|judgment/i);}
- assert.equal(JSON.stringify(await scalar('select public.warpcore_shadow_selection($1) value',[run])),originalSelection,'Rank-six verification never rewrites frozen original top five');
+ assert.equal(JSON.stringify(await scalar('select public.warpcore_shadow_selection($1) value',[run])),originalSelection,'Later verification never rewrites the historical completion audit');
  const receipt=await scalar('select public.warpcore_agent_issue_receipt($1) value',[material]);
  assert.equal(await scalar("select public.warpcore_verification_finish($1,$2,'verified',$3) value",[job.jobId,job.lease,receipt]),true);
  // Lose the finish response before submission; next invocation recovers only handoff.
@@ -84,5 +83,5 @@ try{
  await admin(async()=>{const budget=(await q('select * from shadow_agent.budgets'))[0];assert.equal(Number(budget.spent_credits),.03);assert.equal(Number(budget.held_credits),0);const ledger=(await q('select j.*,a.request_hash,a.status attempt_status from shadow_agent.verification_jobs j join shadow_agent.attempts a on a.run_id=j.child_run_id'))[0];assert.equal(ledger.status,'verified');assert.equal(ledger.request_hash,material.requestSha256);assert.equal(ledger.receipt_id,receipt);assert.equal(ledger.attempt_status,'settled');assert.equal((await q('select count(*)::int n from public.warpcore_publication_slots'))[0].n,0,'No sending attempt');});
  for(const table of ['runtime_settings','verification_settings','verification_jobs','verification_audit','budgets'])await assert.rejects(()=>q('select * from shadow_agent.'+table),/permission/);
  for(const role of ['anon','authenticated']){await db.exec('set role '+role);for(const expression of ['warpcore_verification_claim()','warpcore_agent_authorization()','warpcore_agent_runtime_config()'])await assert.rejects(()=>scalar('select public.'+expression+' value'),/permission/);await db.exec('reset role');}
- console.log('PASS: rank-six backfill after five deferred frozen proposals → real ranked SQL → paid verifier ledger → Unicode/history-bound receipt → truthful agent inbox → exact curator finalization; global five with Dot coexistence, zero send attempts');
+ console.log('PASS: continued verification after five deferred candidates → real ranked SQL → paid verifier ledger → Unicode/history-bound receipt → truthful agent inbox → exact curator finalization; global five with Dot coexistence, zero send attempts');
 }finally{await db.close();}

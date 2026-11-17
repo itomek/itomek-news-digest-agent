@@ -53,13 +53,24 @@ test('keyed default versions only fresh GPT-oss calls and preserves historical r
 });
 test('NVIDIA trial profiles are keyed, private, pinned and do not replace GPT-oss',()=>{
  for(const [model,version,tag,prompt,completion] of [['nvidia/nemotron-3.5-super-vl','2026-11-17.1','deepinfra/fp4',.15,.50],['nvidia/nemotron-3-super-120b-a12b','2026-11-17.2','deepinfra/bf16',.075,.40]]){
- const p=requestProfileForModel(model,version);assert.ok(p);assert.equal(p.version,version);assert.deepEqual(p.reasoning,{effort:'none'});assert.equal(p.responseFormat,'discovery-keyed-ranked-json-schema-v3');assert.equal(p.rankingRubricVersion,'2026-11-16.1');assert.deepEqual(p.provider,{only:[tag],order:[tag],allow_fallbacks:false,require_parameters:true,max_price:{prompt,completion,request:0},zdr:true});assert.equal(expectedProviderForModel(model),'DeepInfra');assert.equal(requestProfileForModel(model,'2026-11-16.4'),undefined);
+ const p=requestProfileForModel(model,version);assert.ok(p);assert.equal(p.version,version);assert.deepEqual(p.reasoning,{effort:'none'});assert.equal(p.responseFormat,'discovery-keyed-ranked-json-schema-v3');assert.equal(p.rankingRubricVersion,'2026-11-16.1');assert.deepEqual(p.provider,{only:[tag],order:[tag],allow_fallbacks:false,require_parameters:true,max_price:{prompt,completion,request:0},zdr:true});assert.equal(expectedProviderForModel(model,version),'DeepInfra');assert.equal(requestProfileForModel(model,'2026-11-16.4'),undefined);
  }
  assert.equal(requestProfileForModel('openai/gpt-oss-120b').version,'2026-11-16.4');
 });
 test('only fresh latest NVIDIA uses coded protocol while billed trial profiles retain their formats',()=>{
- const model='nvidia/nemotron-3.5-super-vl',current=requestProfileForModel(model);
+ const model='nvidia/nemotron-3.5-super-vl',current=requestProfileForModel(model,'2026-11-17.4');
  assert.equal(current.version,'2026-11-17.4');assert.equal(current.responseFormat,'discovery-keyed-coded-ranking-json-schema-v4');
  for(const version of ['2026-11-17.1','2026-11-17.3']){const old=requestProfileForModel(model,version);assert.equal(old.responseFormat,'discovery-keyed-ranked-json-schema-v3');assert.deepEqual(old.provider,current.provider);assert.deepEqual(old.reasoning,current.reasoning);assert.equal(old.rankingRubricVersion,current.rankingRubricVersion);assert.ok(Object.isFrozen(old));}
  assert.ok(Object.isFrozen(current));assert.equal(requestProfileForModel('nvidia/nemotron-3-super-120b-a12b').version,'2026-11-17.2');assert.equal(requestProfileForModel('openai/gpt-oss-120b').version,'2026-11-16.4');
+});
+test('Together17.5 is an immutable explicit route while all DeepInfra history remains addressable',()=>{
+ const model='nvidia/nemotron-3.5-super-vl',p=requestProfileForModel(model);
+ assert.equal(p.version,'2026-11-17.5');assert.equal(p.responseFormat,'discovery-keyed-coded-ranking-json-schema-v4');assert.deepEqual(p.reasoning,{effort:'none'});assert.deepEqual(p.provider,{only:['together'],order:['together'],allow_fallbacks:false,require_parameters:true,max_price:{prompt:.15,completion:.50,request:0},zdr:true});assert.equal(expectedProviderForModel(model),'Together');
+ for(const version of ['2026-11-17.1','2026-11-17.3','2026-11-17.4']){assert.equal(requestProfileForModel(model,version).provider.only[0],'deepinfra/fp4');assert.equal(expectedProviderForModel(model,version),'DeepInfra');}
+ assert.equal(expectedProviderForModel(model,'unknown'),undefined);assert.ok(Object.isFrozen(p.provider.only));
+});
+test('Together route changes only provider pins and retains exact coded stage-aware prompt',async()=>{
+ const {buildReviewRequest}=await import('./evaluation.mjs');const model='nvidia/nemotron-3.5-super-vl',cases=[{id:'neutral',sourceUrl:'https://example.com/',discoveryText:'Public fixture.'}];
+ const build=version=>buildReviewRequest(cases,{model,allowedModels:[model],maxOutputTokens:4096,requestProfile:requestProfileForModel(model,version)});
+ const old=build('2026-11-17.4'),fresh=build('2026-11-17.5');assert.deepEqual(fresh.messages,old.messages);assert.deepEqual(fresh.response_format,old.response_format);assert.deepEqual(fresh.reasoning,old.reasoning);assert.deepEqual({...fresh,provider:old.provider},old);
 });

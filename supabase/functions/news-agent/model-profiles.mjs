@@ -22,10 +22,12 @@ const rankedGptOss=freeze({...profiles['openai/gpt-oss-120b'],version:'2026-11-1
 const keyedGptOss=freeze({...rankedGptOss,version:'2026-11-16.4',responseFormat:'discovery-keyed-ranked-json-schema-v3'});
 const stageAwareNvidia=freeze({...profiles['nvidia/nemotron-3.5-super-vl'],version:'2026-11-17.3'});
 const codedNvidia=freeze({...stageAwareNvidia,version:'2026-11-17.4',responseFormat:'discovery-keyed-coded-ranking-json-schema-v4'});
+const togetherNvidia=freeze({...codedNvidia,version:'2026-11-17.5',provider:{...codedNvidia.provider,only:['together'],order:['together']}});
 export function requestProfileForModel(model,version){
  if(typeof model!=='string'||!Object.hasOwn(profiles,model))return undefined;
- const current=model==='openai/gpt-oss-120b'?keyedGptOss:model==='nvidia/nemotron-3.5-super-vl'?codedNvidia:profiles[model];
+ const current=model==='openai/gpt-oss-120b'?keyedGptOss:model==='nvidia/nemotron-3.5-super-vl'?togetherNvidia:profiles[model];
  if(version===undefined||version===current.version)return current;
+ if(model==='nvidia/nemotron-3.5-super-vl'&&version===codedNvidia.version)return codedNvidia;
  if(model==='nvidia/nemotron-3.5-super-vl'&&version===stageAwareNvidia.version)return stageAwareNvidia;
  if(model==='openai/gpt-oss-120b'&&version===rankedGptOss.version)return rankedGptOss;
  return version===profiles[model].version?profiles[model]:undefined;
@@ -33,4 +35,8 @@ export function requestProfileForModel(model,version){
 
 // Exact reviewed upstream display identities; historical profiles remain optional.
 const expectedProviders=freeze({'nvidia/nemotron-3.5-super-vl':'DeepInfra','nvidia/nemotron-3-super-120b-a12b':'DeepInfra','google/gemma-4-26b-a4b-it':'PrimeIntellect','google/gemma-4-31b-it':'DeepInfra','openai/gpt-oss-120b':'Groq'});
-export function expectedProviderForModel(model){return typeof model==='string'&&Object.hasOwn(expectedProviders,model)?expectedProviders[model]:undefined;}
+export function expectedProviderForModel(model,version){
+ if(typeof model!=='string'||!Object.hasOwn(expectedProviders,model))return undefined;
+ const selected=requestProfileForModel(model,version);if(!selected)return undefined;
+ return model==='nvidia/nemotron-3.5-super-vl'&&selected.version==='2026-11-17.5'?'Together':expectedProviders[model];
+}

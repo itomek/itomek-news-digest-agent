@@ -10,7 +10,7 @@ create function shadow_agent.approved_runtime_model(p_model text) returns jsonb
 language sql immutable security definer set search_path='' as $$
  select jsonb_build_object('model',model,'provider',provider,'discoveryProfileVersion',profile,'maxCostCredits',cap,'maxOutputTokens',4096,'reviewBatchSize',16)
  from (values ('openai/gpt-oss-120b','Groq','2026-11-16.4',0.058983::numeric),
- ('nvidia/nemotron-3.5-super-vl','DeepInfra','2026-11-17.4',0.157287::numeric),
+ ('nvidia/nemotron-3.5-super-vl','Together','2026-11-17.5',0.157287::numeric),
  ('nvidia/nemotron-3-super-120b-a12b','DeepInfra','2026-11-17.2',0.026215::numeric)) approved(model,provider,profile,cap) where model=p_model
 $$;
 revoke all on function shadow_agent.approved_runtime_model(text) from public,anon,authenticated,service_role;

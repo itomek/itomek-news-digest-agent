@@ -16,15 +16,35 @@ const boundedInteger=(v,max)=>Number.isSafeInteger(v)&&v>0&&v<=max;
 // raw bodies, headers, metadata, prompts or credentials on a thrown error.
 const httpErrorCodes=new Set([400,401,402,403,404,408,409,413,422,429,500,502,503,504,529,'rate_limit_exceeded','insufficient_quota','invalid_request_error','authentication_error','permission_error','not_found_error','overloaded_error','api_error','context_length_exceeded','unsupported_parameter']);
 const providerErrorTypes=new Set(['invalid_request_error','authentication_error','permission_error','not_found_error','rate_limit_error','overloaded_error','api_error','server_error','insufficient_quota','context_length_exceeded']);
-function classifyHttpError(data){
+const upstreamErrorCodes=new Set([...httpErrorCodes,'engine_overloaded','rate_limited','rate_limit_error','quota_exceeded','too_many_requests','RESOURCE_EXHAUSTED']);
+const typedErrors=new Set([...providerErrorTypes,'rate_limit_exceeded','provider_overloaded','provider_unavailable','timeout','server','authentication','permission_denied','payment_required','invalid_request','content_policy_violation','refusal','unmapped']);
+const errorProviders=new Set(['Together','DeepInfra','Groq','Anthropic','OpenAI','PrimeIntellect','Google AI Studio']);
+const limitSources=new Set(['upstream_provider_shared_pool','openrouter_in_flight_budget','openrouter_key_limit','openrouter_credits','openrouter_guardrail_budget','openrouter_workspace_budget']);
+// Shared adapter/runtime sanitizer: no arbitrary error text or header map survives.
+export function sanitizedHttpDiagnostics(value,secret){
+ const out={};
+ for(const [field,allowed] of [['providerErrorCode',upstreamErrorCodes],['providerErrorType',typedErrors],['errorProvider',errorProviders],['limitSource',limitSources]])if(allowed.has(value?.[field]))out[field]=value[field];
+ if(Number.isSafeInteger(value?.retryAfterSeconds)&&value.retryAfterSeconds>=0&&value.retryAfterSeconds<=86400)out.retryAfterSeconds=value.retryAfterSeconds;
+ for(const [field,pattern] of [['requestId',/^(?:req[-_]|gen-)[A-Za-z0-9_-]{1,124}$/],['cloudflareRay',/^[a-f0-9]{16}-[A-Z]{3}$/]]){const v=value?.[field];if(typeof v==='string'&&v.length<=128&&!/\p{Cc}/u.test(v)&&pattern.test(v)&&!(typeof secret==='string'&&secret&&v.includes(secret)))out[field]=v;}
+ for(const [field,v] of Object.entries(out))if(typeof v==='string'&&typeof secret==='string'&&secret&&v.includes(secret))delete out[field];
+ return out;
+}
+function responseDiagnostics(response,secret){
+ const retry=response.headers.get('retry-after');
+ let retryAfterSeconds;
+ if(retry!==null&&/^\d{1,6}$/.test(retry))retryAfterSeconds=Number(retry);
+ else if(retry!==null&&/^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2} GMT$/.test(retry)){const date=Date.parse(retry);if(Number.isFinite(date))retryAfterSeconds=Math.max(0,Math.ceil((date-Date.now())/1000));}
+ return sanitizedHttpDiagnostics({retryAfterSeconds,requestId:response.headers.get('x-request-id'),cloudflareRay:response.headers.get('cf-ray')},secret);
+}
+function classifyHttpError(data,secret){
  let nested;
  const raw=data?.error?.metadata?.raw;
  if(typeof raw==='string'){try{nested=JSON.parse(raw);}catch{}}
  else if(raw&&typeof raw==='object')nested=raw;
  const error=data?.error;
- const code=[error?.code,nested?.error?.code,nested?.code].find(value=>httpErrorCodes.has(value));
- const type=[error?.type,nested?.error?.type,nested?.type].find(value=>providerErrorTypes.has(value));
- return {...(code===undefined?{}:{providerErrorCode:code}),...(type===undefined?{}:{providerErrorType:type})};
+ const code=[error?.metadata?.provider_error_code,error?.metadata?.provider_code,error?.code,nested?.error?.code,nested?.code].find(value=>upstreamErrorCodes.has(value));
+ const type=[error?.metadata?.error_type,error?.type,nested?.error?.type,nested?.type].find(value=>typedErrors.has(value));
+ return sanitizedHttpDiagnostics({providerErrorCode:code,providerErrorType:type,errorProvider:error?.metadata?.provider_name,limitSource:error?.metadata?.limit_source,requestId:data?.id},secret);
 }
 
 const validGenerationId=value=>typeof value==='string'&&value.length>0&&value.length<=256&&value===value.trim()&&!/\p{Cc}/u.test(value);
@@ -139,12 +159,12 @@ export async function reviewWithOpenRouter(request,config={},fetcher){
   const response=await fetcher(ENDPOINT,{method:'POST',redirect:'error',headers:{Authorization:`Bearer ${config.apiKey}`,'Content-Type':'application/json'},body,signal:controller.signal});
   if(!(response instanceof Response))fail('http_failure','uncertain');
   if(!response.ok||response.redirected){
-   httpDiagnostics={httpStatus:response.status};
+   httpDiagnostics={httpStatus:response.status,...responseDiagnostics(response,config.apiKey)};
    if(response.redirected){if(response.body)void response.body.cancel().catch(()=>{});}
    else{
     // Diagnostic parsing shares the attempt deadline and a smaller byte ceiling.
     // A missing, malformed or oversized body cannot erase the observed status.
-    try{httpDiagnostics={...httpDiagnostics,...classifyHttpError(await readBounded(response,Math.min(maxResponseBytes,8192),controller.signal))};}catch{}
+    try{httpDiagnostics={...httpDiagnostics,...classifyHttpError(await readBounded(response,Math.min(maxResponseBytes,8192),controller.signal),config.apiKey)};}catch{}
    }
    throw Object.assign(new OpenRouterAttemptError('http_failure','uncertain'),httpDiagnostics);
   }
@@ -155,3 +175,5 @@ export async function reviewWithOpenRouter(request,config={},fetcher){
  catch(error){if(error instanceof OpenRouterAttemptError)throw error;throw new OpenRouterAttemptError('transport_failure','uncertain');}
  finally{clearTimeout(timer);controller.abort();}
 }
+
+export {classifyHttpError as classifyOpenRouterHttpError,responseDiagnostics as openRouterResponseDiagnostics};

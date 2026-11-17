@@ -1,5 +1,5 @@
 import {approvedRuntimeModel,DEFAULT_RUNTIME_MODEL} from './approved-runtime-models.mjs';
-import {OpenRouterAttemptError} from './openrouter.mjs';
+import {OpenRouterAttemptError,sanitizedHttpDiagnostics} from './openrouter.mjs';
 import {buildVerificationRequest,validateVerificationResult} from './verification-contract.mjs';
 import {verifyWithOpenRouter,VERIFICATION_REQUEST_PROFILE_VERSION} from './verification-openrouter.mjs';
 import {fetchNativeEvidence} from './native-verification.mjs';
@@ -63,7 +63,7 @@ const auditIdentity=a=>plain(a)&&['generationId','model','provider'].every(k=>ty
 const diagnosticIssues=new Set(['invalid_shape','unexpected_fields','unknown_id','duplicate_id','invalid_action','invalid_reason','invalid_scores']);
 function attemptDiagnostic(error,secret){
  if(!(error instanceof OpenRouterAttemptError))return undefined;
- const out={};for(const [field,max] of [['generationId',256],['model',128],['provider',128]]){const v=error.completionAudit?.[field];if(typeof v==='string'&&v.length>0&&v.length<=max&&v===v.trim()&&!/\p{Cc}/u.test(v)&&!(typeof secret==='string'&&secret&&v.includes(secret)))out[field]=v;}
+ const out=sanitizedHttpDiagnostics(error,secret);for(const [field,max] of [['generationId',256],['model',128],['provider',128]]){const v=error.completionAudit?.[field];if(typeof v==='string'&&v.length>0&&v.length<=max&&v===v.trim()&&!/\p{Cc}/u.test(v)&&!(typeof secret==='string'&&secret&&v.includes(secret)))out[field]=v;}
  if(Number.isInteger(error.httpStatus)&&error.httpStatus>=100&&error.httpStatus<=599)out.httpStatus=error.httpStatus;
  if(diagnosticIssues.has(error.validationIssue))out.validationIssue=error.validationIssue;
  if(Number.isInteger(error.decisionIndex)&&error.decisionIndex>=0&&error.decisionIndex<=99)out.decisionIndex=error.decisionIndex;

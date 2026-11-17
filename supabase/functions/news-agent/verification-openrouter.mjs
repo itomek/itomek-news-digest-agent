@@ -1,5 +1,5 @@
 import {approvedRuntimeModel} from './approved-runtime-models.mjs';
-import {OpenRouterAttemptError} from './openrouter.mjs';
+import {OpenRouterAttemptError,classifyOpenRouterHttpError,openRouterResponseDiagnostics} from './openrouter.mjs';
 import {VERIFICATION_RESPONSE_FORMAT,buildVerificationRequest} from './verification-contract.mjs';
 import {requestProfileForModel} from './model-profiles.mjs';
 // A separate response contract; discovery versions and paid history stay intact.
@@ -41,7 +41,7 @@ function validate(request,config,fetcher){
 }
 async function readBounded(response,maxBytes,signal){
  const declared=response.headers.get('content-length');
- if(!response.body||declared!==null&&(!/^\d+$/.test(declared)||Number(declared)>maxBytes))fail('response_too_large','uncertain');
+ if(!response.body||declared!==null&&(!/^\d+$/.test(declared)||Number(declared)>maxBytes)){if(response.body)void response.body.cancel().catch(()=>{});fail('response_too_large','uncertain');}
  const reader=response.body.getReader(),chunks=[];let size=0;
  const cancel=()=>{void reader.cancel().catch(()=>{});};signal.addEventListener('abort',cancel,{once:true});
  try{for(;;){const {done,value}=await reader.read();if(signal.aborted)fail('timeout','uncertain');if(done)break;size+=value.byteLength;if(size>maxBytes)fail('response_too_large','uncertain');chunks.push(value);}const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));}catch{fail('invalid_json','uncertain');}}
@@ -63,12 +63,17 @@ export async function verifyWithOpenRouter(request,config={},fetcher){
  const body=validate(request,config,fetcher),timeoutMs=config.timeoutMs??10000,maxResponseBytes=config.maxResponseBytes??200000;
  if(!integer(timeoutMs,30000)||!integer(maxResponseBytes,200000))fail('invalid_limits');
  const approved=approvedRuntimeModel(request.model),key=config.apiKey,reservation={maxCostCredits:config.reservation.maxCostCredits},schema=structuredClone(VERIFICATION_RESPONSE_FORMAT.json_schema.schema);
- const controller=new AbortController();let timer;
- const deadline=new Promise((_resolve,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new OpenRouterAttemptError('timeout','uncertain'));},timeoutMs);});
+ const controller=new AbortController();let timer,httpDiagnostics={};
+ const deadline=new Promise((_resolve,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Object.assign(new OpenRouterAttemptError('timeout','uncertain'),httpDiagnostics));},timeoutMs);});
  const operation=(async()=>{
   const response=await fetcher(ENDPOINT,{method:'POST',redirect:'error',headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/json'},body,signal:controller.signal});
   if(!(response instanceof Response))fail('http_failure','uncertain');
-  if(!response.ok||response.redirected){if(response.body)void response.body.cancel().catch(()=>{});throw Object.assign(new OpenRouterAttemptError('http_failure','uncertain'),{httpStatus:response.status});}
+  if(!response.ok||response.redirected){
+   httpDiagnostics={httpStatus:response.status,...openRouterResponseDiagnostics(response,key)};
+   if(response.redirected){if(response.body)void response.body.cancel().catch(()=>{});}
+   else{try{httpDiagnostics={...httpDiagnostics,...classifyOpenRouterHttpError(await readBounded(response,Math.min(maxResponseBytes,8192),controller.signal),key)};}catch{}}
+   throw Object.assign(new OpenRouterAttemptError('http_failure','uncertain'),httpDiagnostics);
+  }
   if(controller.signal.aborted){if(response.body)void response.body.cancel().catch(()=>{});fail('timeout','uncertain');}
   return parse(await readBounded(response,maxResponseBytes,controller.signal),reservation,schema,approved);
  })();

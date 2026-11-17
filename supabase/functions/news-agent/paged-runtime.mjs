@@ -1,14 +1,14 @@
 import {requestProfileForModel,expectedProviderForModel} from './model-profiles.mjs';
 import {POLICY_VERSION} from './policy.mjs';
 import {buildReviewRequest} from './evaluation.mjs';
-import {reviewWithOpenRouter,serializeReviewBody,OpenRouterAttemptError} from './openrouter.mjs';
+import {reviewWithOpenRouter,serializeReviewBody,OpenRouterAttemptError,sanitizedHttpDiagnostics} from './openrouter.mjs';
 const flags={publishingEnabled:false,modelQualityProven:false};
 const uuid=/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/;
 const errorCodes=new Set(['disabled','invalid_transport_configuration','missing_cost_reservation','unsupported_request','invalid_model_or_budget','invalid_messages','invalid_candidates','empty_response','response_too_large','timeout','invalid_json','missing_or_invalid_usage','reservation_exceeded','invalid_completion','invalid_decision_json','incomplete_decisions','invalid_decisions','request_too_large','invalid_limits','http_failure','transport_failure']);
 const diagnosticIssues=new Set(['invalid_shape','unexpected_fields','unknown_id','duplicate_id','invalid_action','invalid_reason','invalid_scores']);
 function attemptDiagnostic(error,secret){
  if(!(error instanceof OpenRouterAttemptError))return undefined;
- const out={},audit=error.completionAudit;
+ const out=sanitizedHttpDiagnostics(error,secret),audit=error.completionAudit;
  for(const [field,max] of [['generationId',256],['model',128],['provider',128]]){const v=audit?.[field];if(typeof v==='string'&&v.length>0&&v.length<=max&&v===v.trim()&&!/\p{Cc}/u.test(v)&&!(typeof secret==='string'&&secret&&v.includes(secret)))out[field]=v;}
  if(Number.isInteger(error.httpStatus)&&error.httpStatus>=100&&error.httpStatus<=599)out.httpStatus=error.httpStatus;
  if(diagnosticIssues.has(error.validationIssue))out.validationIssue=error.validationIssue;
@@ -52,7 +52,7 @@ export async function runPagedShadowInvocation({runId,config={},query,fetcher,fe
  const requestProfile=requestProfileForModel(cfg.model);
  if(requestProfile)cfg.requestProfile=requestProfile;
  else if(cfg.requireModelProfile===true)throw Error('Researched model profile required');
- const expectedProvider=expectedProviderForModel(cfg.model);
+ const expectedProvider=expectedProviderForModel(cfg.model,requestProfile?.version);
  if(requestProfile?.provider.zdr===true&&expectedProvider===undefined)throw Error('Reviewed provider identity required');
  if(expectedProvider!==undefined)cfg.expectedProvider=expectedProvider;
  const leaseSeconds=cfg.leaseSeconds??60,timeoutMs=cfg.timeoutMs??10000,maxResponseBytes=cfg.maxResponseBytes??200000;

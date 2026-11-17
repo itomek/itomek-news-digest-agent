@@ -238,3 +238,25 @@ test('coded ranking has exactly seventeen valid states and normalizes all in can
  const missing={...decisions};delete missing[ids[0]];await assert.rejects(reviewWithOpenRouter(r,config(),async()=>reply(missing)),e=>e.code==='incomplete_decisions'&&e.usage.costCredits===.001);
  const bad=structuredClone(r);bad.response_format.json_schema.schema.properties.decisions.properties[ids[0]].properties.rating.enum.push('verify_i0_r1');let calls=0;await assert.rejects(reviewWithOpenRouter(bad,config(),async()=>{calls++;return reply(decisions);}),e=>e.outcome==='not_started');assert.equal(calls,0);
 });
+test('upstream 429 metadata and retry correlation survive without raw provider text',async()=>{
+ await assert.rejects(reviewWithOpenRouter(request(),config(),async()=>Response.json({error:{code:429,message:'private text',metadata:{error_type:'rate_limit_exceeded',provider_code:'rate_limited',provider_name:'DeepInfra',limit_source:'upstream_provider_shared_pool',raw:'private text'}}},{status:429,headers:{'retry-after':'60','x-request-id':'req-safe_123','cf-ray':'0123456789abcdef-IAD'}})),e=>{
+ assert.equal(e.providerErrorCode,'rate_limited');assert.equal(e.providerErrorType,'rate_limit_exceeded');assert.equal(e.errorProvider,'DeepInfra');assert.equal(e.limitSource,'upstream_provider_shared_pool');assert.equal(e.retryAfterSeconds,60);assert.equal(e.requestId,'req-safe_123');assert.equal(e.cloudflareRay,'0123456789abcdef-IAD');assert.equal(JSON.stringify(e).includes('private text'),false);return true;
+ });
+});
+test('HTTP diagnostics reject unknown enums, oversized waits, unsafe IDs and credential-shaped correlations',async()=>{
+ const {sanitizedHttpDiagnostics}=await import('./openrouter.mjs');
+ assert.deepEqual(sanitizedHttpDiagnostics({providerErrorCode:'private-code',providerErrorType:'private-type',errorProvider:'unreviewed-provider',limitSource:'private-limit',retryAfterSeconds:86401,requestId:'req-secret_123',cloudflareRay:'0123456789abcdef-IAD',raw:'secret'},'secret'),{cloudflareRay:'0123456789abcdef-IAD'});
+ for(const requestId of ['req-','req-space value','req-'+'x'.repeat(125),'gen-bad\nvalue','sk-secret'])assert.deepEqual(sanitizedHttpDiagnostics({requestId}),{});
+ for(const value of [-1,.5,Infinity,NaN,'60'])assert.deepEqual(sanitizedHttpDiagnostics({retryAfterSeconds:value}),{});
+ for(const retry of ['-1','1.5','999999','private-date'])await assert.rejects(reviewWithOpenRouter(request(),config(),async()=>new Response('private body',{status:429,headers:{'retry-after':retry,'x-request-id':'private-text'}})),e=>e.httpStatus===429&&!Object.hasOwn(e,'retryAfterSeconds')&&!Object.hasOwn(e,'requestId')&&!JSON.stringify(e).includes('private'));
+ const future=new Date(Date.now()+60000).toUTCString();await assert.rejects(reviewWithOpenRouter(request(),config(),async()=>new Response('{}',{status:429,headers:{'retry-after':future}})),e=>Number.isInteger(e.retryAfterSeconds)&&e.retryAfterSeconds>=58&&e.retryAfterSeconds<=60);
+});
+test('correlation IDs reject terminal control characters despite regex end anchors',async()=>{
+ const {sanitizedHttpDiagnostics}=await import('./openrouter.mjs');for(const suffix of ['\n','\r','\u0085'])assert.deepEqual(sanitizedHttpDiagnostics({requestId:'req-safe_123'+suffix,cloudflareRay:'0123456789abcdef-IAD'+suffix}),{});
+});
+test('actual DeepInfra engine overload code takes precedence over wrapper and alternate metadata fields',async()=>{
+ await assert.rejects(reviewWithOpenRouter(request(),config(),async()=>Response.json({error:{code:429,message:'private upstream message',metadata:{provider_name:'DeepInfra',provider_error_code:'engine_overloaded',provider_code:'rate_limited',limit_source:'upstream_provider_shared_pool',raw:'private temporary rate limit text'}}},{status:429})),e=>e.httpStatus===429&&e.providerErrorCode==='engine_overloaded'&&e.errorProvider==='DeepInfra'&&e.limitSource==='upstream_provider_shared_pool'&&!JSON.stringify(e).includes('private'));
+});
+test('Together diagnostic identity is retained only as reviewed provider enum',async()=>{
+ const {sanitizedHttpDiagnostics}=await import('./openrouter.mjs');assert.deepEqual(sanitizedHttpDiagnostics({errorProvider:'Together',providerErrorCode:'engine_overloaded'}),{errorProvider:'Together',providerErrorCode:'engine_overloaded'});assert.deepEqual(sanitizedHttpDiagnostics({errorProvider:'Together private text'}),{});
+});

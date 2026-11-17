@@ -19,7 +19,7 @@ This is the central current reference for Warp Core. The checkpoint below is an 
 | Verification and admission | Receipt, verification-job and shared five-item guards installed; verification, backfill and submission enabled. `exclusive_agent=true` fences new Dot submissions; existing jobs, queues and financial history remain intact |
 | First published results | Publisher request 842 returned HTTP 200 with two processed records, both `published`: a 240-character GLM post and a Verano native repost. Exact ordinary AppView/UI and native public-PDS readback evidence is recorded in the [cutover report](evidence/2026-11-17-scheduled-discovery-quality.md#gemma-cutover-and-first-publications) |
 | Legacy Dot schedule | Owner-confirmed off; exact legacy automation control was unavailable to this operator. This is distinct from the still-needed curation drain |
-| Spending policy | Private ledger and existing prepaid OpenRouter credits; recorded limits are 2 credits per UTC day and 19.99 credits lifetime |
+| Spending policy | Private ledger and existing prepaid OpenRouter credits; daily and lifetime application caps removed by owner request. NULL limits mean uncapped; cost records and per-request validation remain |
 | Exception alerts | Dashboard backend enabled by the operator; authenticated RPC verified. Signed-in frontend delivery remains unverified; no owner channel selection is claimed |
 | Public owner feedback | SQL and full runtime deployed, disabled. Halo public-API check returned an explicit empty-feed coverage gap |
 

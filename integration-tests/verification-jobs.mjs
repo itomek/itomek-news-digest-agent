@@ -73,6 +73,8 @@ try{
  const recovered=await claim();assert.equal(recovered.jobId,fresh.jobId);assert.ok(await leaseSeconds(recovered.jobId)>179,'Recovered handoff uses the same180-second lease');assert.equal(recovered.handoffReceiptId,good);
  assert.equal(await value('select public.warpcore_verification_handoff($1,$2) v',[fresh.jobId,fresh.lease]),null,'Old handoff lease cannot submit');
  const handed=await value('select public.warpcore_verification_handoff($1,$2) v',[fresh.jobId,recovered.lease]);assert.ok(handed);assert.equal(await value('select public.warpcore_verification_handoff($1,$2) v',[fresh.jobId,recovered.lease]),handed);
+ assert.equal(await claim(),null,'Existing handoff must finish before another paid verification');
+ await q("update public.warpcore_curator_inbox set state='approved' where id=$1",[handed]);
  const fetchFail=await nextStory('e',2);await q("update shadow_agent.runs set lease_until=now()-interval '1 second' where id=(select child_run_id from shadow_agent.verification_jobs where id=$1)",[fetchFail.jobId]);const resumed=await claim();assert.equal(resumed.jobId,fetchFail.jobId);assert.notEqual(resumed.lease,fetchFail.lease);
  for(const [model,cap,expectedProvider] of [['meta-llama/llama-4-maverick',.216269,'Parasail'],['nvidia/nemotron-3.5-super-vl',.157287,'Together'],['nvidia/nemotron-3-super-120b-a12b',.026215,'DeepInfra']])await assert.rejects(()=>value('select public.warpcore_verification_reserve($1,$2,$3,$4,$5) v',[resumed.jobId,resumed.lease,hash,cap,{model,expectedProvider,profileVersion:'2026-11-17.verify.7'}]),/metadata/);
  for(const [model,cap,expectedProvider] of [['google/gemma-4-26b-a4b-it',.036045,'PrimeIntellect'],['openai/gpt-oss-120b',.076596,'Cerebras']]){
@@ -142,7 +144,7 @@ try{
  assert.equal((await next())[0]?.story_key,'7'.padStart(64,'0'),'Frozen importance before relevance, deterministic story ID tie');
  await q('insert into public.warpcore_publications(story_key) values($1)',['7'.padStart(64,'0')]);assert.equal((await next())[0]?.story_key,'8'.padStart(64,'0'),'Already published stories excluded');
  await q('insert into public.warpcore_curator_inbox(story_key) values($1)',['8'.padStart(64,'0')]);assert.equal((await next())[0]?.story_key,'6'.padStart(64,'0'),'Already queued stories excluded');
- await db.exec("update shadow_agent.verification_jobs set status='deferred' where status='uncertain'");const sixth=await claim();assert.equal(sixth.storyKey,'6'.padStart(64,'0'),'Claim shares exact live-excluded helper candidate');
+ await db.exec("update shadow_agent.verification_jobs set status='deferred' where status='uncertain'");assert.equal(await claim(),null,'Pending editorial work serializes paid verification');await db.exec("update public.warpcore_curator_inbox set state='approved' where state in ('pending','leased')");const sixth=await claim();assert.equal(sixth.storyKey,'6'.padStart(64,'0'),'Claim shares exact live-excluded helper candidate');
  assert.deepEqual(await next(),[],'Finite live-eligible unattempted candidate pool is exhausted independently of qualified cap');
  assert.equal((await q("select count(*)::int n from shadow_agent.verification_jobs where ranking_run_id=$1 and status='verified'",[backfillRun]))[0].n,0,'Exhaustion is not five-qualified completion');
  await q('update shadow_agent.verification_settings set ranking_finalized_since=(select finalized_at from shadow_agent.ranking_runs where run_id=$1)',[backfillRun]);

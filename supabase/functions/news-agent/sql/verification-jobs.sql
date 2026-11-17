@@ -103,6 +103,18 @@ begin
  if cfg.job_limit_credits is null then raise exception 'Invalid verification configuration';end if;
  if to_regprocedure('shadow_agent.advance_verification_rate_limits()') is not null then
   perform shadow_agent.advance_verification_rate_limits();end if;
+ -- A lost response after reservation is never an authorization to dispatch again.
+ update shadow_agent.verification_jobs existing_job set status='uncertain' from shadow_agent.runs r
+ where existing_job.child_run_id=r.id and existing_job.status='pending' and not existing_job.quarantined and r.lease_until<=clock_timestamp()
+ and exists(select 1 from shadow_agent.attempts a where a.run_id=r.id);
+ -- Freeze one publication history at a time. A second paid verification must
+ -- wait until the earlier handoff reaches a terminal publication/inbox state;
+ -- otherwise each receipt can invalidate the other's pending-history snapshot.
+ -- Match finish/handoff's verification -> shared-admission lock order. Try-lock
+ -- avoids waiting while an editorial transaction owns story/account row locks.
+ if not pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended('warpcore_shared_admission_v1',0)) then return null;end if;
+ if exists(select 1 from public.warpcore_curator_inbox where state in ('pending','leased'))
+ or exists(select 1 from public.warpcore_publications where state in ('prepared','sending','uncertain','manual_review')) then return null;end if;
  -- Recover a completed verification's unsent receipt without paid replay.
  select * into j from shadow_agent.verification_jobs v where cfg.submit_enabled and shadow_agent.verification_queue_has_capacity() and v.status='verified' and not v.quarantined and v.handoff_status='pending'
  and not exists(select 1 from public.warpcore_curator_inbox inbox where inbox.verification_receipt_id=v.receipt_id) order by v.id limit 1;
@@ -110,10 +122,6 @@ begin
   token:=shadow_agent.claim(j.child_run_id,180);if token is null then return null;end if;
   return jsonb_build_object('jobId',j.id,'rankingRunId',j.ranking_run_id,'storyKey',j.story_key,'lease',token,'handoffReceiptId',j.receipt_id);
  end if;
- -- A lost response after reservation is never an authorization to dispatch again.
- update shadow_agent.verification_jobs existing_job set status='uncertain' from shadow_agent.runs r
- where existing_job.child_run_id=r.id and existing_job.status='pending' and not existing_job.quarantined and r.lease_until<=clock_timestamp()
- and exists(select 1 from shadow_agent.attempts a where a.run_id=r.id);
  if exists(select 1 from shadow_agent.verification_jobs where status='uncertain' and not quarantined) then return null;end if;
  if not shadow_agent.verification_queue_has_capacity() then return null;end if;
  select * into j from shadow_agent.verification_jobs where status='pending' and not quarantined order by id limit 1;

@@ -34,10 +34,8 @@ try{
   await q('insert into shadow_agent.runs(id,state,limit_credits) values($1,$2,.3)',[run,newPagedShadowRun({runId:run,scanStartedAt:new Date().toISOString()})]);
   await db.exec("update shadow_agent.verification_settings set enabled=true,submit_enabled=true,job_limit_credits=.2;update shadow_agent.producer_settings set enabled=true,run_limit_credits=.3,policy_version='2026-11-14.1';update shadow_agent.runtime_settings set allowed_source_hosts=array['example.com']");
   await q('insert into vault.decrypted_secrets values($1,$2),($3,$4)',['warpcore_agent_cron_token','synthetic-token-'.repeat(3),'warpcore_agent_openrouter_key','synthetic-key-'.repeat(3)]);
-  // Existing Dot writer contributes four slots before model history capture.
-  for(let n=2;n<=5;n++){const s=await snapshot(key(n));await scalar('select public.warpcore_curator_submit($1,$2,$3,$4,$5,$6) value',[key(n),s.evidence_hash,editorial(s),attest,'real-dot',randomUUID()]);}
  });
- assert.equal(await queueCount(),4);
+ assert.equal(await queueCount(),0);
  const runtimeConfig=await scalar('select public.warpcore_agent_runtime_config() value');assert.equal(runtimeConfig.model,model);assert.equal(runtimeConfig.maxCostCredits,.076596);
  const lease=await scalar('select shadow_agent.claim($1,120) value',[run]);let state=await scalar('select shadow_agent.load($1) value',[run]);
  const cfg={model,requestProfile:requestProfileForModel(model,'2026-11-16.4'),expectedProvider:'Groq',maxOutputTokens:100,maxCostCredits:.1,timeoutMs:1000,maxResponseBytes:20000,policyVersion:state.policyVersion,routing:'openrouter-no-fallback'};
@@ -58,7 +56,7 @@ try{
   assert.equal(await scalar("select public.warpcore_verification_finish($1,$2,'deferred',null) value",[deferred.jobId,deferred.lease]),true,'Initial candidate can defer without paid attempt after inaccessible-source fixture');
  }
  await admin(()=>q('update shadow_agent.verification_settings set backfill_enabled=true,ranking_finalized_since=(select finalized_at from shadow_agent.ranking_runs where run_id=$1)',[run]));
- assert.equal(await queueCount(),4,'Pre-cohort existing Dot queue still consumes four global slots');
+ assert.equal(await queueCount(),0,'Paid verification waits for an empty handoff pipeline');
  const job=await scalar('select public.warpcore_verification_claim() value');assert.equal(job.storyKey,key(1));assert.equal(job.rankingRunId,run);
  const s=await snapshot(key(1)),h=await history(),date=new Date().toISOString().slice(0,10),body=`🦀 Official release ${date}: a useful new capability is available.`,quote=body.slice(3);
  const requestBody=JSON.stringify({model,messages:[{role:'user',content:body}],response_format:'fabricated verification schema'}),requestHash=hash(requestBody),meta={model,profileVersion:'2026-11-16.verify.1',expectedProvider:'Groq'};
@@ -73,12 +71,14 @@ try{
  // Lose the finish response before submission; next invocation recovers only handoff.
  await admin(()=>q("update shadow_agent.runs set lease_until=now()-interval '1 second' where id=(select child_run_id from shadow_agent.verification_jobs where id=$1)",[job.jobId]));
  const recovered=await scalar('select public.warpcore_verification_claim() value');assert.equal(recovered.jobId,job.jobId);assert.equal(recovered.handoffReceiptId,receipt);
- const inbox=await scalar('select public.warpcore_verification_handoff($1,$2) value',[job.jobId,recovered.lease]);assert.equal(await scalar('select public.warpcore_verification_handoff($1,$2) value',[job.jobId,recovered.lease]),inbox);assert.equal(await queueCount(),5);assert.equal(await scalar('select public.warpcore_agent_submit($1) value',[receipt]),inbox);
- const rows=await q('select * from public.warpcore_curator_claim(5)'),agent=rows.find(r=>r.id===inbox),dot=rows.find(r=>r.actor_kind==='dot');assert.equal(agent.agent_id,material.agentId);assert.equal(agent.dot_id,null);assert.equal(dot.dot_id,'real-dot');
+ const inbox=await scalar('select public.warpcore_verification_handoff($1,$2) value',[job.jobId,recovered.lease]);assert.equal(await scalar('select public.warpcore_verification_handoff($1,$2) value',[job.jobId,recovered.lease]),inbox);assert.equal(await queueCount(),1);assert.equal(await scalar('select public.warpcore_agent_submit($1) value',[receipt]),inbox);
+ const rows=await q('select * from public.warpcore_curator_claim(5)'),agent=rows.find(r=>r.id===inbox);assert.equal(agent.agent_id,material.agentId);assert.equal(agent.dot_id,null);
  const finalize=async row=>{const packet=await createReviewPacket({storyKey:row.story_key,evidence:row.evidence,editorial:row.editorial});const transport={...await prepareTransport({...packet.recordDraft,verified:true,approved:true},account,new Date(row.created_at).toISOString()),storyKey:row.story_key};assert.ok([...new Intl.Segmenter('en',{granularity:'grapheme'}).segment(transport.record.text)].length<=300);assert.ok(new TextEncoder().encode(transport.record.text).length<=3000);assert.equal(await scalar('select public.warpcore_curator_finalize($1,$2,$3,$4) value',[row.id,row.lease_token,packet,transport]),true);return transport;};
- const approved=await finalize(agent);assert.equal(await queueCount(),5,'Transfer does not double count at capacity');
+ const approved=await finalize(agent);assert.equal(await queueCount(),1,'Transfer does not double count the agent item');
  const publication=(await q('select * from public.warpcore_publications where story_key=$1',[key(1)]))[0];assert.equal(publication.state,'prepared');assert.deepEqual(publication.record_payload,approved.record);assert.equal(publication.record_key,approved.recordKey);assert.equal(publication.content_hash,approved.contentHash);assert.ok(publication.approved_at);assert.equal(publication.remote_uri,null);
- await finalize(dot);assert.equal(await queueCount(),5,'Old Dot path preserves global cap');
+ // Legacy coexistence remains valid after the agent receipt has finalized.
+ await admin(async()=>{for(let n=2;n<=5;n++){const s=await snapshot(key(n));await scalar('select public.warpcore_curator_submit($1,$2,$3,$4,$5,$6) value',[key(n),s.evidence_hash,editorial(s),attest,'real-dot',randomUUID()]);}});
+ const dot=(await q('select * from public.warpcore_curator_claim(5)')).find(r=>r.actor_kind==='dot');assert.equal(dot.dot_id,'real-dot');await finalize(dot);assert.equal(await queueCount(),5,'Old Dot path preserves global cap');
  await assert.rejects(()=>scalar('select public.warpcore_prepare_publication($1,$2,$3,$4,$5) value',[account,key(6),hash('sixth'),{$type:'app.bsky.feed.post',text:'No admission'},'3m3e4a2b22222']),/Combined pending limit/);
  await admin(async()=>{const budget=(await q('select * from shadow_agent.budgets'))[0];assert.equal(Number(budget.spent_credits),.03);assert.equal(Number(budget.held_credits),0);const ledger=(await q('select j.*,a.request_hash,a.status attempt_status from shadow_agent.verification_jobs j join shadow_agent.attempts a on a.run_id=j.child_run_id'))[0];assert.equal(ledger.status,'verified');assert.equal(ledger.request_hash,material.requestSha256);assert.equal(ledger.receipt_id,receipt);assert.equal(ledger.attempt_status,'settled');assert.equal((await q('select count(*)::int n from public.warpcore_publication_slots'))[0].n,0,'No sending attempt');});
  for(const table of ['runtime_settings','verification_settings','verification_jobs','verification_audit','budgets'])await assert.rejects(()=>q('select * from shadow_agent.'+table),/permission/);

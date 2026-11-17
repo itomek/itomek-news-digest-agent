@@ -30,3 +30,9 @@ test('recovery rejects unknown source IDs, arbitrary configuration, duplicates a
   assert.equal(response.status,400);assert.equal(called,false);
  }
 });
+
+test('collection wakes processing after persistence and reports entry/new counts separately',async()=>{
+ const events=[],opt=options(async args=>{events.push('saved');return {accepted:true,status:args.p_outcome,fetched:9,new:1,duplicate:8};});opt.store.collected=async()=>{events.push('wake');return 123;};
+ const response=await h.handle(req(),{WARPCORE_CRON_TOKEN:token,NEWS_SOURCE_CONFIG:'[{"id":"x","adapter":"rss"}]'},{rss:{collectPage:async()=>page([])}},opt),body=await response.json();assert.deepEqual(events,['saved','wake']);assert.deepEqual(body.summary,{sources_checked:1,entries_fetched:9,new_items:1,duplicate_entries:8});assert.equal(body.processing_dispatch,'queued');
+ opt.store.collected=async()=>{throw Error('unavailable');};const retry=await h.handle(req(),{WARPCORE_CRON_TOKEN:token,NEWS_SOURCE_CONFIG:'[{"id":"x","adapter":"rss"}]'},{rss:{collectPage:async()=>page([])}},opt);assert.equal(retry.status,200);assert.equal((await retry.json()).processing_dispatch,'deferred');
+});

@@ -48,3 +48,14 @@ test('private approved Gemma settings derive exact provider, reservation and bat
 test('hosted discovery and verification share60s model timeout and180s lease margin',async()=>{
  const configs=[];const app=createHostedApplication(config,{bootstrapRpc:async name=>name==='warpcore_agent_authorization'?{enabled:true,producerToken:token}:{model:'google/gemma-4-26b-a4b-it',apiKey:'private-test-key',maxOutputTokens:4096,maxCostCredits:.036045,allowedSourceHosts:['ir.amd.com']},createDiscoveryService:options=>{configs.push(options.runtimeConfig);return {selectRun:async()=>null};},createVerifierService:options=>{configs.push(options.runtimeConfig);return {runInvocation:async()=>({status:'deferred'})};}});assert.equal((await app(request())).status,200);assert.equal(configs.length,2);for(const cfg of configs){assert.equal(cfg.timeoutMs,60000);assert.equal(cfg.leaseSeconds,180);assert.equal(cfg.model,'google/gemma-4-26b-a4b-it');assert.equal(cfg.maxCostCredits,.036045);}
 });
+
+test('drain processes review, completion and verification without another timer; stops on idle',async()=>{
+ let calls=0,selected=0;
+ const app=createHostedApplication({...config,drain:true},{bootstrapRpc:async name=>name==='warpcore_agent_authorization'?{enabled:true,producerToken:token}:{model:'google/gemma-4-26b-a4b-it',apiKey:'private-test-key',maxOutputTokens:4096,maxCostCredits:.036045,allowedSourceHosts:['example.com']},createDiscoveryService:()=>({selectRun:async()=>selected++<2?'11111111-1111-4111-8111-111111111111':null,runInvocation:async()=>({status:'advanced',state:{phase:++calls===1?'review':'complete',candidateCount:2,reviewedCount:2}})}),createVerifierService:()=>({runInvocation:async()=>({status:++calls===3?'submitted':'idle'})})});
+ const response=await app(request()),body=await response.json();assert.equal(response.status,200);assert.deepEqual(body.steps.map(x=>x.status),['advanced','advanced','submitted','idle']);assert.equal(body.status,'idle');
+});
+test('drain does not start another step after10s or replay deferred work',async()=>{
+ for(const status of ['advanced','deferred']){
+ let calls=0,clock=0;const app=createHostedApplication({...config,drain:true},{now:()=>clock,bootstrapRpc:async name=>name==='warpcore_agent_authorization'?{enabled:true,producerToken:token}:{model:'google/gemma-4-26b-a4b-it',apiKey:'private-test-key',maxOutputTokens:4096,maxCostCredits:.036045,allowedSourceHosts:['example.com']},createDiscoveryService:()=>({selectRun:async()=>'11111111-1111-4111-8111-111111111111',runInvocation:async()=>{calls++;clock=40000;return {status,state:{phase:'review',candidateCount:16,reviewedCount:16}};}})});assert.equal((await app(request())).status,200);assert.equal(calls,1);
+ }
+});

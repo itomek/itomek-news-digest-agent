@@ -55,7 +55,7 @@ export function createHostedApplication(config,dependencies={}){
     if(typeof verifierFactory!=='function')throw Error('Verification service not installed');
     return verifier??=verifierFactory({...config,runtimeConfig:await getSettings()});
    };
-   return await handleAgent(req,authorization,{
+   const service={
     selectRun:async()=>(await getDiscovery()).selectRun(),
     runInvocation:async runId=>(await getDiscovery()).runInvocation(runId),
     verifyInvocation:async()=>{
@@ -70,7 +70,19 @@ export function createHostedApplication(config,dependencies={}){
      }
      return result;
     },
-   });
+   };
+   const now=dependencies.now??(()=>performance.now()),started=now();
+   let response=await handleAgent(req,authorization,service);
+   if(config.drain!==true)return response;
+   const steps=[];
+   for(let i=0;i<12;i++){
+    if(response.status!==200)return response;
+    const result=await response.clone().json();
+    steps.push(result);
+    if(!['advanced','verified','submitted'].includes(result.status)||now()-started>=10000||i===11)break;
+    response=await handleAgent(new Request(req.url,{method:'POST',headers:req.headers,body:'{}'}),authorization,service);
+   }
+   return Response.json({...await response.json(),steps});
   }catch{return Response.json({error:'hosted_agent_unavailable',...flags},{status:502});}
  };
 }

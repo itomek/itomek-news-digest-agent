@@ -17,42 +17,64 @@ alter table shadow_agent.producer_settings enable row level security;
 alter table shadow_agent.producer_slots enable row level security;
 revoke all on shadow_agent.producer_settings,shadow_agent.producer_slots from public,anon,authenticated,service_role;
 -- Bounded workflow recovery, never a billing resolution or request retry.
-create function shadow_agent.advance_gemma_discovery_timeouts() returns integer
+create function shadow_agent.advance_gemma_discovery_failures() returns integer
 language plpgsql security definer set search_path='' as $$
-declare r shadow_agent.runs; model_id text; continued integer:=0; daily_count integer;
- reason_prefix constant text:='automatic_gemma_discovery_timeout_v1:';
+declare r record; model_id text; continued integer:=0; daily_count integer; d jsonb; retry_seconds integer; result jsonb;
+ reason_prefix constant text:='automatic_gemma_discovery_failure_v1:';
 begin
  if to_regprocedure('shadow_agent.quarantine_timed_out_run(uuid,bigint,text)') is null
+ or to_regprocedure('shadow_agent.quarantine_rate_limited_run(uuid,bigint,text)') is null
  or to_regclass('shadow_agent.runtime_settings') is null then return 0;end if;
+ -- Reuse the original recovery lock so an in-flight older selector cannot race
+ -- this combined timeout/429 daily cap during a rolling SQL replacement.
  if not pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended('warpcore_gemma_discovery_timeout_v1',0)) then
-  raise exception using errcode='55P03',message='Discovery timeout recovery busy';end if;
+  raise exception using errcode='55P03',message='Discovery failure recovery busy';end if;
  select model into model_id from shadow_agent.runtime_settings where singleton for share nowait;
  if model_id is distinct from 'google/gemma-4-26b-a4b-it' then return 0;end if;
  select count(*) into daily_count from shadow_agent.billing_quarantine_audit
- where left(reason,length(reason_prefix))=reason_prefix
+ where (left(reason,length(reason_prefix))=reason_prefix
+ or left(reason,length('automatic_gemma_discovery_timeout_v1:'))='automatic_gemma_discovery_timeout_v1:')
  and (performed_at at time zone 'utc')::date=(clock_timestamp() at time zone 'utc')::date;
  if daily_count>=10 then return 0;end if;
- for r in select old.* from shadow_agent.runs old join shadow_agent.run_config cfg on cfg.run_id=old.id
+ for r in select old.*,x.audit as failure_audit from shadow_agent.runs old
+ join shadow_agent.run_config cfg on cfg.run_id=old.id
+ join shadow_agent.attempts a on a.run_id=old.id and a.status='uncertain' and a.actual is null and a.reserved=.036045
+ join shadow_agent.attempt_audit x on x.attempt_id=a.id and x.status='uncertain'
  where old.state->>'storageKind'='paged-v1' and old.state->>'phase'='uncertain'
  and old.lease_until<=clock_timestamp()-interval '5 minutes'
  and cfg.config->>'model'='google/gemma-4-26b-a4b-it'
  and cfg.config->>'expectedProvider'='PrimeIntellect'
  and cfg.config->'maxCostCredits'='0.036045'::jsonb
  and cfg.config->'requestProfile'->>'version'='2026-11-17.8'
- and exists(select 1 from shadow_agent.attempts a join shadow_agent.attempt_audit x on x.attempt_id=a.id
-  where a.run_id=old.id and a.status='uncertain' and a.actual is null and a.reserved=.036045
-  and x.status='uncertain' and x.audit='{"errorCode":"timeout"}'::jsonb)
  order by old.id limit 10 loop
-  -- Existing owner contract rechecks CAS, exact history, full unknown hold,
-  -- audit and financial lock order before terminally fencing ONLY this run.
-  if shadow_agent.quarantine_timed_out_run(r.id,r.revision,reason_prefix||' Preserve the full unknown hold; continue only a fresh normal UTC slot, never replay this request.') is not null then
+  result:=null;retry_seconds:=300;d:=r.failure_audit->'diagnostic';
+  if r.failure_audit='{"errorCode":"timeout"}'::jsonb then
+   result:=shadow_agent.quarantine_timed_out_run(r.id,r.revision,reason_prefix||' Exact timeout; preserve full unknown hold and never replay this request.');
+  elsif jsonb_typeof(r.failure_audit)='object' and (r.failure_audit-'errorCode'-'diagnostic')='{}'::jsonb
+  and r.failure_audit->>'errorCode'='http_failure' and jsonb_typeof(d)='object'
+  and (d-'httpStatus'-'limitSource'-'errorProvider'-'providerErrorCode'-'retryAfterSeconds'-'cloudflareRay'-'requestId'-'providerErrorType')='{}'::jsonb
+  and d->'httpStatus'='429'::jsonb and d->>'limitSource'='upstream_provider_shared_pool'
+  and d->>'errorProvider'='PrimeIntellect' and d->>'providerErrorCode'='rate_limited'
+  and (not(d ? 'providerErrorType') or d->>'providerErrorType' in ('rate_limit_error','rate_limit_exceeded')) then
+   if d ? 'retryAfterSeconds' then
+    if jsonb_typeof(d->'retryAfterSeconds') is distinct from 'number' or coalesce(d->>'retryAfterSeconds','') !~ '^[0-9]{1,5}$' then continue;end if;
+    retry_seconds:=(d->>'retryAfterSeconds')::integer;
+    if retry_seconds>86400 then continue;end if;
+    retry_seconds:=greatest(300,retry_seconds);
+   end if;
+   if clock_timestamp()<r.lease_until+pg_catalog.make_interval(secs=>retry_seconds) then continue;end if;
+   result:=shadow_agent.quarantine_rate_limited_run(r.id,r.revision,reason_prefix||' Recorded PrimeIntellect shared-pool429; preserve full unknown hold and never replay this request.');
+  end if;
+  -- Existing owner contracts recheck CAS, exact history, full unknown holds,
+  -- audits and financial lock order before terminally fencing ONLY this run.
+  if result is not null then
    continued:=continued+1;
    if daily_count+continued>=10 then exit;end if;
   end if;
  end loop;
  return continued;
 end $$;
-revoke all on function shadow_agent.advance_gemma_discovery_timeouts() from public,anon,authenticated,service_role;
+revoke all on function shadow_agent.advance_gemma_discovery_failures() from public,anon,authenticated,service_role;
 create function public.warpcore_shadow_select_run() returns jsonb
 language plpgsql security definer set search_path='' as $$
 declare settings shadow_agent.producer_settings; r shadow_agent.runs; run_id uuid; stamp timestamptz; slot timestamptz; verification_ready boolean;
@@ -65,7 +87,7 @@ begin
  then raise exception 'Invalid producer configuration'; end if;
  if to_regprocedure('shadow_agent.advance_verification_rate_limits()') is not null then
   perform shadow_agent.advance_verification_rate_limits();end if;
- perform shadow_agent.advance_gemma_discovery_timeouts();
+ perform shadow_agent.advance_gemma_discovery_failures();
  if exists(select 1 from shadow_agent.runs where state->>'storageKind'='paged-v1' and state->>'phase' in ('reviewing','uncertain')) then return null; end if;
  select * into r from shadow_agent.runs where state->>'storageKind'='paged-v1'
  and state->>'phase' in ('scan','review') order by (state->>'scanStartedAt')::timestamptz,id limit 1;

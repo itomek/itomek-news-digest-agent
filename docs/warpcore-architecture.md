@@ -10,7 +10,7 @@ This is the central current reference for Warp Core. The checkpoint below is an 
 |---|---|
 | Collector | Version 17, hourly at minute `:17`, active; 43 configured public sources |
 | Source acquisition health | Earlier recorded two-hour window: all 43 sources attempted; 37 historical gaps, five partial traversals and one Perplexity HTTP 403 failure; these are distinct outcomes, not 43 collection outages |
-| Curation drain | Version 6, hourly at `:23`, active as the receipt-aware database drain; retained legacy inbox work is not deleted |
+| Curation drain | Version 6, every minute, active as the receipt-aware database drain; retained legacy inbox work is not deleted |
 | Publisher | Version 11, hourly at `:27`, active with its existing account, queue and guards |
 | Autonomous producer | `news-agent` version 22, using Gemma 4 26B / PrimeIntellect and verification V8, with a 60-second model deadline and 180-second lease; producer, verification, submission and minute continuation cron enabled. Reviewed shared-pool 429 continuation is installed; generic unknown failures still require owner recovery |
 | Retained discovery evidence | Two Together discovery cycles completed 650/650 and 651/651 assessments for 0.06916930 and 0.06925995 credits. A cloud-scheduled Cerebras cycle also completed 652/652 for 0.17891190 credits. Earlier unknown holds remain preserved; full coverage does not establish editorial quality |
@@ -122,4 +122,6 @@ Every new record remains subject to public-source/native identity, freshness, co
 
 ## Discovery timeout follow-up
 
-Repeated 30-second Gemma discovery timeouts were an operational defect, not an editorial-quality failure. The follow-up raises the bounded model deadline to 60 seconds with a 180-second lease and adds narrowly scoped automatic quarantine for exact recorded Gemma discovery timeouts after lease expiry plus five minutes, capped at ten per UTC day. Full unknown holds and failed coverage remain recorded, and old workflows cannot replay. Later scans use the normal UTC-hour slots. See the [bounded timeout recovery evidence](evidence/2026-11-17-gemma-timeout-recovery.md). Source/history deadlines and publication guards remain intact.
+Repeated 30-second Gemma discovery timeouts were an operational defect, not an editorial-quality failure. The follow-up raises the bounded model deadline to 60 seconds with a 180-second lease and adds narrowly scoped automatic quarantine for exact recorded Gemma discovery timeouts and strictly identified PrimeIntellect shared-pool 429s after lease expiry plus five minutes, capped at ten combined recoveries per UTC day; a longer bounded Retry-After is respected. Full unknown holds and failed coverage remain recorded, and old workflows cannot replay. Later scans use the normal UTC-hour slots. See the [bounded timeout recovery evidence](evidence/2026-11-17-gemma-timeout-recovery.md). Source/history deadlines and publication guards remain intact.
+
+The receipt-aware curation drain now runs every minute (same existing job and v6 code), because the earlier hourly wait allowed three guarded receipts to become stale. Those three inbox records were safely rejected and retained, not counted as publications. The publisher stays hourly at :27 with all existing account/login/send guards.

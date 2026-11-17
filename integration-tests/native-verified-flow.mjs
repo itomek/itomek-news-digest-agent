@@ -66,7 +66,7 @@ assert.equal(await scalar('select public.warpcore_verification_claim() value'),n
   return Response.json({id:'synthetic-native-verification',model,provider:'Cerebras',usage:{prompt_tokens:10,completion_tokens:5,total_tokens:15,cost:.02},choices:[{finish_reason:'stop',message:{content:JSON.stringify({result})}}]});
  }});
  assert.equal(outcome.status,'submitted');assert.equal(modelCalls,1);assert.equal(sourceCalls,1);const inbox=outcome.inboxId,receipt=outcome.receiptId;
- assert.equal(await queueCount(),5);assert.equal(material.requestProfileVersion,'2026-11-17.verify.5');assert.equal(material.editorial.mode,'repost');assert.equal(material.editorial.summary,undefined);
+ assert.equal(await queueCount(),5);assert.equal(material.requestProfileVersion,'2026-11-17.verify.6');assert.equal(material.editorial.mode,'repost');assert.equal(material.editorial.summary,undefined);
  const rows=await q('select * from public.warpcore_curator_claim(5)'),agent=rows.find(r=>r.id===inbox),dot=rows.find(r=>r.actor_kind==='dot');assert.equal(agent.agent_id,material.agentId);assert.equal(agent.dot_id,null);assert.equal(dot.dot_id,'real-dot');
  const finalize=async row=>{const packet=await createReviewPacket({storyKey:row.story_key,evidence:row.evidence,editorial:row.editorial});const transport={...await prepareTransport({...packet.recordDraft,verified:true,approved:true},account,new Date(row.created_at).toISOString()),storyKey:row.story_key};assert.equal(await scalar('select public.warpcore_curator_finalize($1,$2,$3,$4) value',[row.id,row.lease_token,packet,transport]),true);return transport;};
  const approved=await finalize(agent);assert.equal(await queueCount(),5,'Transfer does not double count at capacity');

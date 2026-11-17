@@ -82,3 +82,24 @@ needed for this spike. It does not establish Supabase cloud Edge behavior, real
 OpenRouter/provider billing or editorial quality. The approved 2-dollar/24-call
 pilot remains unused and still needs a dedicated credential and its remaining
 billing preflight before actual inference. Production remains unchanged.
+
+
+## November 16 paid shared-runtime checkpoint
+
+The model-independent SQL integration and a one-shot Deno CLI were exercised on
+Strix Halo with four prepared public development candidates. GPT-oss-120B/Groq
+completed one paid request through private PostgREST/PostgreSQL; actual provider,
+model, usage and 0.00049965 USD cost settled durably. A concurrent invocation made
+zero model calls, and a completion invocation after natural 120-second lease expiry
+also made zero. Producer selection remained disabled and publication tables empty.
+
+A preceding Gemma call timed out and its uncertainty was archived without inventing
+native usage. The parent used refreshed authenticated Logs and unchanged key usage
+to reconcile zero reported charge. Its canonical campaign ledger was never reset.
+All disposable stacks, volumes, runtime credentials and the machine reservation were
+cleaned up. See `docs/evidence/2026-11-16-strix-halo-paid/` for source, image hashes,
+parent-owned budget enforcement, actual results and remaining acceptance limits.
+
+This is shared-runtime CLI evidence on self-hosted Deno/PostgREST/PostgreSQL. It does
+not activate the scheduled producer or publisher, prove Supabase cloud behavior,
+or establish editorial quality from the small development sample.

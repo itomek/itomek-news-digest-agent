@@ -1,0 +1,22 @@
+{
+  "sourceCommit": "8123832fd84d7e3f6f964cd5e6afafd9f004e787",
+  "model": "google/gemma-4-31b-it",
+  "requestedProvider": "DeepInfra",
+  "status": "timeout",
+  "requestHash": "79ff490312b5a07454cdcf736094b6e97b999fcaf45300da0a17f7d8e0994df5",
+  "requestDeadlineMs": 30000,
+  "acceptedDecisions": 0,
+  "sqlCheckpointPhase": "uncertain",
+  "sqlErrorAudit": {
+    "errorCode": "timeout"
+  },
+  "remoteHoldBeforeDisposableCleanupUsd": 0.058983,
+  "nativeTokenUsage": null,
+  "reportedChargeUsd": 0,
+  "reconciliation": "Refreshed authenticated Logs had no matching generation; current-key usage unchanged exactly. Unknown native outcome retained, no success claimed; stop on any late charge.",
+  "reachabilityChecks": "Same Deno/container networking fetched public metadata and authenticated key metadata successfully; full catalog body also fetched. Timeout cause unconfirmed.",
+  "globalAttemptRetained": true,
+  "automaticRetry": false,
+  "privateSqlDumpSha256": "4b336a1f9707871d9edd929ef849aa84fd0af20d2001600f8567efc3423ab93d",
+  "cleanup": "Only owned disposable fixture removed after preserving inspection, full private shadow SQL dump, and global accounting history"
+}

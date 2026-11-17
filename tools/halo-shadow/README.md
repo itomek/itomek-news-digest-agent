@@ -105,3 +105,14 @@ owned stack/volume and machine reservation after collecting sanitized evidence.
 All examples require fresh disposable runs. Existing experimental runs bound
 without the new immutable batch/provider fields intentionally reject an upgraded
 binding; this workflow performs no implicit migration or production activation.
+
+
+November 16 execution: the generic CLI completed a four-candidate paid SQL-backed
+smoke with GPT-oss-120B/Groq on source commit `4dfbbf2`. Exactly one model POST and
+one SQL attempt settled at 0.00049965 USD, with provider/model/native usage audited.
+An overlapping trigger was busy with zero model calls. After the 120-second lease
+expired naturally, a completion-only invocation reached complete with zero further
+calls. No publication/inbox rows appeared. Both owned test stacks, volumes,
+networks and runtime API/JWT env files were removed; the reservation was released.
+The preceding Gemma timeout and its retained uncertainty were archived honestly.
+See `docs/evidence/2026-11-16-strix-halo-paid/` for sanitized evidence and limits.

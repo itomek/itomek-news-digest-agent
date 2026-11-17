@@ -1,0 +1,232 @@
+{
+  "status": "nonpublishing_sql_backed_hosted_smoke_passed",
+  "sourceCommit": "4dfbbf2f57b1ecb84980e5048ebc7cfce5c55dc5",
+  "runtime": "Deno 2.5.6 CLI on Strix Halo with private PostgreSQL/PostgREST",
+  "model": "openai/gpt-oss-120b",
+  "provider": "Groq",
+  "profileVersion": "2026-11-16.2",
+  "requestHash": "98f0152d8dba5a3327836099055df8242d142471b4dc28da750a7be75728f7b1",
+  "requestBytes": 10035,
+  "preparedPublicCandidates": 4,
+  "reviewedCandidates": 4,
+  "finalPhase": "complete",
+  "modelHttpRequests": 1,
+  "remoteAttempts": 1,
+  "settledCostUsd": 0.00049965,
+  "usage": {
+    "costCredits": 0.00049965,
+    "totalTokens": 2623,
+    "promptTokens": 2131,
+    "completionTokens": 492
+  },
+  "generationIdSha256": "aa66fcf3019ddbfd0b7a5865466f6e5c21b29d031a86f11dc118816b7fa0d280",
+  "boundConfig": {
+    "model": "openai/gpt-oss-120b",
+    "routing": "openrouter-no-fallback",
+    "timeoutMs": 30000,
+    "policyVersion": "2026-11-14.1",
+    "maxCostCredits": 0.058983,
+    "requestProfile": {
+      "version": "2026-11-16.2",
+      "provider": {
+        "zdr": true,
+        "only": [
+          "groq"
+        ],
+        "order": [
+          "groq"
+        ],
+        "max_price": {
+          "prompt": 0.15,
+          "request": 0,
+          "completion": 0.6
+        },
+        "allow_fallbacks": false,
+        "require_parameters": true
+      },
+      "reasoning": {
+        "effort": "low"
+      },
+      "responseFormat": "discovery-json-schema-v1"
+    },
+    "maxOutputTokens": 2048,
+    "reviewBatchSize": 4,
+    "expectedProvider": "Groq",
+    "maxResponseBytes": 200000
+  },
+  "duplicateTrigger": {
+    "status": "busy",
+    "modelHttpRequests": 0
+  },
+  "afterNaturalLeaseExpiry": {
+    "leaseSeconds": 120,
+    "finalPhase": "complete",
+    "modelHttpRequests": 0
+  },
+  "remoteHeldCredits": 0.0,
+  "inboxWrites": 0,
+  "publicationWrites": 0,
+  "producerEnabled": false,
+  "localDevelopmentTrials": [
+    {
+      "model": "openai/gpt-oss-120b",
+      "provider": "Groq",
+      "elapsedMs": 1300,
+      "usage": {
+        "promptTokens": 2131,
+        "completionTokens": 440,
+        "totalTokens": 2571,
+        "costCredits": 0.00058365
+      },
+      "evaluation": {
+        "policyVersion": "2026-11-14.1",
+        "total": 4,
+        "reviewed": 4,
+        "correct": 3,
+        "missing": [],
+        "falsePositives": [
+          "54ac9639ee0c2a73110e14ad1e7464fff98f032b49633106dceb0474b6ce119e"
+        ],
+        "missedCandidates": [],
+        "complete": true,
+        "modelQualityProven": false,
+        "publishingEnabled": false
+      },
+      "decisions": [
+        {
+          "id": "7900b4c0e230f23a6afc852d87a6214d0abf758e2236a04e9f0c59fb72b16b68",
+          "action": "skip",
+          "reason": "Minor template rendering optimization in llama.cpp; not a material change for inference workloads."
+        },
+        {
+          "id": "bbaa8cf12115d9417dac9f08f865c0e5043cdd883407341dfcb2e2f63d18e3c7",
+          "action": "skip",
+          "reason": "Simple pruning feature addition in llama.cpp; does not constitute a significant performance or capability shift."
+        },
+        {
+          "id": "54ac9639ee0c2a73110e14ad1e7464fff98f032b49633106dceb0474b6ce119e",
+          "action": "verify",
+          "reason": "vLLM release adds backend support for Gemma and StableLM, a notable capability expansion for inference frameworks."
+        },
+        {
+          "id": "84ad6675e124e06413af818b1f01330b2fe9263f2fae5f7daf9b4d54e116c075",
+          "action": "verify",
+          "reason": "Anthropic announces new Claude Fable 5.2 and Claude Mythos 5.2 models, relevant frontier model news."
+        }
+      ]
+    },
+    {
+      "model": "openai/gpt-oss-120b",
+      "provider": "Groq",
+      "elapsedMs": 1279,
+      "usage": {
+        "promptTokens": 2158,
+        "completionTokens": 473,
+        "totalTokens": 2631,
+        "costCredits": 0.0006075
+      },
+      "evaluation": {
+        "policyVersion": "2026-11-14.1",
+        "total": 4,
+        "reviewed": 4,
+        "correct": 3,
+        "missing": [],
+        "falsePositives": [],
+        "missedCandidates": [
+          "176242b0d420d0336e3c6e7bb822330fb473d9c9250eea1ee1f91bac0426bcd8"
+        ],
+        "complete": true,
+        "modelQualityProven": false,
+        "publishingEnabled": false
+      },
+      "decisions": [
+        {
+          "id": "f0b3b3d296c95a2e62c13f2fcb6de891219de850c8d30c308d8dbba5ec7998e4",
+          "action": "verify",
+          "reason": "Major release of llama.cpp v1.0.0 is a high\u2011level, material update to a key local inference library relevant to AMD/Lemonade work."
+        },
+        {
+          "id": "f82752566b67707cc4b188938a4efe42aec3510002e1d085a2c889606dd75b68",
+          "action": "skip",
+          "reason": "Security fix and UI tweak for Claude Code are routine, low\u2011level changes without broader impact on inference capabilities."
+        },
+        {
+          "id": "176242b0d420d0336e3c6e7bb822330fb473d9c9250eea1ee1f91bac0426bcd8",
+          "action": "skip",
+          "reason": "ChatGPT Wallet is a product feature unrelated to model inference, hardware, or developer tooling."
+        },
+        {
+          "id": "83e57d0f3721603cff907d1d365f5c55f5a08371eb90a176360ab850e4f1ebfa",
+          "action": "skip",
+          "reason": "PyTorch\u2011specific kernel optimization is granular and not directly relevant to Tomas\u2019s workflow, which does not use PyTorch directly."
+        }
+      ]
+    },
+    {
+      "model": "openai/gpt-oss-120b",
+      "provider": "Groq",
+      "elapsedMs": 596,
+      "usage": {
+        "promptTokens": 1808,
+        "completionTokens": 161,
+        "totalTokens": 1969,
+        "costCredits": 0.0003678
+      },
+      "evaluation": {
+        "policyVersion": "2026-11-14.1",
+        "total": 1,
+        "reviewed": 1,
+        "correct": 1,
+        "missing": [],
+        "falsePositives": [],
+        "missedCandidates": [],
+        "complete": true,
+        "modelQualityProven": false,
+        "publishingEnabled": false
+      },
+      "decisions": [
+        {
+          "id": "83e57d0f3721603cff907d1d365f5c55f5a08371eb90a176360ab850e4f1ebfa",
+          "action": "skip",
+          "reason": "Granular PyTorch kernel improvement without clear impact on AMD/Lemonade inference tooling; policy excludes routine PyTorch kernel news."
+        }
+      ]
+    }
+  ],
+  "gptOssDevelopmentLabelAgreement": {
+    "reviewed": 8,
+    "agreed": 6,
+    "labelStatus": "one owner label and seven provisional labels; not held out",
+    "disagreements": [
+      "vLLM backend migration release candidate: model verify, provisional label skip",
+      "ChatGPT Wallet feature: model skip, provisional label verify"
+    ],
+    "helionScopeRegression": "skip for PyTorch scope, no published-summary shortcut"
+  },
+  "campaign": {
+    "approvedUsd": 2,
+    "maximumAttempts": 24,
+    "attempts": 14,
+    "reportedActualSpendUsd": 0.005004461,
+    "roundedUpLedgerSpendUsd": 0.005008,
+    "globalUnresolvedAttempts": 0,
+    "automaticRetries": 0
+  },
+  "cleanup": {
+    "ownedContainersRemoved": true,
+    "ownedNetworksRemoved": true,
+    "ownedVolumesRemoved": true,
+    "runtimeKeyAndJwtEnvFilesRemoved": true,
+    "machineReservationReleasedAndVerifiedFree": true
+  },
+  "modelQualityProven": false,
+  "productionEnabled": false,
+  "publishingEnabled": false,
+  "limitations": [
+    "Prepared four-candidate public development batch, not live-feed discovery",
+    "Deno CLI shared-runtime test, not a paid HTTP gateway/scheduler or Supabase cloud Edge proof",
+    "Previous 405-candidate hosted campaign used fabricated inference; current local SQL tests cover all 405 with new immutable controls",
+    "Six of eight development labels (seven provisional) is not production quality acceptance",
+    "Full-scan ranking/selection and downstream verification/publication integration are not demonstrated by this smoke"
+  ]
+}

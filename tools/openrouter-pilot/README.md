@@ -95,5 +95,11 @@ Metadata/key GET probes from the same host/container network succeeded; the
 inference timeout cause is unconfirmed. Following the owner's model flexibility,
 GPT-oss-120B via Groq is the next candidate, using the same generic four-case
 runtime and all existing guards. Profile `2026-11-16.2` requires low reasoning
-(the model is a reasoner) and ZDR; prior profiles remain unchanged. This paragraph
-records a candidate change, not a passing GPT-oss result.
+(the model is a reasoner) and ZDR; prior profiles remain unchanged. The candidate subsequently passed all three local format/coverage trials in
+1.30, 1.28 and 0.60 seconds. It agreed with six of eight development
+labels (seven provisional) and passed the separate Helion scope regression; those disagreements
+remain visible and are not tuned away. A one-call hosted SQL smoke also passed
+for 0.00049965 USD. Total campaign spend is now 0.005004461 USD over 14 attempts,
+with no global unresolved holds. This supports the development candidate and
+technical plumbing, not autonomous editorial or publishing qualification. See
+`docs/evidence/2026-11-16-strix-halo-paid/`.

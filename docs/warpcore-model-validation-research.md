@@ -207,3 +207,45 @@ nine dispatches, with all uncertainty holds reconciled and no automatic retries.
 Sanitized costs, coverage, failures and limits are recorded in the
 [pilot result](evidence/2026-11-16-openrouter-canary/result.json). The pilot does
 not establish held-out quality or activate the producer.
+
+
+## November 16 model-independent follow-through
+
+The owner explicitly preferred switching candidates over substantial Gemma-specific
+work. The generic SQL/runtime integration now binds true-only ZDR, actual provider
+identity and effective batch settings. The inactive entrypoint supplies 30-second
+model timeouts, 120-second leases and four-candidate invocation batches. Historical
+request profiles remain unchanged; experimental runs with old bindings intentionally
+fail closed rather than receiving an implicit migration.
+
+The actual hosted Gemma call timed out. Its uncertain SQL checkpoint and full private
+state dump were preserved; refreshed authenticated Logs had no matching generation
+and key usage was unchanged, so the parent recorded zero reported charge without
+inventing native tokens. Public/authenticated metadata probes from the same container
+network succeeded. The timeout cause remains unconfirmed.
+
+The replacement development candidate is `openai/gpt-oss-120b` through OpenRouter,
+pinned to Groq with ZDR and low reasoning under profile `2026-11-16.2`.
+[OpenAI](https://openai.com/open-models/) publishes the model under Apache 2.0;
+[Groq](https://console.groq.com/docs/model/openai/gpt-oss-120b) documents low/medium/high
+reasoning. The specific route advertises structured outputs; requests use strict
+JSON Schema with local validation. Input/output routing ceilings are 0.15/0.60 USD
+per million tokens. Full context/completion limits yield a 0.058983 USD reservation.
+[Endpoint/ZDR evidence](evidence/2026-11-16-strix-halo-paid/endpoint.json) freezes the
+exact provider rather than assuming the cheapest catalog row is eligible.
+
+The three local development calls completed in 1.30, 1.28 and 0.60 seconds. Agreement
+was six of eight development labels (seven provisional), plus the separate Helion scope
+regression. The two disagreements remain recorded: backend-migration release-candidate
+significance and ChatGPT Wallet relevance. This is not held-out quality acceptance.
+
+A single actual Deno/PostgREST/PostgreSQL call on Strix Halo reviewed four prepared
+public candidates for 0.00049965 USD, with exact request hash, actual Groq identity,
+complete SQL cost audit and no outstanding hold. An overlapping invocation was busy;
+after natural lease expiry, completion used zero further model calls. All owned
+services, runtime secrets and volumes were removed and the machine lock released.
+Total reported campaign spend is 0.005004461 USD across 14 attempts, below the approved
+2 USD/24-attempt ceiling. The canonical ledger retains all failed attempts.
+[Sanitized hosted evidence](evidence/2026-11-16-strix-halo-paid/result.json) separates
+this shared-runtime CLI smoke from live-feed discovery, paid HTTP/scheduler gateway,
+Supabase cloud behavior, full-scan selection and production activation.

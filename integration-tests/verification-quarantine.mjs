@@ -12,7 +12,7 @@ try{
  create table public.warpcore_curator_inbox(story_key text);create table public.warpcore_publications(story_key text);
  create table shadow_agent.runtime_settings(singleton boolean,model text);
  insert into shadow_agent.runtime_settings values(true,'openai/gpt-oss-120b');
- create function shadow_agent.approved_runtime_model(text) returns jsonb language sql as 'select case when $1 in (''openai/gpt-oss-120b'',''nvidia/nemotron-3.5-super-vl'') then jsonb_build_object(''model'',$1) end';
+ create function shadow_agent.approved_runtime_model(text) returns jsonb language sql as 'select case when $1 in (''openai/gpt-oss-120b'',''nvidia/nemotron-3.5-super-vl'') then jsonb_build_object(''model'',$1,''provider'',case when $1=''openai/gpt-oss-120b'' then ''Cerebras'' else ''Together'' end) end';
  create function shadow_agent.verification_lock() returns void language sql as 'select';`);
  await db.exec(await fs.readFile(new URL('../supabase/functions/news-agent/sql/verification-quarantine.sql',import.meta.url),'utf8'));
  await q(`insert into shadow_agent.budgets values((now() at time zone 'utc')::date,2,.157287,.03,false)`);
@@ -38,6 +38,32 @@ try{
   await db.exec('begin');await q('update shadow_agent.verification_audit set audit=$1',[audit]);await assert.rejects(()=>call(),/timeout|429/i);await db.exec('rollback');
  }
  await db.exec('begin');await q('update shadow_agent.verification_audit set audit=$1',[{errorCode:'http_failure',diagnostic:{httpStatus:429}}]);assert.equal((await call()).quarantined,true);await db.exec('rollback');
+ // Explicit owner-reviewed V3→V4 schema rejection, same-model exception only.
+ await db.exec('begin');
+ await q('update shadow_agent.verification_jobs set metadata=$1',[{model:'openai/gpt-oss-120b',expectedProvider:'Cerebras',profileVersion:'2026-11-17.verify.3'}]);
+ const rejectedAudit={errorCode:'http_failure',diagnostic:{httpStatus:400,providerErrorType:'invalid_request_error'}};
+ await q('update shadow_agent.verification_audit set audit=$1',[rejectedAudit]);
+ const manifest='c'.repeat(64),typed=(profile='2026-11-17.verify.4',sha=manifest)=>v('select shadow_agent.quarantine_rejected_verification_v3($1,$2,$3,$4,$5,$6) v',[job,attempt,7,profile,sha,'Owner verified exact deployed V4 manifest; original cost remains unknown held.']);
+ async function typedRefused(sql,pattern,profile='2026-11-17.verify.4',sha=manifest){await db.exec('savepoint typed_refusal');if(sql)await db.exec(sql);await assert.rejects(()=>typed(profile,sha),pattern);await db.exec('rollback to typed_refusal');}
+ await db.exec('savepoint original_refusal');await assert.rejects(()=>call(),/Different reviewed active model/);await db.exec('rollback to original_refusal');
+ for(const profile of [null,'2026-11-17.verify.3','arbitrary'])await typedRefused(null,/provenance/,profile);
+ for(const sha of [null,'','c'.repeat(63),'z'.repeat(64),'c'.repeat(64)+'\n'])await typedRefused(null,/provenance/,'2026-11-17.verify.4',sha);
+ for(const mutate of ["update shadow_agent.verification_jobs set metadata=jsonb_set(metadata,'{profileVersion}','\"2026-11-17.verify.2\"')","update shadow_agent.verification_jobs set metadata=jsonb_set(metadata,'{expectedProvider}','\"Groq\"')","update shadow_agent.runtime_settings set model='nvidia/nemotron-3.5-super-vl'"])await typedRefused(mutate,/V3 Cerebras|reviewed/i);
+ await typedRefused("update shadow_agent.verification_jobs set status='pending'",/uncertain/i);
+ await typedRefused("update shadow_agent.attempts set status='settled',actual=.01",/unknown/);
+ await typedRefused("update shadow_agent.runs set held_credits=.1",/hold/);
+ await typedRefused("update shadow_agent.budgets set held_credits=.1",/hold/);
+ await typedRefused("update shadow_agent.verification_jobs set receipt_id=gen_random_uuid()",/Receipt|inbox/);
+ await typedRefused(`insert into public.warpcore_curator_inbox values('${'a'.repeat(64)}')`,/Receipt|inbox/);
+ for(const bad of [{errorCode:'timeout'},{errorCode:'http_failure',diagnostic:{httpStatus:429,providerErrorType:'invalid_request_error'}},{errorCode:'http_failure',diagnostic:{httpStatus:400,providerErrorType:'permission_error'}},{errorCode:'http_failure',diagnostic:{httpStatus:400}},{...rejectedAudit,usage:{costCredits:0}}])await typedRefused('update shadow_agent.verification_audit set audit='+"'"+JSON.stringify(bad)+"'::jsonb",/Recorded HTTP 400/);
+ const beforeTyped=await snapshot(),beforeJob=(await q("select to_jsonb(j)-'quarantined' value from shadow_agent.verification_jobs j"))[0].value;
+ const typedResult=await typed();assert.equal(typedResult.quarantined,true);assert.equal(typedResult.replacementProfile,'2026-11-17.verify.4');assert.equal(typedResult.deploymentSha256,manifest);
+ assert.deepEqual(await snapshot(),beforeTyped,'Explicit schema quarantine preserves all unknown financial and workflow history');assert.deepEqual((await q("select to_jsonb(j)-'quarantined' value from shadow_agent.verification_jobs j"))[0].value,beforeJob);
+ const provenance=(await q('select * from shadow_agent.verification_quarantine_audit'))[0];assert.equal(provenance.replacement_profile_version,'2026-11-17.verify.4');assert.equal(provenance.deployment_sha256,manifest);assert.deepEqual(provenance.unknown_audit,rejectedAudit);
+ assert.equal(await typed(),null);await db.exec('savepoint typed_fence');await assert.rejects(()=>v('select shadow_agent.claim($1,120) v',[run]),/Quarantined/);await db.exec('rollback to typed_fence');
+ for(const role of ['anon','authenticated','service_role']){await db.exec('set role '+role);await db.exec('savepoint typed_worker');await assert.rejects(()=>typed(),/permission/);await db.exec('rollback to typed_worker');await db.exec('reset role');}
+ assert.equal(await v("select shadow_agent.settle($1,$2,'settled',.01) v",[attempt,lease]),true,'Schema quarantine retains original-token late accounting');assert.equal((await q('select status from shadow_agent.verification_jobs'))[0].status,'uncertain');
+ await db.exec('rollback');
  const before=await snapshot();const result=await call();assert.equal(result.quarantined,true);assert.deepEqual(await snapshot(),before,'All money, workflow, attempts and existing audits unchanged');
  assert.equal((await q('select status,quarantined from shadow_agent.verification_jobs'))[0].status,'uncertain');assert.equal((await q('select quarantined from shadow_agent.verification_jobs'))[0].quarantined,true);
  assert.equal(await call(),null,'Repeated owner action cannot create another audit');

@@ -109,3 +109,14 @@ test('V3 prompt has one reference-only support protocol while V2 copied-quote wo
 test('semantic approval text remains valid for normal newlines and astral emoji',async()=>{
  const {input,result}=await fixture();result.scopeReason='Direct engineering relevance.\n🦀 Local inference.';result.changeReason='A supported capability.\n🧪';const approved=await validateVerificationResult(result,input);assert.equal(approved.action,'approve');assert.equal(approved.judgment.scopeReason,result.scopeReason);assert.equal(approved.judgment.changeReason,result.changeReason);
 });
+test('V4 provider grammar rejects the concrete V3 oversized/unsupported schema without loosening local proof',async()=>{
+ const {assertCerebrasSchemaCompatibility,cerebrasSchemaMetrics,buildVerificationResponseFormat}=await import('./verification-contract.mjs');assert.equal(typeof assertCerebrasSchemaCompatibility,'function');
+ const {input}=await fixture();input.evidence[0].url='https://github.com/lemonade-sdk/lemonade/releases/tag/candidate-v2026.46.2';input.sources[0].url=input.evidence[0].url;const id='urn:warpcore:rss:lemonade_releases:tag%3Agithub.com%2C2008%3ARepository%2F984341155%2Fcandidate-v2026.46.2';input.evidence[0].id=id;input.sources[0].evidenceId=id;input.sources[0].body='x'.repeat(200000);
+ const failed=buildVerificationResponseFormat(input,{version:'2026-11-17.verify.3'}).json_schema.schema;assert.ok(cerebrasSchemaMetrics(failed).countedText>5000);assert.throws(()=>assertCerebrasSchemaCompatibility(failed));
+ const current=buildVerificationResponseFormat(input).json_schema.schema,metrics=assertCerebrasSchemaCompatibility(current);assert.ok(metrics.countedText<=5000);assert.ok(metrics.totalEnumValues<=500);assert.ok(metrics.totalProperties<=500);assert.ok(metrics.maxDepth<=10);assert.deepEqual(metrics.unsupportedKeywords,[]);
+ for(const patch of [{pattern:'x'},{minItems:1},{maxItems:1},{minLength:1},{maxLength:1}])assert.throws(()=>assertCerebrasSchemaCompatibility({type:'object',properties:{value:{type:'string',...patch}},required:['value'],additionalProperties:false}));
+});
+test('V4 prompt exposes numeric trusted editorial caps without changing explicit V3 history',async()=>{
+ const {input}=await fixture();input.evidence[0].url='https://ir.amd.com/fixture-release';input.sources[0].url=input.evidence[0].url;const options={model:'openai/gpt-oss-120b',maxOutputTokens:4096};const current=buildVerificationRequest(input,options),old=buildVerificationRequest(input,{...options,version:'2026-11-17.verify.3'});
+ assert.match(current.messages[0].content,/V4 TRUSTED EDITORIAL LIMITS:/);assert.equal(old.messages[0].content.includes('V4 TRUSTED EDITORIAL LIMITS:'),false);assert.match(current.messages[0].content,/"summaryMaxLength":[0-9]+/);assert.match(current.messages[0].content,/"whyItMattersMaxLength":[0-9]+/);assert.match(current.messages[0].content,/"evidenceIdsExactly":\["e1"\]/);
+});

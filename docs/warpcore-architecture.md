@@ -12,13 +12,13 @@ This is the central current reference for Warp Core. The checkpoint below is an 
 | Source acquisition health | All 43 sources attempted within the checkpoint’s two-hour window: 37 historical gaps, five partial traversals and one Perplexity HTTP 403 failure; these are distinct outcomes, not 43 collection outages |
 | Existing curator | Version 6, hourly at `:23`, active with the existing Dot pipeline and receipt-aware agent adapter; authenticated empty-queue check passed |
 | Publisher | Version 11, hourly at `:27`, active with its existing account, queue and guards |
-| Autonomous producer | `news-agent` version 5, discovery-stage bundle from `d447cf3`; Together profile `2026-11-17.5` full-feed validation in progress. Verification and submission remain off |
-| Paused discovery run | Earlier incomplete runs retain 0.0240519 settled credits and 0.21627 unknown held credits. Both HTTP-429 workflows are quarantined; no holds were released. Current Together run captured 650 candidates; final coverage and quality are not yet accepted |
-| Replacement discovery contract | Reviewed NVIDIA Nemotron 3.5 / Together profile `2026-11-17.5`, coded keyed schema v4. It preserves the `.17.4` prompt and schema while changing the pinned provider; historical profiles remain immutable. Development label agreement is not held-out or owner acceptance |
-| Verification and admission | Receipt, verification-job and shared five-item guard SQL installed; verification disabled and `submit_enabled=false` |
+| Autonomous producer | `news-agent` version 10, full runtime from `1bc79e8`; GPT-oss-120B / Cerebras profile `2026-11-17.6`. Producer and continuation cron paused after a verification HTTP 400; submission remains off |
+| Paused discovery run | Two Together discovery cycles completed 650/650 and 651/651 assessments for 0.06916930 and 0.06925995 credits. Earlier unknown holds remain preserved; full coverage does not establish editorial quality |
+| Replacement discovery contract | Reviewed GPT-oss-120B / Cerebras profile `2026-11-17.6`, coded keyed discovery schema v4, 8192 output ceiling and 0.076596-credit conservative reservation. Historical Groq/NVIDIA profiles remain immutable; current Cerebras discovery still needs a complete live cycle |
+| Verification and admission | Receipt, verification-job and shared five-item guard SQL installed; verification enabled, backfill enabled, `submit_enabled=false`; no source-verified receipt or autonomous publication yet |
 | Spending policy | Private ledger and existing prepaid OpenRouter credits; recorded limits are 2 credits per UTC day and 19.99 credits lifetime |
 | Exception alerts | Dashboard delivery implemented as a prepared option; disabled. The owner has not selected the delivery channel |
-| Public owner feedback | SQL installed disabled; code and tests available. Halo public-API check returned an explicit empty-feed coverage gap; full runtime not yet deployed |
+| Public owner feedback | SQL and full runtime deployed, disabled. Halo public-API check returned an explicit empty-feed coverage gap |
 
 The fourth batch of 16 failed exact decision coverage with `incomplete_decisions` and was not committed as reviewed coverage. The SQL audit retained its error code and known usage, not the raw completion or returned decision count. Its known cost was settled; the run remains incomplete. The replacement schema makes every supplied candidate ID a required object key, then converts validated values into the existing ordered decision records. Earlier profile `2026-11-16.3` and its billed request history remain intact.
 
@@ -76,7 +76,7 @@ The hosted bootstrap uses the existing Supabase project URL and trusted server s
 
 The service role is trusted server infrastructure, not a model worker. Managed Supabase already gives it Vault privileges. Private tables and administrative helpers retain their own grants; anonymous/authenticated callers and the model receive neither credentials nor arbitrary SQL authority. See [producer implementation details](warpcore-agent-producer.md) for the fixed RPC and scheduler contracts.
 
-Every paid request requires a pre-existing ledger reservation and a recorded dispatch. Known usage settles before content validation; an invalid completion does not erase its cost. Unknown usage retains a conservative hold and prevents automatic paid replay. Daily provisioning respects lifetime headroom and never raises or resets an existing budget. The hosted discovery bounds are 16 candidates per batch and 4096 output tokens. Optional fenced release of a successfully committed lease lets the next invocation continue promptly without changing coverage or paid-attempt history.
+Every paid request requires a pre-existing ledger reservation and a recorded dispatch. Known usage settles before content validation; an invalid completion does not erase its cost. Unknown usage retains a conservative hold and prevents automatic paid replay. Daily provisioning respects lifetime headroom and never raises or resets an existing budget. The current hosted discovery bounds are 16 candidates per batch and 8192 output tokens; historical NVIDIA requests used 4096. Optional fenced release of a successfully committed lease lets the next invocation continue promptly without changing coverage or paid-attempt history.
 
 `warpcore_agent_health()` exposes safe operational aggregates. Source health should be compared against the exact configured 43-source key set using `warpcore_source_sync_health`; the older digest reader's source-health view is a separate dataset. Report recent attempts, partial progress, historical gaps and failures separately.
 
@@ -98,6 +98,12 @@ Use the existing reviewed deployment and admin tooling. Record exact targets and
 6. **Choose and enable the producer.** Once the evidence gates pass, use the shared cutover boundary to make the agent the sole new editorial producer, enable its submission gate, and confirm the Dot no longer creates new submissions. Preserve existing pending work and the collection-aware publisher. Select the operational alert channel and enable only its reviewed delivery path. Do not remove the Dot fallback before independent operation is proven.
 
 The implementation, new public-readback acceptance, owner-reviewed model quality and final cutover are separate milestones. This document does not declare the overall autonomous-agent goal complete.
+
+## Launch acceptance targets
+
+Before submission is enabled, every proposed publication must have a supported current primary source or an exact native original, an in-window source date, complete-history duplicate review, all attribution links, and a prepared record within 300 graphemes and 3000 UTF-8 bytes. The reviewed sample set must contain zero unsupported factual assertions, lost material benchmark qualifications, already-published events, political exclusions or wrongly attributed originals. These are launch targets, not measured results.
+
+Coverage requires every captured eligible candidate to receive one durable assessment before ranking, with no silent truncation. Review representative omissions alongside selections, including routine release candidates, old announcements, duplicate launches and material model/hardware changes. Record model judgment separately from deterministic source bindings. Two complete hosted discovery scans are recorded; current-model unattended operation, empty-cycle behavior and actual public display/readback remain separate acceptance evidence.
 
 ## Stop and rollback
 

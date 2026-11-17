@@ -45,23 +45,25 @@ begin
  or (p_config->>'maxResponseBytes')::numeric not between 1 and 200000
  or jsonb_typeof(p_config->'maxCostCredits') is distinct from 'number' then raise exception 'Invalid runtime config'; end if;
  if not((p_config->>'maxCostCredits')::numeric>0 and (p_config->>'maxCostCredits')::numeric<1000000) then raise exception 'Invalid runtime config'; end if;
- if p_config->>'model' in ('nvidia/nemotron-3.5-super-vl','nvidia/nemotron-3-super-120b-a12b') and not(p_config ? 'requestProfile') then raise exception 'Invalid approved runtime profile';end if;
+ if p_config->>'model' in ('nvidia/nemotron-3.5-super-vl','nvidia/nemotron-3-super-120b-a12b','meta-llama/llama-4-maverick') and not(p_config ? 'requestProfile') then raise exception 'Invalid approved runtime profile';end if;
  -- Optional immutable routing/structured-output profile. Keep only the
  -- reviewed public contract, never arbitrary transport parameters or secrets.
  if p_config ? 'requestProfile' then
   profile:=p_config->'requestProfile';
-  if (p_config->>'model'='nvidia/nemotron-3.5-super-vl' and profile->>'version' not in ('2026-11-17.1','2026-11-17.3','2026-11-17.4','2026-11-17.5')) or (p_config->>'model'='nvidia/nemotron-3-super-120b-a12b' and profile->>'version'<>'2026-11-17.2') then raise exception 'Invalid approved runtime profile';end if;
+  if (p_config->>'model'='nvidia/nemotron-3.5-super-vl' and profile->>'version' not in ('2026-11-17.1','2026-11-17.3','2026-11-17.4','2026-11-17.5')) or (p_config->>'model'='nvidia/nemotron-3-super-120b-a12b' and profile->>'version'<>'2026-11-17.2') or (p_config->>'model'='meta-llama/llama-4-maverick' and profile->>'version' is distinct from '2026-11-17.7') then raise exception 'Invalid approved runtime profile';end if;
   if jsonb_typeof(profile) is distinct from 'object'
-  or (profile-'version'-'provider'-'responseFormat'-'reasoning'-'rankingRubricVersion')<>'{}'::jsonb
+  or (profile-'version'-'provider'-'responseFormat'-'reasoning'-'rankingRubricVersion'-'temperature')<>'{}'::jsonb
   or jsonb_typeof(profile->'version') is distinct from 'string'
   or profile->>'version' !~ '^[A-Za-z0-9._-]{1,64}$'
-  or not coalesce((profile->>'responseFormat'='discovery-json-schema-v1' and profile->>'version' not in ('2026-11-16.3','2026-11-16.4','2026-11-17.1','2026-11-17.2','2026-11-17.3','2026-11-17.4','2026-11-17.5','2026-11-17.6') and not(profile ? 'rankingRubricVersion') or profile->>'responseFormat'='discovery-ranked-json-schema-v2' and profile->>'version'='2026-11-16.3' and profile->>'rankingRubricVersion'='2026-11-16.1' or profile->>'responseFormat'='discovery-keyed-ranked-json-schema-v3' and profile->>'version' in ('2026-11-16.4','2026-11-17.1','2026-11-17.2','2026-11-17.3') and profile->>'rankingRubricVersion'='2026-11-16.1' or profile->>'responseFormat'='discovery-keyed-coded-ranking-json-schema-v4' and profile->>'version' in ('2026-11-17.4','2026-11-17.5','2026-11-17.6') and profile->>'rankingRubricVersion'='2026-11-16.1'),false)
+  or not coalesce((profile->>'responseFormat'='discovery-json-schema-v1' and profile->>'version' not in ('2026-11-16.3','2026-11-16.4','2026-11-17.1','2026-11-17.2','2026-11-17.3','2026-11-17.4','2026-11-17.5','2026-11-17.6','2026-11-17.7') and not(profile ? 'rankingRubricVersion') or profile->>'responseFormat'='discovery-ranked-json-schema-v2' and profile->>'version'='2026-11-16.3' and profile->>'rankingRubricVersion'='2026-11-16.1' or profile->>'responseFormat'='discovery-keyed-ranked-json-schema-v3' and profile->>'version' in ('2026-11-16.4','2026-11-17.1','2026-11-17.2','2026-11-17.3') and profile->>'rankingRubricVersion'='2026-11-16.1' or profile->>'responseFormat'='discovery-keyed-coded-ranking-json-schema-v4' and profile->>'version' in ('2026-11-17.4','2026-11-17.5','2026-11-17.6','2026-11-17.7') and profile->>'rankingRubricVersion'='2026-11-16.1'),false)
   or jsonb_typeof(profile->'provider') is distinct from 'object'
   then raise exception 'Invalid request profile'; end if;
   if (profile->>'version' in ('2026-11-16.2','2026-11-16.3','2026-11-16.4','2026-11-17.6') and profile->'reasoning' is distinct from '{"effort":"low"}'::jsonb)
   or (profile->>'version'='2026-11-16.1' and profile->'reasoning' is distinct from '{"effort":"none"}'::jsonb)
   or (profile->>'version' not in ('2026-11-16.1','2026-11-16.2','2026-11-16.3','2026-11-16.4','2026-11-17.6') and profile ? 'reasoning' and profile->'reasoning' is distinct from '{"effort":"none"}'::jsonb)
   then raise exception 'Invalid request profile reasoning'; end if;
+  if (profile->>'version'='2026-11-17.7' and (profile ? 'reasoning' or profile->'temperature' is distinct from '0'::jsonb))
+  or (profile->>'version' is distinct from '2026-11-17.7' and profile ? 'temperature') then raise exception 'Invalid approved runtime controls';end if;
   provider:=profile->'provider';
   if (provider-'only'-'order'-'allow_fallbacks'-'require_parameters'-'max_price'-'zdr')<>'{}'::jsonb
   or jsonb_typeof(provider->'only') is distinct from 'array'
@@ -74,7 +76,7 @@ begin
   -- required in v16.1/v16.2 and forbidden in historical code-owned v15.2.
   -- Existing bound configuration remains immutable across lease/resume.
   if (provider ? 'zdr' and provider->'zdr' is distinct from 'true'::jsonb)
-  or (profile->>'version' in ('2026-11-16.1','2026-11-16.2','2026-11-16.3','2026-11-16.4','2026-11-17.1','2026-11-17.2','2026-11-17.3','2026-11-17.4','2026-11-17.5','2026-11-17.6') and provider->'zdr' is distinct from 'true'::jsonb)
+  or (profile->>'version' in ('2026-11-16.1','2026-11-16.2','2026-11-16.3','2026-11-16.4','2026-11-17.1','2026-11-17.2','2026-11-17.3','2026-11-17.4','2026-11-17.5','2026-11-17.6','2026-11-17.7') and provider->'zdr' is distinct from 'true'::jsonb)
   or (profile->>'version'='2026-11-15.2' and provider ? 'zdr')
   then raise exception 'Invalid request profile ZDR policy'; end if;
   if jsonb_array_length(provider->'only')<>1
@@ -89,6 +91,11 @@ begin
    and p_config->>'expectedProvider'='Cerebras' and provider->'only'='["cerebras/fp16"]'::jsonb
    and provider->'max_price'='{"prompt":0.35,"completion":0.75,"request":0}'::jsonb
    and p_config->'maxCostCredits'='0.076596'::jsonb and p_config->'maxOutputTokens'='8192'::jsonb
+   and p_config->'reviewBatchSize'='16'::jsonb,false) then raise exception 'Invalid approved runtime profile';end if;
+  if profile->>'version'='2026-11-17.7' and not coalesce(p_config->>'model'='meta-llama/llama-4-maverick'
+   and p_config->>'expectedProvider'='Parasail' and provider->'only'='["parasail/fp8"]'::jsonb
+   and provider->'max_price'='{"prompt":0.35,"completion":1,"request":0}'::jsonb
+   and p_config->'maxCostCredits'='0.216269'::jsonb and p_config->'maxOutputTokens'='4096'::jsonb
    and p_config->'reviewBatchSize'='16'::jsonb,false) then raise exception 'Invalid approved runtime profile';end if;
   prices:=provider->'max_price';
   if (prices-'prompt'-'completion'-'request')<>'{}'::jsonb
@@ -160,7 +167,7 @@ begin
    or (d-'generationId'-'model'-'provider'-'httpStatus'-'validationIssue'-'decisionIndex'-'providerErrorCode'-'providerErrorType'-'errorProvider'-'limitSource'-'retryAfterSeconds'-'requestId'-'cloudflareRay')<>'{}'::jsonb then raise exception 'Invalid error diagnostic';end if;
   if d ? 'providerErrorCode' and not coalesce((jsonb_typeof(d->'providerErrorCode')='number' and d->>'providerErrorCode' in ('400','401','402','403','404','408','409','413','422','429','500','502','503','504','529')) or (jsonb_typeof(d->'providerErrorCode')='string' and d->>'providerErrorCode' in ('rate_limit_exceeded','insufficient_quota','invalid_request_error','authentication_error','permission_error','not_found_error','overloaded_error','api_error','context_length_exceeded','unsupported_parameter','rate_limited','rate_limit_error','quota_exceeded','too_many_requests','RESOURCE_EXHAUSTED','engine_overloaded')),false) then raise exception 'Invalid error diagnostic';end if;
   if d ? 'providerErrorType' and (jsonb_typeof(d->'providerErrorType') is distinct from 'string' or not coalesce(d->>'providerErrorType' in ('invalid_request_error','authentication_error','permission_error','not_found_error','rate_limit_error','overloaded_error','api_error','server_error','insufficient_quota','context_length_exceeded','rate_limit_exceeded','provider_overloaded','provider_unavailable','timeout','server','authentication','permission_denied','payment_required','invalid_request','content_policy_violation','refusal','unmapped'),false)) then raise exception 'Invalid error diagnostic';end if;
-  if d ? 'errorProvider' and (jsonb_typeof(d->'errorProvider') is distinct from 'string' or not coalesce(d->>'errorProvider' in ('DeepInfra','Together','Cerebras','Groq','Anthropic','OpenAI','PrimeIntellect','Google AI Studio'),false)) then raise exception 'Invalid error diagnostic';end if;
+  if d ? 'errorProvider' and (jsonb_typeof(d->'errorProvider') is distinct from 'string' or not coalesce(d->>'errorProvider' in ('DeepInfra','Together','Cerebras','Parasail','Groq','Anthropic','OpenAI','PrimeIntellect','Google AI Studio'),false)) then raise exception 'Invalid error diagnostic';end if;
   if d ? 'limitSource' and (jsonb_typeof(d->'limitSource') is distinct from 'string' or not coalesce(d->>'limitSource' in ('upstream_provider_shared_pool','openrouter_in_flight_budget','openrouter_key_limit','openrouter_credits','openrouter_guardrail_budget','openrouter_workspace_budget'),false)) then raise exception 'Invalid error diagnostic';end if;
   if d ? 'retryAfterSeconds' and (jsonb_typeof(d->'retryAfterSeconds') is distinct from 'number' or coalesce(d->>'retryAfterSeconds','') !~ '^[0-9]{1,5}$' or (d->>'retryAfterSeconds')::numeric not between 0 and 86400) then raise exception 'Invalid error diagnostic';end if;
   if d ? 'requestId' and (jsonb_typeof(d->'requestId') is distinct from 'string' or length(d->>'requestId')>128 or d->>'requestId' !~ '^(req[-_]|gen-)[A-Za-z0-9_-]{1,124}$' or d->>'requestId' ~ U&'[\0001-\001F\007F-\009F]') then raise exception 'Invalid error diagnostic';end if;

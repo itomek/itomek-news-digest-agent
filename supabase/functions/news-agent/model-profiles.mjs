@@ -9,6 +9,7 @@ const profile=(provider,prompt,completion,disableReasoning=false)=>freeze({versi
 const openProfile=(provider,prompt,completion)=>freeze({version:'2026-11-16.1',reasoning:{effort:'none'},responseFormat:'discovery-json-schema-v1',provider:{only:[provider],order:[provider],allow_fallbacks:false,require_parameters:true,max_price:{prompt,completion,request:0},zdr:true}});
 const nvidiaProfile=(version,tag,prompt,completion)=>freeze({...openProfile(tag,prompt,completion),version,responseFormat:'discovery-keyed-ranked-json-schema-v3',rankingRubricVersion:RANKING_RUBRIC_VERSION});
 const profiles=freeze({
+ 'meta-llama/llama-4-maverick':freeze({version:'2026-11-17.7',temperature:0,responseFormat:'discovery-keyed-coded-ranking-json-schema-v4',rankingRubricVersion:RANKING_RUBRIC_VERSION,provider:{only:['parasail/fp8'],order:['parasail/fp8'],allow_fallbacks:false,require_parameters:true,max_price:{prompt:.35,completion:1,request:0},zdr:true}}),
  'nvidia/nemotron-3.5-super-vl':nvidiaProfile('2026-11-17.1','deepinfra/fp4',.15,.50),
  'nvidia/nemotron-3-super-120b-a12b':nvidiaProfile('2026-11-17.2','deepinfra/bf16',.075,.40),
  'anthropic/claude-haiku-5.5':profile('anthropic',0.5,2.5,true),
@@ -36,7 +37,7 @@ export function requestProfileForModel(model,version){
 }
 
 // Exact reviewed upstream display identities; historical profiles remain optional.
-const expectedProviders=freeze({'nvidia/nemotron-3.5-super-vl':'DeepInfra','nvidia/nemotron-3-super-120b-a12b':'DeepInfra','google/gemma-4-26b-a4b-it':'PrimeIntellect','google/gemma-4-31b-it':'DeepInfra','openai/gpt-oss-120b':'Groq'});
+const expectedProviders=freeze({'meta-llama/llama-4-maverick':'Parasail','nvidia/nemotron-3.5-super-vl':'DeepInfra','nvidia/nemotron-3-super-120b-a12b':'DeepInfra','google/gemma-4-26b-a4b-it':'PrimeIntellect','google/gemma-4-31b-it':'DeepInfra','openai/gpt-oss-120b':'Groq'});
 export function expectedProviderForModel(model,version){
  if(typeof model!=='string'||!Object.hasOwn(expectedProviders,model))return undefined;
  const selected=requestProfileForModel(model,version);if(!selected)return undefined;

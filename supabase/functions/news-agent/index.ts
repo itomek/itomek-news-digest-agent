@@ -1,9 +1,18 @@
 import {handleAgent} from './handler.mjs';
 import {createAgentService} from './services.mjs';
+import {createHostedApplication} from './hosted-application.mjs';
+import {createVerificationService} from './verification-services.mjs';
 // Defaults off. Activation requires reviewed model/pricing/budgets, database
 // installation and deployment provenance.
 // Platform JWT verification is required in addition to this dedicated token.
+let hosted;
 Deno.serve((req:Request)=>{
+ // Existing env-based installations keep their explicit gate. New deployment
+ // uses protected database activation (default off) and private Vault bootstrap.
+ if(!Deno.env.get('WARPCORE_AGENT_CRON_TOKEN')){
+  hosted??=createHostedApplication({projectUrl:Deno.env.get('SUPABASE_URL'),serviceKey:Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')},{createVerifierService:createVerificationService});
+  return hosted(req);
+ }
  let service:ReturnType<typeof createAgentService>;
  const getService=()=>service??=createAgentService({
   projectUrl:Deno.env.get('SUPABASE_URL'),

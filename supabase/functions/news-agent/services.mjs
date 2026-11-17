@@ -1,6 +1,6 @@
 import {runPagedShadowInvocation} from './paged-runtime.mjs';
 import {createCandidateSource} from './candidate-source.mjs';
-const operations={claim:['p_run','p_seconds'],load:['p_run'],paged_append:['p_run','p_lease','p_revision','p_page'],paged_preview:['p_run','p_lease','p_revision','p_size'],paged_begin:['p_run','p_lease','p_revision','p_size'],paged_commit:['p_run','p_lease','p_revision','p_decisions'],paged_uncertain:['p_run','p_lease','p_revision'],paged_bind_config:['p_run','p_lease','p_config'],paged_reserve:['p_run','p_lease','p_revision','p_hash','p_max'],dispatch:['p_attempt','p_lease'],paged_settle:['p_attempt','p_lease','p_status','p_cost','p_audit']};
+const operations={release:['p_run','p_lease'],claim:['p_run','p_seconds'],load:['p_run'],paged_append:['p_run','p_lease','p_revision','p_page'],paged_preview:['p_run','p_lease','p_revision','p_size'],paged_begin:['p_run','p_lease','p_revision','p_size'],paged_commit:['p_run','p_lease','p_revision','p_decisions'],paged_uncertain:['p_run','p_lease','p_revision'],paged_bind_config:['p_run','p_lease','p_config'],paged_reserve:['p_run','p_lease','p_revision','p_hash','p_max'],dispatch:['p_attempt','p_lease'],paged_settle:['p_attempt','p_lease','p_status','p_cost','p_audit']};
 const uuid=/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/;
 // Fixed-origin RPC transport only; SQL text is matched locally, never sent remotely.
 // Administrative setup and producer activation are separate from this adapter.

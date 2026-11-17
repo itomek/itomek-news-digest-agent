@@ -38,3 +38,32 @@ test('batch never retries uncertain finalization and continues independent stori
  const rows=[row,{...structuredClone(row),id:'44444444-4444-4444-8444-444444444444',story_key:'c'.repeat(64)}];const calls=[];const db=dbFor();db.claim=async()=>rows;db.snapshot=async key=>({story_key:key,evidence_hash:row.evidence_hash,evidence:row.evidence});db.finalize=async r=>{calls.push(r.id);if(r===row)throw Error('uncertain');return true;};
  assert.deepEqual(await s.drainBatch(config,db,now),[{state:'finalization_uncertain'},{state:'approved'}]);assert.deepEqual(calls,rows.map(r=>r.id));
 });
+function agentFixture(){
+ const agentId='warpcore-news-agent-v1',receiptId='55555555-5555-4555-8555-555555555555';
+ const item={...structuredClone(row),actor_kind:'agent',dot_id:null,agent_id:agentId,verification_receipt_id:receiptId};
+ const proof={id:receiptId,receiptHash:'c'.repeat(64),issuedAt:new Date(now-1000).toISOString(),expiresAt:new Date(now+60000).toISOString(),current:true,evidence:structuredClone(item.evidence),material:{version:'agent-verification-v1',agentId,runId:item.run_id,storyKey:item.story_key,evidenceHash:item.evidence_hash,editorial:structuredClone(item.editorial),judgment:{method:'model-supported-primary-evidence',factsSupported:true,scopeApproved:true,meaningfulChange:true,dedupClear:true,historyHash:'d'.repeat(64)}}};
+ const db=dbFor(item);db.receipt=async id=>{assert.equal(id,receiptId);return structuredClone(proof);};
+ return {item,proof,db,config:{accountDid:config.accountDid,dotId:config.dotId,agentId}};
+}
+test('truthful agent identity needs current durable receipt, never Dot impersonation',async()=>{
+ const f=agentFixture();let finalized;f.db.finalize=async r=>{finalized=r;return true;};
+ assert.deepEqual(await s.drainOne(f.config,f.db,now),[{state:'approved'}]);assert.equal(finalized.dot_id,null);assert.equal(finalized.agent_id,f.config.agentId);
+ const bad={...f.item,dot_id:'forged-dot'};assert.deepEqual(await s.drainOne(f.config,dbFor(bad),now),[{state:'rejected'}]);
+});
+test('agent receipt mismatch, expiry, unsupported judgment and stale history fail closed',async()=>{
+ for(const mutate of [r=>r.current=false,r=>r.id='66666666-6666-4666-8666-666666666666',r=>r.expiresAt=new Date(now-1).toISOString(),r=>r.material.editorial.summary='changed',r=>r.material.agentId='other',r=>r.material.judgment.factsSupported=false,r=>r.evidence=[]]){
+  const f=agentFixture();mutate(f.proof);f.db.receipt=async()=>f.proof;f.db.finalize=async()=>{throw Error('must not approve invalid receipt');};
+  assert.deepEqual(await s.drainOne(f.config,f.db,now),[{state:'rejected'}]);
+ }
+});
+test('agent receipt RPC outage defers without inventing proof or rejecting',async()=>{
+ const f=agentFixture();f.db.receipt=async()=>{throw Error('outage');};f.db.fail=f.db.finalize=async()=>{throw Error('must defer');};
+ assert.deepEqual(await s.drainOne(f.config,f.db,now),[{state:'verification_deferred'}]);
+});
+
+test('shared inbox drain requires configured Dot identity before claiming any actor',async()=>{
+ const f=agentFixture();delete f.config.dotId;let claims=0,failures=0;
+ f.db.claim=async()=>{claims++;return [structuredClone(row)];};f.db.fail=async()=>{failures++;return true;};
+ await assert.rejects(()=>s.drainOne(f.config,f.db,now),/truthful actor identity/);
+ assert.equal(claims,0);assert.equal(failures,0);
+});

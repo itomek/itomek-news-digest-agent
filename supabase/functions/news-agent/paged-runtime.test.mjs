@@ -224,3 +224,14 @@ test('new researched provider is persisted on successful audit and cannot be wea
  await runPagedShadowInvocation({runId,config:cfg,...f,fetcher},{reviewBatchSize:4});
  assert.equal(f.decisions.length,1);assert.equal(f.audits[0].provider,'DeepInfra');assert.equal(f.bindings[0].expectedProvider,'DeepInfra');assert.equal(f.bindings[1].reviewBatchSize,4);
 });
+test('optional successful lease release follows durable checkpoint and defaults off',async()=>{
+ for(const enabled of [false,true]){const f=fixture();await runPagedShadowInvocation({runId,config,...f},{releaseLeaseOnSuccess:enabled});assert.equal(f.events.includes('release'),enabled);if(enabled)assert.ok(f.events.indexOf('release')>f.events.indexOf('paged_append'));}
+});
+test('release is attempted after safe budget deferral but never after uncertain model attempt',async()=>{
+ const f=fixture({denialReason:'insufficient_budget'});await runPagedShadowInvocation({runId,config,...f},{pageSteps:2});await runPagedShadowInvocation({runId,config,...f},{releaseLeaseOnSuccess:true});assert.equal(f.events.at(-1),'release');assert.equal(f.events.includes('http'),false);
+ const g=fixture({unknownCost:true});await runPagedShadowInvocation({runId,config,...g},{pageSteps:2});await assert.rejects(runPagedShadowInvocation({runId,config,...g},{releaseLeaseOnSuccess:true}));assert.equal(g.events.includes('release'),false);
+});
+test('unknown release result preserves confirmed checkpoint without replaying inference',async()=>{
+ const f=fixture();await runPagedShadowInvocation({runId,config,...f},{pageSteps:2});const original=f.query;f.query=async(sql,args)=>{if(sql.includes('.release('))throw Error('unknown release response');return original(sql,args);};
+ const out=await runPagedShadowInvocation({runId,config,...f},{releaseLeaseOnSuccess:true});assert.equal(out.status,'advanced');assert.equal(out.state.reviewedCount,3);assert.equal(f.events.filter(x=>x==='http').length,1);
+});

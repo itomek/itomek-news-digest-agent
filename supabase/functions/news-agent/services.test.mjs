@@ -43,3 +43,13 @@ test('service freezes explicit generic invocation and transport controls before 
  const result=await service.runInvocation(run);assert.equal(result.state.reviewedCount,2);assert.equal(previewSize,2);
  assert.equal(binding.timeoutMs,30000);assert.equal(binding.maxOutputTokens,2048);assert.equal(binding.reviewBatchSize,2);
 });
+test('optional release maps only the exact service RPC token after checkpoint confirmation',async()=>{
+ const {newPagedShadowRun}=await import('./paged-runtime.mjs');let state=newPagedShadowRun({runId:run,scanStartedAt:'2026-11-14T20:00:00Z'});const calls=[];
+ const service=createAgentService({projectUrl,serviceKey,runtimeConfig:{enabled:true,model:'test/model',allowedModels:['test/model'],maxOutputTokens:100,maxCostCredits:.1,apiKey:'test-only',timeoutMs:100},invocationOptions:{releaseLeaseOnSuccess:true}},async(url,o)=>{
+  const op=String(url).split('warpcore_shadow_')[1],body=JSON.parse(o.body);calls.push(op);
+  if(op==='claim')return Response.json('owned-lease');if(op==='load')return Response.json(state);if(op==='paged_bind_config')return Response.json(true);if(op==='candidate_page')return Response.json([]);
+  if(op==='paged_append'){state={...state,revision:1,phase:'review'};return Response.json(state);}
+  assert.equal(op,'release');assert.deepEqual(body,{p_run:run,p_lease:'owned-lease'});return Response.json(true);
+ });
+ assert.equal((await service.runInvocation(run)).state.phase,'review');assert.equal(calls.at(-1),'release');
+});

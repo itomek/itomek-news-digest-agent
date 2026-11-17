@@ -32,12 +32,17 @@ flowchart LR
 ```
 
 The current collector, dot curator, publisher and schedules are unchanged.
-`index.ts` requires the server-owned `WARPCORE_AGENT_ENABLED` to equal exactly
-`true`; absent, false or differently cased values remain disabled. `supabase/config.toml` requires platform JWT
-verification; the handler additionally requires a distinct
-`x-warpcore-agent-token`, backed by `WARPCORE_AGENT_CRON_TOKEN`. The request body
-must be empty or `{}`. It cannot select a run, model or budget. Service construction
-is lazy and occurs only after authentication and enablement.
+`supabase/config.toml` requires platform JWT verification. Existing deployments
+with `WARPCORE_AGENT_CRON_TOKEN` retain the explicit `WARPCORE_AGENT_ENABLED=true`
+environment gate and dedicated `x-warpcore-agent-token` check. When that token is
+absent, `index.ts` uses protected database bootstrap: `producer_settings.enabled`
+defaults false, and disabled requests return before runtime secret lookup. The
+service-role-only authorization RPC supplies the dedicated token to trusted server
+code; runtime configuration and the OpenRouter key are read only after that token
+is authenticated. The request body must be empty or `{}` and cannot select a run,
+model, source host, credential or budget. Hosted discovery uses batches of 16,
+4096 output tokens and optional fenced lease release between committed invocations;
+these bounds do not authorize paid transport before configuration and budget pinning.
 
 ## Durable review
 
@@ -85,8 +90,15 @@ RLS and revoked direct worker access. There is no generic SQL endpoint.
 The separate administrator-only `supabase/schedules/install-agent-disabled.sql`
 installer requires reviewed pg_cron, pg_net and Vault extensions plus installed
 shadow ranking/producer contracts. It refuses duplicate installation and unsafe
-existing worker access to Vault/cron administration. In one transaction it creates
-`warpcore-news-agent-continuation` (`* * * * *`) and sets it inactive. It queues no
+effective anonymous/authenticated Vault access and cron administration by
+anonymous, authenticated or service roles. Managed Supabase grants Vault access
+to `service_role` and function EXECUTE on `cron.schedule` to PUBLIC. The installer
+preserves those vendor ACLs and checks schema USAGE together with object
+privileges; EXECUTE alone does not grant access to the cron schema. The service
+role is trusted server infrastructure, never an unprivileged model worker.
+Neither model prompts nor anonymous/authenticated callers receive decrypted secrets. See the
+[Supabase privilege guidance](https://supabase.com/kb/troubleshooting/revoking-privileges-on-storage-pg_cron-vault-and-extension-objects-has-no-effect-916576). In one transaction it creates
+`warpcore-news-agent-continuation` (`* * * * *`) and sets it inactive through `cron.alter_job`, verifying that exact job ID. It queues no
 HTTP during installation and never changes existing jobs or provisions budgets.
 
 The private enqueue helper returns without HTTP while the database producer is
@@ -101,17 +113,24 @@ send `{}`, Bearer gateway authorization and `x-warpcore-agent-token`, with a
 120000ms HTTP timeout. Request data cannot select configuration. Worker roles
 cannot call the helper or read/write scheduler settings.
 
-Cron active status, database producer enablement and the server environment gate
-are independent activation controls. All remain off in this implementation.
+Cron active status and database producer enablement are independent activation
+controls. The legacy environment route additionally retains its explicit flag.
+Installers leave continuation scheduling and database production disabled.
 The selector fixes run identity/cutoff; leases fence competing continuations.
 
 Before any hosted spike, review exact deployed bundles/schema/configuration and
 the installed SQL/RPC grants. Provision the dedicated producer token, server-side
 OpenRouter key and immutable model configuration only with explicit authorization.
-Required server settings include `WARPCORE_AGENT_ENABLED` (default off), `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
-`WARPCORE_AGENT_CRON_TOKEN`, `OPENROUTER_API_KEY`, `WARPCORE_AGENT_MODEL`,
-`WARPCORE_AGENT_MAX_OUTPUT_TOKENS` and `WARPCORE_AGENT_MAX_COST_CREDITS`.
-There is no default model or spending limit. OpenRouter credits are not assumed
+Hosted bootstrap requires the existing `SUPABASE_URL` and
+`SUPABASE_SERVICE_ROLE_KEY`, installed `runtime-bootstrap.sql`, pinned
+`runtime_settings.allowed_source_hosts`, and private Vault entries
+`warpcore_agent_cron_token` and `warpcore_agent_openrouter_key`. The database
+producer gate must remain off until reviewed activation. The legacy environment
+route instead uses `WARPCORE_AGENT_ENABLED`, `WARPCORE_AGENT_CRON_TOKEN`,
+`OPENROUTER_API_KEY`, `WARPCORE_AGENT_MODEL`, `WARPCORE_AGENT_MAX_OUTPUT_TOKENS`
+and `WARPCORE_AGENT_MAX_COST_CREDITS`.
+Hosted bootstrap pins GPT-oss/Groq and a conservative per-attempt ceiling;
+standing run/day budgets must be provisioned separately. OpenRouter credits are not assumed
 USD; verified worst-case pricing, routing, currency conversion and per-run/day
 ceilings must be approved before enabling paid transport. Runtime model config
 must match across resumed invocations; changing it requires operator review.

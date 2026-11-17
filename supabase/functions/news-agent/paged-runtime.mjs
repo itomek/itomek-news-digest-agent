@@ -34,7 +34,7 @@ function projectCandidates(page,cursor){
 // SQL owns normalized candidate/decision rows and atomic lease/CAS transitions.
 export async function runPagedShadowInvocation({runId,config={},query,fetcher,fetchPage,now=()=>performance.now()}={},options={}){
  if(config.enabled!==true)return {status:'disabled',...flags};
- const cfg=structuredClone(config),{pageSteps=1,reviewBatchSize=25}=options;
+ const cfg=structuredClone(config),{pageSteps=1,reviewBatchSize=25,releaseLeaseOnSuccess=false}=options;
  // Profiles are code-owned; source/caller metadata cannot replace routing or prices.
  delete cfg.requestProfile;
  delete cfg.expectedProvider;
@@ -45,7 +45,7 @@ export async function runPagedShadowInvocation({runId,config={},query,fetcher,fe
  if(requestProfile?.provider.zdr===true&&expectedProvider===undefined)throw Error('Reviewed provider identity required');
  if(expectedProvider!==undefined)cfg.expectedProvider=expectedProvider;
  const leaseSeconds=cfg.leaseSeconds??60,timeoutMs=cfg.timeoutMs??10000,maxResponseBytes=cfg.maxResponseBytes??200000;
- if(!uuid.test(runId??'')||typeof query!=='function'||typeof fetcher!=='function'||typeof now!=='function'||!Array.isArray(cfg.allowedModels)||!cfg.allowedModels.includes(cfg.model)||!integer(cfg.maxOutputTokens,1,16384)||!Number.isFinite(cfg.maxCostCredits)||cfg.maxCostCredits<=0||cfg.maxCostCredits>=1000000||typeof cfg.apiKey!=='string'||!cfg.apiKey.trim()||/[\r\n]/.test(cfg.apiKey)||!integer(leaseSeconds,1,300)||!integer(timeoutMs,1,30000)||!integer(maxResponseBytes,1,200000)||leaseSeconds*1000<timeoutMs+5000||!integer(pageSteps,1,10)||!integer(reviewBatchSize,1,100))throw Error('Invalid paged runtime configuration');
+ if(!uuid.test(runId??'')||typeof query!=='function'||typeof fetcher!=='function'||typeof now!=='function'||!Array.isArray(cfg.allowedModels)||!cfg.allowedModels.includes(cfg.model)||!integer(cfg.maxOutputTokens,1,16384)||!Number.isFinite(cfg.maxCostCredits)||cfg.maxCostCredits<=0||cfg.maxCostCredits>=1000000||typeof cfg.apiKey!=='string'||!cfg.apiKey.trim()||/[\r\n]/.test(cfg.apiKey)||!integer(leaseSeconds,1,300)||!integer(timeoutMs,1,30000)||!integer(maxResponseBytes,1,200000)||leaseSeconds*1000<timeoutMs+5000||!integer(pageSteps,1,10)||!integer(reviewBatchSize,1,100)||typeof releaseLeaseOnSuccess!=='boolean')throw Error('Invalid paged runtime configuration');
  let lastTime=now();if(!Number.isFinite(lastTime))throw Error('Invalid monotonic clock');
  const deadline=lastTime+leaseSeconds*1000;
  const requireMargin=()=>{const current=now();if(!Number.isFinite(current)||current<lastTime||deadline-current<timeoutMs+5000)throw Error('Insufficient remaining lease');lastTime=current;};
@@ -64,6 +64,14 @@ export async function runPagedShadowInvocation({runId,config={},query,fetcher,fe
    const next=validateState(value,runId),expected={...state,...patch,revision:state.revision+1};
    if(fields.some(k=>JSON.stringify(next[k])!==JSON.stringify(expected[k])))throw Error('Unexpected checkpoint transition');
    state=next;return state;
+  };
+  const finish=async result=>{
+   if(releaseLeaseOnSuccess&&['scan','review','complete'].includes(state.phase)){
+    // A lost release response cannot invalidate or replay committed review work.
+    // SQL fences the exact token and refuses any unresolved paid attempt.
+    try{await call('release',[runId,lease]);}catch{}
+   }
+   return result;
   };
   if(['reviewing','uncertain'].includes(state.phase))throw Error('Manual reconciliation required');
   if(state.phase==='scan'){
@@ -85,7 +93,7 @@ export async function runPagedShadowInvocation({runId,config={},query,fetcher,fe
     try{serializeReviewBody(buildReviewRequest(preview.slice(0,size),cfg));break;}
     catch(error){if(!(error instanceof OpenRouterAttemptError)||error.code!=='request_too_large')throw error;size--;}
    }
-   if(remaining>0&&size===0)return {status:'deferred',reason:'candidate_request_too_large',state,...flags};
+   if(remaining>0&&size===0)return finish({status:'deferred',reason:'candidate_request_too_large',state,...flags});
    const begun=await call('paged_begin',[runId,lease,state.revision,size||reviewBatchSize]);
    const batch=projectCandidates(begun?.batch,null);
    if(batch.length!==size||JSON.stringify(batch)!==JSON.stringify(preview.slice(0,size)))throw Error('Frozen batch differs from preview');
@@ -100,7 +108,7 @@ export async function runPagedShadowInvocation({runId,config={},query,fetcher,fe
      if(reservation?.status==='deferred'){
       if(!['insufficient_budget','missing_daily_budget','spending_blocked'].includes(reservation.reason))throw Error('Invalid deferral reason');
       adopt(reservation.state,{phase:'review',activeBatch:null});
-      return {status:'deferred',reason:reservation.reason,state,...flags};
+      return finish({status:'deferred',reason:reservation.reason,state,...flags});
      }
      const attempt=reservation?.attemptId;
      if(reservation?.status!=='reserved'||typeof attempt!=='string'||!attempt)throw Error('Invalid reservation');
@@ -125,6 +133,6 @@ export async function runPagedShadowInvocation({runId,config={},query,fetcher,fe
     }
    }
   }
-  return {status:'advanced',state,...flags};
+  return finish({status:'advanced',state,...flags});
  }catch{throw Error('Paged shadow invocation stopped; inspect durable state and reconcile before retry');}
 }

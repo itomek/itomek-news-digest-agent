@@ -14,11 +14,17 @@ begin
  if exists(select 1 from cron.job where jobname='warpcore-news-agent-continuation') then
   raise exception 'Continuation schedule already installed';
  end if;
- -- Do not repair or rewrite existing administrator privileges here.
- if exists(select 1 from pg_roles r where r.rolname in ('anon','authenticated','service_role') and
-   (has_table_privilege(r.rolname,'vault.decrypted_secrets','select') or
-    has_table_privilege(r.rolname,'cron.job','update') or
-    has_function_privilege(r.rolname,'cron.schedule(text,text,text)','execute'))) then
+ -- Managed Supabase grants service_role Vault access and PUBLIC cron EXECUTE.
+ -- service_role is trusted server code, never an unprivileged/model identity.
+ -- Preserve vendor ACLs; reject effective client access and worker cron access.
+ if exists(select 1 from pg_roles r where
+   (r.rolname in ('anon','authenticated') and
+    has_schema_privilege(r.rolname,'vault','usage') and
+    has_table_privilege(r.rolname,'vault.decrypted_secrets','select')) or
+   (r.rolname in ('anon','authenticated','service_role') and
+    has_schema_privilege(r.rolname,'cron','usage') and
+    (has_table_privilege(r.rolname,'cron.job','update') or
+     has_function_privilege(r.rolname,'cron.schedule(text,text,text)','execute')))) then
   raise exception 'Scheduler administrative privileges require review';
  end if;
 end $$;
@@ -50,7 +56,7 @@ do $$
 declare installed_job_id bigint;
 begin
  installed_job_id:=cron.schedule('warpcore-news-agent-continuation','* * * * *','select shadow_agent.enqueue_continuation();');
- update cron.job set active=false where jobid=installed_job_id and jobname='warpcore-news-agent-continuation';
- if not found then raise exception 'Scheduler installation failed'; end if;
+ perform cron.alter_job(installed_job_id,active:=false);
+ if not exists(select 1 from cron.job where jobid=installed_job_id and jobname='warpcore-news-agent-continuation' and active=false) then raise exception 'Scheduler installation failed'; end if;
 end $$;
 commit;

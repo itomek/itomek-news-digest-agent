@@ -29,7 +29,12 @@ export async function handleAgent(req,config={},service={}){
  try{
   if(typeof service.selectRun!=='function'||typeof service.runInvocation!=='function')throw Error('Invalid service');
   const runId=await service.selectRun();
-  if(runId===null)return Response.json({mode:'idle',...flags});
+  if(runId===null){
+   if(typeof service.verifyInvocation!=='function')return Response.json({mode:'idle',...flags});
+   const result=await service.verifyInvocation();
+   if(!result||!['idle','disabled','verified','submitted','deferred','uncertain','busy'].includes(result.status))throw Error('Invalid verification result');
+   return Response.json({mode:'verification',status:result.status,...flags});
+  }
   if(typeof runId!=='string'||!uuid.test(runId))throw Error('Invalid run');
   const result=await service.runInvocation(runId);
   if(!result||!['advanced','busy','deferred','disabled'].includes(result.status))throw Error('Invalid result');

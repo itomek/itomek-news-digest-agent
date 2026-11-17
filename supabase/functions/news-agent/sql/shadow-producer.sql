@@ -6,7 +6,8 @@ create table shadow_agent.producer_settings(
  singleton boolean primary key default true check(singleton),
  enabled boolean not null default false,
  run_limit_credits numeric check(run_limit_credits>0 and run_limit_credits<1000000),
- policy_version text
+ policy_version text,
+ first_seen_since timestamptz default null
 );
 insert into shadow_agent.producer_settings(singleton) values(true);
 create table shadow_agent.producer_slots(
@@ -154,14 +155,16 @@ begin
 end $$;
 create function public.warpcore_shadow_candidate_page(p_started timestamptz,p_cursor text) returns jsonb
 language plpgsql security definer set search_path='' as $$
-declare result jsonb;
+declare result jsonb;cutoff timestamptz;
 begin
  if p_started is null or not isfinite(p_started) then raise exception 'Invalid scan timestamp'; end if;
  if p_cursor is not null and p_cursor !~ '^[a-f0-9]{64}$' then raise exception 'Invalid candidate cursor'; end if;
+ select first_seen_since into cutoff from shadow_agent.producer_settings where singleton;
  with newest as (
   select distinct on (s.story_key) s.story_key,c.source_type,c.source_created_at,c.source_url,left(c.text,800) as excerpt
   from public.warpcore_stories s join public.warpcore_candidates c using(story_key)
   where s.status='unverified_review_required'
+   and (cutoff is null or s.collected_at>=cutoff)
    and s.collected_at<=p_started and c.collected_at<=p_started
    and c.source_created_at between p_started-interval '7 days' and p_started+interval '5 minutes'
    and (p_cursor is null or s.story_key>p_cursor)

@@ -13,7 +13,7 @@ export async function runShadowInvocation({runId,config={},query,fetcher,fetchPa
  !Number.isFinite(cfg.maxCostCredits)||cfg.maxCostCredits<=0||cfg.maxCostCredits>=1000000||typeof cfg.apiKey!=='string'||!cfg.apiKey.trim()||/[\r\n]/.test(cfg.apiKey))throw Error('Invalid shadow runtime configuration');
  const leaseSeconds=cfg.leaseSeconds??60;
  const timeoutMs=cfg.timeoutMs??10000,maxResponseBytes=cfg.maxResponseBytes??200000;
- if(!Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>30000||!Number.isSafeInteger(maxResponseBytes)||maxResponseBytes<1||maxResponseBytes>200000||leaseSeconds*1000<timeoutMs+5000)throw Error('Invalid transport limits or insufficient lease margin');
+ if(!Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>60000||!Number.isSafeInteger(maxResponseBytes)||maxResponseBytes<1||maxResponseBytes>200000||leaseSeconds*1000<timeoutMs+5000)throw Error('Invalid transport limits or insufficient lease margin');
  if(!Number.isSafeInteger(leaseSeconds)||leaseSeconds<1||leaseSeconds>300)throw Error('Invalid shadow lease');
  if(typeof now!=='function')throw Error('Invalid shadow clock');
  // Start before claim: SQL round-trip time must consume, never extend, the lease.

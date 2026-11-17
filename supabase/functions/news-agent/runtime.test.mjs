@@ -57,7 +57,7 @@ test('busy lease exits without reading or changing run',async()=>{
  assert.equal(result.status,'busy');assert.equal(calls,1);
 });
 test('invalid transport limits or too-short lease fail before SQL',async()=>{
- for(const extra of [{leaseSeconds:1,timeoutMs:1000},{timeoutMs:30001},{maxResponseBytes:0}]){
+ for(const extra of [{leaseSeconds:1,timeoutMs:1000},{timeoutMs:60001},{maxResponseBytes:0}]){
   let calls=0;await assert.rejects(runShadowInvocation({runId,config:{...config,...extra},query:async()=>{calls++;throw Error('not expected')},fetcher:async()=>{throw Error('not expected')}}));assert.equal(calls,0);
  }
 });
@@ -102,4 +102,7 @@ test('late model completion still settles known cost even when result checkpoint
  await assert.rejects(runShadowInvocation({runId,config,...f,query,fetcher,now:()=>elapsed}));
  assert.equal(f.events.filter(x=>x==='http').length,1);assert.ok(f.events.includes('settled'));
  assert.equal(f.state.phase,'reviewing');
+});
+test('60s model transport requires sufficient lease and uses180s when configured',async()=>{
+ const f=fixture(),base=f.query;let seconds;f.query=async(sql,args)=>{if(sql.includes('shadow_agent.claim'))seconds=args[1];return base(sql,args);};await runShadowInvocation({runId,config:{...config,timeoutMs:60000,leaseSeconds:180},...f});assert.equal(seconds,180);const bad=fixture();await assert.rejects(runShadowInvocation({runId,config:{...config,timeoutMs:60000,leaseSeconds:60},...bad}),/insufficient lease margin/);assert.equal(bad.events.length,0);
 });

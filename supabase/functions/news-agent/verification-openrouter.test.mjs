@@ -26,7 +26,7 @@ test('usage conservation and reservation ceiling fail closed',async()=>{
  const p=payload();p.usage.cost=.08;await assert.rejects(verify(request(),config(),async()=>Response.json(p)),e=>e.code==='reservation_exceeded'&&e.usage.costCredits===.08&&e.completionAudit.generationId==='gen-verification');
 });
 test('wire limits and server-owned deadline configuration apply before and during transport',async()=>{
- const verify=await adapter();for(const c of [{...config(),timeoutMs:30001},{...config(),maxResponseBytes:200001}])await assert.rejects(verify(request(),c,()=>{throw Error('no call');}),e=>e.outcome==='not_started');
+ const verify=await adapter();for(const c of [{...config(),timeoutMs:60001},{...config(),maxResponseBytes:200001}])await assert.rejects(verify(request(),c,()=>{throw Error('no call');}),e=>e.outcome==='not_started');
  const stream=new ReadableStream({start(c){c.enqueue(new TextEncoder().encode('x'.repeat(200001)));c.close();}});await assert.rejects(verify(request(),config(),async()=>new Response(stream)),e=>e.code==='response_too_large'&&e.outcome==='uncertain');
  const r=request();r.messages[1].content+=' '.repeat(750001);await assert.rejects(verify(r,config(),()=>{throw Error('no call');}),e=>e.outcome==='not_started');
 });
@@ -85,4 +85,11 @@ test('V8 clock binding rejects user-clock or system-clock tampering before POST 
  const verify=await adapter(),{createHash}=await import('node:crypto'),{reconstructVerificationInput}=await import('./verification-contract.mjs');
  for(const kind of ['user','system']){const r=request(),originalHash=createHash('sha256').update(JSON.stringify(r)).digest('hex');if(kind==='user'){const data=JSON.parse(r.messages[1].content);data.now=new Date(Date.parse(data.now)+1000).toISOString();r.messages[1].content=JSON.stringify(data);}else r.messages[0].content=r.messages[0].content.replace('Current UTC time is','Forged UTC time is');assert.notEqual(createHash('sha256').update(JSON.stringify(r)).digest('hex'),originalHash);let calls=0;await assert.rejects(verify(r,config(),()=>{calls++;throw Error('forbidden');}),e=>e.outcome==='not_started'&&e.code==='invalid_messages');assert.equal(calls,0);}
  const raw=reconstructVerificationInput(JSON.parse(request().messages[1].content)),old=buildVerificationRequest(raw,{model,maxOutputTokens:4096,version:'2026-11-17.verify.7'});assert.equal(old.messages[0].content.includes('TRUSTED SERVER CLOCK:'),false);assert.equal((await verify(old,config(),async()=>Response.json(payload()))).result.action,'defer');
+});
+test('verification model has a 60-second bounded body deadline and no retry',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});const verify=await adapter();let calls=0,signal,firstReady,secondReady;const firstFetch=new Promise(resolve=>firstReady=resolve),secondFetch=new Promise(resolve=>secondReady=resolve);
+ const started=verify(request(),{...config(),timeoutMs:60000},async(_url,o)=>{calls++;signal=o.signal;firstReady();await new Promise(resolve=>setTimeout(resolve,45000));return Response.json(payload());});
+ await Promise.race([firstFetch,started]);assert.equal(calls,1);t.mock.timers.tick(45000);assert.equal((await started).usage.costCredits,.001);assert.equal(signal.aborted,true);
+ const timed=verify(request(),{...config(),timeoutMs:60000},async(_url,o)=>{calls++;signal=o.signal;secondReady();return new Response(new ReadableStream({}));});const rejected=assert.rejects(timed,e=>e.code==='timeout'&&e.outcome==='uncertain'&&!e.usage);await Promise.race([secondFetch,timed]);assert.equal(calls,2);t.mock.timers.tick(60000);await rejected;assert.equal(signal.aborted,true);assert.equal(calls,2);
+ await assert.rejects(verify(request(),{...config(),timeoutMs:60001},()=>assert.fail()),e=>e.code==='invalid_limits'&&e.outcome==='not_started');
 });

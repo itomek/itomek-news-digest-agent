@@ -58,7 +58,7 @@ function configured(config){
  &&Array.isArray(config.allowedSourceHosts)&&config.allowedSourceHosts.length>0&&config.allowedSourceHosts.length<=100
  &&config.allowedSourceHosts.every(h=>typeof h==='string'&&h===h.toLowerCase()&&h.length<=253)
  &&(config.maxResponseBytes===undefined||Number.isSafeInteger(config.maxResponseBytes)&&config.maxResponseBytes>0&&config.maxResponseBytes<=200000)
- &&(config.timeoutMs===undefined||Number.isSafeInteger(config.timeoutMs)&&config.timeoutMs>0&&config.timeoutMs<=30000);
+ &&(config.timeoutMs===undefined||Number.isSafeInteger(config.timeoutMs)&&config.timeoutMs>0&&config.timeoutMs<=60000);
 }
 const unknownCodes=new Set(['timeout','http_failure','transport_failure','invalid_json','missing_or_invalid_usage','response_too_large','reservation_exceeded','invalid_completion','invalid_verification_json','invalid_verification_schema']);
 const billedCodes=new Set(['reservation_exceeded','invalid_completion','invalid_verification_json','invalid_verification_schema']);

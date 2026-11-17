@@ -267,3 +267,9 @@ test('explicit provider context/schema wording maps only to fixed diagnostics an
 });
 
 test('context diagnostics do not infer overflow from a supported token limit alone',async()=>{for(const message of ['Invalid request: input tokens are 10, within the supported limit','Maximum context length is 131072; input remains within budget'])await assert.rejects(reviewWithOpenRouter(request(),config(),async()=>Response.json({error:{code:400,message}},{status:400})),e=>e.providerErrorCode===400&&!JSON.stringify(e).includes(message));});
+test('60-second model bound accepts a 45-second response and expires once without replay',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});let calls=0;
+ const pending=reviewWithOpenRouter(request(),{...config(),timeoutMs:60000},async()=>{calls++;await new Promise(resolve=>setTimeout(resolve,45000));return response();});t.mock.timers.tick(45000);assert.equal((await pending).usage.costCredits,.001);assert.equal(calls,1);
+ let signal;const timed=reviewWithOpenRouter(request(),{...config(),timeoutMs:60000},async(_url,o)=>{calls++;signal=o.signal;return new Promise(()=>{});});const rejected=assert.rejects(timed,e=>e.code==='timeout'&&e.outcome==='uncertain'&&!e.usage);t.mock.timers.tick(60000);await rejected;assert.equal(signal.aborted,true);assert.equal(calls,2);
+ await assert.rejects(reviewWithOpenRouter(request(),{...config(),timeoutMs:60001},()=>assert.fail()),e=>e.code==='invalid_limits'&&e.outcome==='not_started');
+});

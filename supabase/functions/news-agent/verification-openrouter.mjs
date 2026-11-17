@@ -62,7 +62,7 @@ export async function verifyWithOpenRouter(request,config={},fetcher){
  try{request=structuredClone(request);config={...config,allowedModels:Array.isArray(config.allowedModels)?[...config.allowedModels]:config.allowedModels,reservation:config.reservation?{...config.reservation}:config.reservation};}catch{fail('unsupported_request');}
 
  const checked=await validate(request,config,fetcher),body=checked.body,timeoutMs=config.timeoutMs??10000,maxResponseBytes=config.maxResponseBytes??200000;
- if(!integer(timeoutMs,30000)||!integer(maxResponseBytes,200000))fail('invalid_limits');
+ if(!integer(timeoutMs,60000)||!integer(maxResponseBytes,200000))fail('invalid_limits');
  const approved=approvedRuntimeModel(request.model),key=config.apiKey,reservation={maxCostCredits:config.reservation.maxCostCredits},schema=structuredClone(request.response_format.json_schema.schema);
  const controller=new AbortController();let timer,httpDiagnostics={};
  const deadline=new Promise((_resolve,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Object.assign(new OpenRouterAttemptError('timeout','uncertain'),httpDiagnostics));},timeoutMs);});

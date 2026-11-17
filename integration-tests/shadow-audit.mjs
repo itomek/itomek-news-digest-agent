@@ -29,6 +29,10 @@ try{
  await db.exec('create role anon;create role authenticated;create role service_role;');
  for(const file of ['shadow-state.sql','shadow-paged.sql','shadow-audit.sql'])await db.exec(await fs.readFile(new URL(`../supabase/functions/news-agent/sql/${file}`,import.meta.url),'utf8'));
  await db.exec('set role service_role');
+
+ const timeoutBoundary=await fixture(1,{...config,timeoutMs:60000});
+ assert.equal((await admin(()=>q('select config from shadow_agent.run_config where run_id=$1',[timeoutBoundary.run])))[0].config.timeoutMs,60000);
+ await assert.rejects(()=>timeoutBoundary.bind({...config,timeoutMs:60001}),/Invalid runtime config/);
  // Bind the exact researched code-owned Gemma profiles, not a hand-written
  // approximation that might miss a newly required routing/privacy field.
  for(const [model,maxCostCredits] of [['google/gemma-4-26b-a4b-it',0.021627],['google/gemma-4-31b-it',0.058983]]){

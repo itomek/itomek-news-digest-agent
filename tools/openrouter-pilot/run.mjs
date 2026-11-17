@@ -7,7 +7,7 @@ import {reservationEnvelope,fundingReady,campaignBlockReason,requireZdrEndpoint}
 import {openPilotLedger} from './ledger.mjs';
 import {executeCanary} from './canary.mjs';
 import {selectDevelopmentBatch} from './batches.mjs';
-const allowedModels=['google/gemma-4-31b-it','google/gemma-4-26b-a4b-it'];
+const allowedModels=['openai/gpt-oss-120b','google/gemma-4-31b-it','google/gemma-4-26b-a4b-it'];
 const MODEL=process.argv[3]??allowedModels[0];
 const batch=process.argv[4]??'all';
 const mode=process.argv[2]??'--preflight';

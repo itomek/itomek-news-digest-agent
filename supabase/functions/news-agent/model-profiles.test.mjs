@@ -28,3 +28,9 @@ test('only new code-owned profiles expose reviewed exact provider display identi
  assert.equal(expectedProviderForModel('google/gemma-4-26b-a4b-it'),'PrimeIntellect');assert.equal(expectedProviderForModel('google/gemma-4-31b-it'),'DeepInfra');
  for(const model of ['unknown/model','anthropic/claude-haiku-5.5','openai/gpt-5.6-luna','google/gemini-3.8-flash'])assert.equal(expectedProviderForModel(model),undefined);
 });
+test('only added candidate is GPT-OSS120B with fixed Groq, low reasoning and new privacy-bound version',()=>{
+ const model='openai/gpt-oss-120b',p=requestProfileForModel(model);
+ assert.deepEqual(p,{version:'2026-11-16.2',reasoning:{effort:'low'},responseFormat:'discovery-json-schema-v1',provider:{only:['groq'],order:['groq'],allow_fallbacks:false,require_parameters:true,max_price:{prompt:0.15,completion:0.60,request:0},zdr:true}});
+ assert.equal(expectedProviderForModel(model),'Groq');assert.ok(Object.isFrozen(p.reasoning));assert.ok(Object.isFrozen(p.provider.max_price));assert.throws(()=>{p.reasoning.effort='high';});
+ for(const gemma of ['google/gemma-4-26b-a4b-it','google/gemma-4-31b-it']){const old=requestProfileForModel(gemma);assert.equal(old.version,'2026-11-16.1');assert.deepEqual(old.reasoning,{effort:'none'});}
+});

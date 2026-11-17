@@ -40,6 +40,9 @@ try{
   for(const reviewBatchSize of [null,0,101,1.5,'4',true])await assert.rejects(()=>gemma.bind({...gemmaConfig,reviewBatchSize}),/Invalid/);
   assert.deepEqual((await admin(()=>q('select config from shadow_agent.run_config where run_id=$1',[gemma.run])))[0].config,gemmaConfig);
   const withoutZdr=structuredClone(profile);delete withoutZdr.provider.zdr;
+  const withoutReasoning={...profile};delete withoutReasoning.reasoning;
+  await assert.rejects(()=>gemma.bind({...gemmaConfig,requestProfile:withoutReasoning}),/Invalid/);
+  await assert.rejects(()=>gemma.bind({...gemmaConfig,requestProfile:{...profile,reasoning:{effort:'low'}}}),/Invalid/);
   for(const value of [false,null,0,1,'true',{},[]])await assert.rejects(()=>gemma.bind({...gemmaConfig,requestProfile:{...profile,provider:{...profile.provider,zdr:value}}}),/Invalid/);
   await assert.rejects(()=>gemma.bind({...gemmaConfig,requestProfile:withoutZdr}),/Invalid/);
   await assert.rejects(()=>gemma.bind({...gemmaConfig,requestProfile:{...profile,provider:{...profile.provider,privacy_override:true}}}),/Invalid/);
@@ -56,6 +59,21 @@ try{
   await assert.rejects(()=>rebind({...gemmaConfig,requestProfile:{...withoutZdr,version:'2026-11-15.2'}}),/Immutable/);
   await assert.rejects(()=>rebind({...gemmaConfig,requestProfile:{...profile,version:'2026-11-15.2'}}),/Invalid/);
  }
+ const ossModel='openai/gpt-oss-120b',ossProfile=requestProfileForModel(ossModel);
+ assert.equal(ossProfile?.version,'2026-11-16.2');assert.deepEqual(ossProfile.reasoning,{effort:'low'});
+ const ossConfig={...config,model:ossModel,requestProfile:ossProfile,expectedProvider:'Groq',reviewBatchSize:4};
+ const oss=await fixture(1,ossConfig);
+ assert.equal(await oss.bind(ossConfig),true);
+ const missingReasoning={...ossProfile};delete missingReasoning.reasoning;
+ const missingZdr=structuredClone(ossProfile);delete missingZdr.provider.zdr;
+ await assert.rejects(()=>oss.bind({...ossConfig,requestProfile:missingReasoning}),/Invalid/);
+ await assert.rejects(()=>oss.bind({...ossConfig,requestProfile:missingZdr}),/Invalid/);
+ for(const reasoning of [{effort:'none'},{effort:'medium'},{effort:'low',exclude:true},null])await assert.rejects(()=>oss.bind({...ossConfig,requestProfile:{...ossProfile,reasoning}}),/Invalid/);
+ for(const version of ['2026-11-16.1','2026-11-15.2','fixture-version'])await assert.rejects(()=>oss.bind({...ossConfig,requestProfile:{...ossProfile,version}}),/Invalid/);
+ await admin(()=>q("update shadow_agent.runs set lease_until=clock_timestamp()-interval '1 second' where id=$1",[oss.run]));
+ const ossResume=await scalar('select shadow_agent.claim($1,60) as value',[oss.run]);
+ assert.equal(await scalar('select shadow_agent.paged_bind_config($1,$2,$3) as value',[oss.run,ossResume,ossConfig]),true);
+ await assert.rejects(()=>scalar('select shadow_agent.paged_bind_config($1,$2,$3) as value',[oss.run,ossResume,{...ossConfig,requestProfile:{...requestProfileForModel('google/gemma-4-31b-it')}}]),/Immutable/);
  for(const model of ['anthropic/claude-haiku-5.5','openai/gpt-5.6-luna']){
   const profile=requestProfileForModel(model),legacyConfig={...config,model,requestProfile:profile};
   assert.equal(profile.version,'2026-11-15.2');assert.equal(Object.hasOwn(profile.provider,'zdr'),false);

@@ -56,7 +56,9 @@ begin
   or profile->'responseFormat' is distinct from '"discovery-json-schema-v1"'::jsonb
   or jsonb_typeof(profile->'provider') is distinct from 'object'
   then raise exception 'Invalid request profile'; end if;
-  if profile ? 'reasoning' and profile->'reasoning' is distinct from '{"effort":"none"}'::jsonb
+  if (profile->>'version'='2026-11-16.2' and profile->'reasoning' is distinct from '{"effort":"low"}'::jsonb)
+  or (profile->>'version'='2026-11-16.1' and profile->'reasoning' is distinct from '{"effort":"none"}'::jsonb)
+  or (profile->>'version' not in ('2026-11-16.1','2026-11-16.2') and profile ? 'reasoning' and profile->'reasoning' is distinct from '{"effort":"none"}'::jsonb)
   then raise exception 'Invalid request profile reasoning'; end if;
   provider:=profile->'provider';
   if (provider-'only'-'order'-'allow_fallbacks'-'require_parameters'-'max_price'-'zdr')<>'{}'::jsonb
@@ -67,10 +69,10 @@ begin
   or jsonb_typeof(provider->'max_price') is distinct from 'object'
   then raise exception 'Invalid request profile'; end if;
   -- Match the request contract: a supplied ZDR control is literal true,
-  -- required in the new profile and forbidden in historical code-owned v15.2.
+  -- required in v16.1/v16.2 and forbidden in historical code-owned v15.2.
   -- Existing bound configuration remains immutable across lease/resume.
   if (provider ? 'zdr' and provider->'zdr' is distinct from 'true'::jsonb)
-  or (profile->>'version'='2026-11-16.1' and provider->'zdr' is distinct from 'true'::jsonb)
+  or (profile->>'version' in ('2026-11-16.1','2026-11-16.2') and provider->'zdr' is distinct from 'true'::jsonb)
   or (profile->>'version'='2026-11-15.2' and provider ? 'zdr')
   then raise exception 'Invalid request profile ZDR policy'; end if;
   if jsonb_array_length(provider->'only')<>1

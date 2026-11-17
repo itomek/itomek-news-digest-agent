@@ -14,12 +14,14 @@ export function validateProviderPolicy(provider){
  return structuredClone(provider);
 }
 export function validateReasoningControl(reasoning){
- if(!exactKeys(reasoning,['effort'])||reasoning.effort!=='none')throw Error('Invalid discovery reasoning control');
- return {effort:'none'};
+ if(!exactKeys(reasoning,['effort'])||!['none','low'].includes(reasoning.effort))throw Error('Invalid discovery reasoning control');
+ return {effort:reasoning.effort};
 }
 export function validateRequestProfile(profile){
  const hasReasoning=object(profile)&&Object.hasOwn(profile,'reasoning');
- if(!exactKeys(profile,hasReasoning?['version','provider','responseFormat','reasoning']:['version','provider','responseFormat'])||!['2026-11-15.2','2026-11-16.1'].includes(profile.version)||profile.responseFormat!=='discovery-json-schema-v1')throw Error('Invalid discovery request profile');
- if(profile.version==='2026-11-16.1'&&profile.provider?.zdr!==true||profile.version==='2026-11-15.2'&&Object.hasOwn(profile.provider??{},'zdr'))throw Error('Incompatible discovery ZDR policy');
+ if(!exactKeys(profile,hasReasoning?['version','provider','responseFormat','reasoning']:['version','provider','responseFormat'])||!['2026-11-15.2','2026-11-16.1','2026-11-16.2'].includes(profile.version)||profile.responseFormat!=='discovery-json-schema-v1')throw Error('Invalid discovery request profile');
+ if(['2026-11-16.1','2026-11-16.2'].includes(profile.version)&&profile.provider?.zdr!==true||profile.version==='2026-11-15.2'&&Object.hasOwn(profile.provider??{},'zdr'))throw Error('Incompatible discovery ZDR policy');
+ const requiredEffort=profile.version==='2026-11-16.2'?'low':'none';
+ if((profile.version!=='2026-11-15.2'&&!hasReasoning)||(hasReasoning&&profile.reasoning?.effort!==requiredEffort))throw Error('Incompatible discovery reasoning policy');
  return {version:profile.version,provider:validateProviderPolicy(profile.provider),responseFormat:profile.responseFormat,...(hasReasoning?{reasoning:validateReasoningControl(profile.reasoning)}:{})};
 }

@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {validateProviderPolicy,validateRequestProfile} from './review-contract.mjs';
+import {validateProviderPolicy,validateRequestProfile,validateReasoningControl} from './review-contract.mjs';
 import {requestProfileForModel} from './model-profiles.mjs';
 import {buildReviewRequest} from './evaluation.mjs';
 import {serializeReviewBody} from './openrouter.mjs';
@@ -27,4 +27,19 @@ test('new profiles survive builder and exact HTTP serialization with ZDR and pin
   const r=buildReviewRequest([{id:'a',sourceUrl:'https://example.com/story',discoveryText:'Public discovery'}],{model,allowedModels:[model],maxOutputTokens:100,requestProfile});
   const body=JSON.parse(serializeReviewBody(r));assert.deepEqual(body.provider,requestProfile.provider);assert.deepEqual(body.reasoning,{effort:'none'});assert.equal(body.response_format.json_schema.strict,true);
  }
+});
+
+test('generic reasoning accepts only none or low while profiles keep version-specific reasoning',()=>{
+ assert.deepEqual(validateReasoningControl({effort:'none'}),{effort:'none'});assert.deepEqual(validateReasoningControl({effort:'low'}),{effort:'low'});
+ for(const reasoning of [{effort:'medium'},{effort:'high'},{effort:'low',exclude:true},{effort:'low',max_tokens:1},{enabled:true},null,{}])assert.throws(()=>validateReasoningControl(reasoning));
+ const next={...profile(),version:'2026-11-16.2',reasoning:{effort:'low'}};assert.deepEqual(validateRequestProfile(next),next);
+ for(const version of ['2026-11-15.2','2026-11-16.1']){const p=structuredClone(version==='2026-11-15.2'?requestProfileForModel('openai/gpt-5.6-luna'):profile());p.reasoning={effort:'low'};assert.throws(()=>validateRequestProfile(p));}
+ for(const reasoning of [undefined,{effort:'none'},{effort:'medium'},{effort:'high'}]){const p={...next,reasoning};if(reasoning===undefined)delete p.reasoning;assert.throws(()=>validateRequestProfile(p));}
+ const missingOldReasoning=profile();delete missingOldReasoning.reasoning;assert.throws(()=>validateRequestProfile(missingOldReasoning));
+ const missingZdr=structuredClone(next);delete missingZdr.provider.zdr;assert.throws(()=>validateRequestProfile(missingZdr));
+});
+test('GPT-OSS low reasoning and pinned Groq ZDR policy survive exact request serialization',()=>{
+ const model='openai/gpt-oss-120b',requestProfile=requestProfileForModel(model);
+ const r=buildReviewRequest([{id:'a',sourceUrl:'https://example.com/story',discoveryText:'Public discovery'}],{model,allowedModels:[model],maxOutputTokens:2048,requestProfile});
+ const body=JSON.parse(serializeReviewBody(r));assert.deepEqual(body.provider,requestProfile.provider);assert.deepEqual(body.reasoning,{effort:'low'});assert.equal(body.max_tokens,2048);assert.equal(Object.hasOwn(body,'temperature'),false);
 });

@@ -4,7 +4,7 @@ const fail=()=>{throw Error('Unverified pilot pricing or capability envelope');}
 const positive=v=>Number.isFinite(v)&&v>0;
 const rateKeys=new Set(['prompt','completion','request','internal_reasoning','input_cache_read','input_cache_write','input_cache_write_1h','web_search','image','image_output','audio','input_audio_cache','discount','overrides']);
 const conditionKeys=new Set(['min_prompt_tokens','utc_start','utc_end','utc_days']);
-const pilotProviders=Object.freeze({'anthropic/claude-haiku-5.5':'Anthropic','openai/gpt-5.6-luna':'OpenAI','google/gemma-4-26b-a4b-it':'PrimeIntellect','google/gemma-4-31b-it':'DeepInfra'});
+const pilotProviders=Object.freeze({'anthropic/claude-haiku-5.5':'Anthropic','openai/gpt-5.6-luna':'OpenAI','google/gemma-4-26b-a4b-it':'PrimeIntellect','google/gemma-4-31b-it':'DeepInfra','openai/gpt-oss-120b':'Groq'});
 export function reservationEnvelope(endpoint,model='anthropic/claude-haiku-5.5'){
  if(typeof model!=='string'||!Object.hasOwn(pilotProviders,model))fail();
  const provider=requestProfileForModel(model)?.provider;

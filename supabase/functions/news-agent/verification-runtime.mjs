@@ -1,3 +1,6 @@
+import {createReviewPacket,approveReview} from '../_shared/curation.mjs';
+import {previewRecord} from '../_shared/publishing.mjs';
+import {isApprovedPrimarySourceUrl} from './primary-source-policy.mjs';
 import {approvedRuntimeModel,DEFAULT_RUNTIME_MODEL} from './approved-runtime-models.mjs';
 import {OpenRouterAttemptError,sanitizedHttpDiagnostics} from './openrouter.mjs';
 import {buildVerificationRequest,validateVerificationResult,boundedVerificationAuditResult,VerificationValidationError,VERIFICATION_PUBLIC_REASONS} from './verification-contract.mjs';
@@ -100,8 +103,8 @@ export async function runVerificationInvocation({config={},rpc,modelFetcher,evid
     const fetched=await fetchNativeEvidence({evidence:item,fetcher:evidenceFetcher,maxBytes:remainingBytes,timeoutMs:Math.min(config.sourceTimeoutMs??10000,10000),now});
     remainingBytes-=encoder.encode(fetched.body).length;sources.push({...fetched});continue;
    }
-   const url=[item.url,...(item.sourceLinks??[])].find(raw=>{try{const u=new URL(raw);return config.allowedSourceHosts.includes(u.hostname)&&u.protocol==='https:'&&u.href===raw&&!u.username&&!u.password&&!u.port&&!u.hash;}catch{return false;}});
-   if(!url)throw Error();
+   const url=[item.url,...(item.sourceLinks??[])].find(raw=>{try{const u=new URL(raw);return isApprovedPrimarySourceUrl(raw)&&config.allowedSourceHosts.includes(u.hostname)&&u.protocol==='https:'&&u.href===raw&&!u.username&&!u.password&&!u.port&&!u.hash;}catch{return false;}});
+   if(!url||!isApprovedPrimarySourceUrl(url))return finishDeferred('unapproved_primary_source');
    const fetched=await fetchCapturedEvidence({url,evidence:item,config:{enabled:true,allowedHosts:config.allowedSourceHosts,maxBytes:remainingBytes,timeoutMs:Math.min(config.sourceTimeoutMs??10000,10000)},fetcher:evidenceFetcher});
    if(!text(fetched.body)||!sha(fetched.contentSha256))throw Error();remainingBytes-=fetched.byteLength;
    sources.push(project(fetched,['evidenceId','url','contentSha256','fetchedAt','body']));
@@ -136,6 +139,8 @@ export async function runVerificationInvocation({config={},rpc,modelFetcher,evid
  let validated;
  try{validated=await validateVerificationResult(result.result,input);}catch(error){return finishDeferred(error instanceof VerificationValidationError&&VERIFICATION_PUBLIC_REASONS.includes(error.code)?error.code:'unsupported_verification');}
  if(validated.action==='defer')return finishDeferred('model_deferred');
+ // Pure, non-sending preflight applies the same attribution/text guards as curation.
+ try{const packet=await createReviewPacket({storyKey:input.storyKey,evidence:input.evidence,editorial:validated.editorial});const draft=await approveReview(packet,{factsVerified:true,meaningfulChange:true,scopeApproved:true,contentHash:packet.contentHash});if(draft.mode!=='repost')await previewRecord(draft,input.now);}catch{return finishDeferred('verification_post_unpublishable');}
  const material={version:'agent-verification-v1',agentId:AGENT,runId:job.rankingRunId,storyKey:job.storyKey,evidenceHash:input.evidenceHash,
  editorial:{...validated.editorial,verification:{checkedAt:input.now,sourceUrls:input.sources.filter(s=>validated.editorial.evidenceIds.includes(s.evidenceId)).map(s=>s.url),reason:'Model-supported primary-evidence judgment with validated exact quote bindings.'}},
  model:approved.model,policyVersion:POLICY_VERSION,requestProfileVersion:VERIFICATION_REQUEST_PROFILE_VERSION,requestSha256,judgment:validated.judgment,sources:input.sources};

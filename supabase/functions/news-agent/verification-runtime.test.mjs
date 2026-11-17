@@ -1,10 +1,15 @@
 import {approvedRuntimeModel} from './approved-runtime-models.mjs';
 import test from 'node:test';import assert from 'node:assert/strict';import {createHash} from 'node:crypto';
 import {runVerificationInvocation,VERIFICATION_RESERVATION_CREDITS} from './verification-runtime.mjs';
-const id=n=>`${String(n).padStart(8,'0')}-1111-4111-8111-111111111111`,story='a'.repeat(64),evidenceHash='b'.repeat(64),historyHash='c'.repeat(64),url='https://example.com/release';
-const cfg={enabled:true,apiKey:'synthetic-not-a-credential',model:'openai/gpt-oss-120b',allowedModels:['openai/gpt-oss-120b'],expectedProvider:'Cerebras',maxOutputTokens:4096,maxCostCredits:VERIFICATION_RESERVATION_CREDITS,allowedSourceHosts:['example.com']};
+const id=n=>`${String(n).padStart(8,'0')}-1111-4111-8111-111111111111`,story='a'.repeat(64),evidenceHash='b'.repeat(64),historyHash='c'.repeat(64),url='https://ir.amd.com/fixture-release';
+const cfg={enabled:true,apiKey:'synthetic-not-a-credential',model:'openai/gpt-oss-120b',allowedModels:['openai/gpt-oss-120b'],expectedProvider:'Cerebras',maxOutputTokens:4096,maxCostCredits:VERIFICATION_RESERVATION_CREDITS,allowedSourceHosts:['ir.amd.com']};
 const evidence={id:'rss:release',url,text:'Discovery excerpt.',sourceType:'rss',visibility:'public',sourceLinks:[url],nativeUri:null,nativeUrl:null};
 const hash=s=>createHash('sha256').update(s).digest('hex');
+function wireResult(result){
+ if(result?.action!=='approve'||!Array.isArray(result.claims))return result;
+ const {claims,...out}=result,fields=result.editorial?.mode==='repost'?['change','publicationDate']:['summary','whyItMatters','change','publicationDate'];
+ return {...out,supports:Object.fromEntries(fields.map(field=>{const c=claims.find(c=>c.claim===(field==='publicationDate'?result.publicationDate:result.editorial[field]));return [field,{evidenceId:c?.evidenceId,quote:c?.quote}];}))};
+}
 function fixture(){
  const events=[];let charged=false,reservedHash,material;
  const current=new Date().toISOString(),date=current.slice(0,10),body=`Official release ${date}. The new release expands access. Developers gain practical capabilities. A new supported capability was released.`;
@@ -28,7 +33,7 @@ function fixture(){
  state.modelFetcher=async(request,options)=>{
   events.push({name:'model_post'});assert.equal(request,'https://openrouter.ai/api/v1/chat/completions');assert.equal(options.method,'POST');assert.equal(options.headers.Authorization,'Bearer '+cfg.apiKey);
   assert.equal(hash(options.body),reservedHash);const parsed=JSON.parse(options.body),input=JSON.parse(parsed.messages[1].content);assert.equal(input.evidence[0].privateIgnored,undefined);assert.equal(JSON.stringify(input.history).includes('never-in-prompt'),false);assert.equal(parsed.stream,false);
-  return Response.json({id:'fixture-generation',model:state.config.model,provider:state.config.expectedProvider,usage:{prompt_tokens:100,completion_tokens:200,total_tokens:300,cost:.01},choices:[{finish_reason:'stop',message:{content:JSON.stringify({result:state.result})}}]});
+  return Response.json({id:'fixture-generation',model:state.config.model,provider:state.config.expectedProvider,usage:{prompt_tokens:100,completion_tokens:200,total_tokens:300,cost:.01},choices:[{finish_reason:'stop',message:{content:JSON.stringify({result:wireResult(state.result)})}}]});
  };
  return state;
 }
@@ -116,7 +121,7 @@ test('verification429 diagnostics survive durable uncertain settlement without p
 });
 test('parsed verifier result is privately retained before semantic validation and cannot authorize a receipt',async()=>{
  const f=fixture();f.result.claims[0].quote='unsupported quoted statement';const out=await run(f);const audit=f.events.find(e=>e.name==='warpcore_verification_settle').args;
- assert.equal(audit.p_cost,.01);assert.deepEqual(audit.p_audit.result,f.result);assert.equal(out.reason,'verification_quote_missing');assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);assert.ok(f.events.findIndex(e=>e.name==='warpcore_verification_settle')<f.events.findIndex(e=>e.name==='warpcore_verification_finish'));
+ assert.equal(audit.p_cost,.01);assert.deepEqual(audit.p_audit.result,wireResult(f.result));assert.equal(out.reason,'verification_quote_missing');assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);assert.ok(f.events.findIndex(e=>e.name==='warpcore_verification_settle')<f.events.findIndex(e=>e.name==='warpcore_verification_finish'));
 });
 test('optional archival rejection cannot strand known billed usage or leak a credential-bearing model result',async()=>{
  for(const reason of ['x'.repeat(1001),'Model echoed '+cfg.apiKey]){
@@ -130,4 +135,12 @@ test('NUL and lone-surrogate model output cannot block settlement of known usage
  f.rpc=async(name,args)=>{if(name==='warpcore_verification_settle')assert.equal(Object.hasOwn(args.p_audit,'result'),false,'PostgreSQL-incompatible result must be omitted before RPC');return originalRpc(name,args);};
  const out=await run(f);assert.equal(out.status,'deferred');assert.equal(out.reason,'model_deferred');const settlement=f.events.find(e=>e.name==='warpcore_verification_settle').args;assert.equal(settlement.p_status,'settled');assert.equal(settlement.p_cost,.01);assert.equal(Object.hasOwn(settlement.p_audit,'result'),false);assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);
  }
+});
+test('unsupported non-native provenance defers before any acquisition, reservation or model call',async()=>{
+ const f=fixture(),base=f.rpc;f.config.allowedSourceHosts=['www.techpowerup.com'];f.rpc=async(name,args)=>{const result=await base(name,args);if(name==='warpcore_curator_snapshot')result.evidence=result.evidence.map(e=>({...e,url:'https://www.techpowerup.com/354657/fixture',sourceLinks:[]}));return result;};
+ const out=await run(f);assert.equal(out.reason,'unapproved_primary_source');assert.equal(f.events.some(e=>['model_post','warpcore_verification_reserve','source_get'].includes(e.name)),false);
+});
+test('pure publishing preflight rejects editorial that would be rejected as a raw repost, after cost settlement',async()=>{
+ const f=fixture(),old=f.result.editorial.summary;f.result.editorial.summary=evidence.text;f.result.claims.find(c=>c.claim===old).claim=evidence.text;
+ const out=await run(f);assert.equal(out.reason,'verification_post_unpublishable');assert.equal(f.events.find(e=>e.name==='warpcore_verification_settle').args.p_cost,.01);assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);
 });

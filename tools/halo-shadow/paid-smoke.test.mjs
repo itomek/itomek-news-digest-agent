@@ -15,16 +15,18 @@ test('prepared four-case request is sorted, exact hashed and free of gold/creden
 test('paid smoke CLI function is importable without side effects',async()=>{
  const module=await import('./paid-smoke.ts');assert.equal(typeof module.runPaidSmoke,'function');
 });
-test('current GPT-oss smoke binds ranked profile and scores without gold labels',()=>{
- const plan=buildSmokePlan({runId,model:'openai/gpt-oss-120b',reservationUsd:0.058983,cases});
+test('current GPT-oss smoke binds reviewed Cerebras caps and coded ratings without gold labels',()=>{
+ const plan=buildSmokePlan({runId,model:'openai/gpt-oss-120b',reservationUsd:0.076596,cases});
  const body=JSON.parse(plan.requestBody);
- assert.equal(plan.expectedProvider,'Groq');
+ assert.equal(plan.expectedProvider,'Cerebras');assert.equal(plan.maxOutputTokens,8192);assert.equal(plan.reviewBatchSize,16);
+ assert.equal(body.max_tokens,8192);assert.deepEqual(body.provider.only,['cerebras/fp16']);
  const decisions=body.response_format.json_schema.schema.properties.decisions;
  assert.deepEqual(decisions.required,plan.candidates.map(c=>c.id));
- assert.ok(decisions.properties[plan.candidates[0].id].required.includes('importance'));
- assert.ok(decisions.properties[plan.candidates[0].id].required.includes('relevance'));
+ assert.ok(decisions.properties[plan.candidates[0].id].required.includes('rating'));
  assert.equal(plan.requestBody.includes('GOLD'),false);
+ assert.throws(()=>buildSmokePlan({runId,model:'openai/gpt-oss-120b',reservationUsd:0.058983,cases}));
 });
+
 const attempt='00000000-0000-4000-8000-000000000888';
 const smokeEnv=plan=>({HALO_PAID_RUN_ID:runId,HALO_PAID_MODEL:model,HALO_PAID_REQUEST_HASH:plan.requestHash,HALO_PAID_RESERVATION_USD:String(plan.reservationUsd),HALO_PAID_SERVICE_JWT:'synthetic-service-jwt',OPENROUTER_API_KEY:'synthetic-model-key',HALO_PAID_LEDGER_ATTEMPT_ID:attempt});
 async function runtimeFixture(){

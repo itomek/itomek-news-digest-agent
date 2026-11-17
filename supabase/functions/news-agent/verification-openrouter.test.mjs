@@ -48,6 +48,14 @@ test('oversized verification error body is cancelled while safe status/retry dia
 });
 test('whole-runtime Cerebras allows8192 verification tokens while preserving its distinct verification schema',async()=>{
  const verify=await adapter(),input=JSON.parse(request().messages[1].content),r=buildVerificationRequest(input,{model,maxOutputTokens:8192});
- const out=await verify(r,config(),async(_url,options)=>{const body=JSON.parse(options.body);assert.equal(body.max_tokens,8192);assert.deepEqual(body.provider.only,['cerebras/fp16']);assert.deepEqual(body.reasoning,{effort:'low'});assert.equal(body.response_format.json_schema.name,'primary_evidence_verification_v1');return Response.json(payload());});assert.equal(out.provider,'Cerebras');
+ const out=await verify(r,config(),async(_url,options)=>{const body=JSON.parse(options.body);assert.equal(body.max_tokens,8192);assert.deepEqual(body.provider.only,['cerebras/fp16']);assert.deepEqual(body.reasoning,{effort:'low'});assert.equal(body.response_format.json_schema.name,'primary_evidence_verification_v2');return Response.json(payload());});assert.equal(out.provider,'Cerebras');
  await assert.rejects(verify({...r,max_tokens:8193},config(),()=>assert.fail()),e=>e.outcome==='not_started');
+});
+test('V2 canonical source schema rejects observed ISO date/claims omissions and RSS reposts with known billing',async()=>{
+ const verify=await adapter(),r=request(),input=JSON.parse(r.messages[1].content),evidenceId=input.sources[0].evidenceId;
+ const valid={action:'approve',editorial:{political:false,summary:'Short release.',whyItMatters:'Useful change.',change:'New capability.',evidenceIds:[evidenceId]},supports:Object.fromEntries(['summary','whyItMatters','change','publicationDate'].map(k=>[k,{evidenceId,quote:'Public source'}])),publicationDate:now.slice(0,10),scopeReason:'Relevant.',changeReason:'Meaningful.',dedupReason:'New event.'};
+ const send=result=>{const p=payload();p.choices[0].message.content=JSON.stringify({result});return Response.json(p);};
+ assert.equal((await verify(r,config(),async()=>send(valid))).result.action,'approve');
+ for(const mutate of [x=>x.publicationDate+='T00:00:00Z',x=>delete x.supports.publicationDate,x=>{x.claims=[];delete x.supports;},x=>x.supports.change.evidenceId='forged',x=>x.editorial={mode:'repost',political:false,change:'x',evidenceIds:[evidenceId]},x=>x.supports.change.quote='x'.repeat(3001)]){const bad=structuredClone(valid);mutate(bad);await assert.rejects(verify(r,config(),async()=>send(bad)),e=>e.code==='invalid_verification_schema'&&e.usage.costCredits===.001);}
+ const arbitrary=structuredClone(r);arbitrary.response_format.json_schema.schema.properties.result.anyOf[0].properties.publicationDate.enum.push('2000-01-01');let calls=0;await assert.rejects(verify(arbitrary,config(),async()=>{calls++;return send(valid);}),e=>e.outcome==='not_started');assert.equal(calls,0);
 });

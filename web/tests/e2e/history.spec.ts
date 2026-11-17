@@ -54,6 +54,13 @@ test.describe("history (live authenticated reads)", () => {
 test.describe("history (fixture data)", () => {
   test.beforeEach(async ({ page }) => {
     await seedSession(page, SUPABASE_URL, ANON_KEY);
+    // The seeded session is gate-only. listTotpFactor() still calls getUser(),
+    // so keep that fixture boundary deterministic instead of timing live auth.
+    await page.route(`${SUPABASE_URL}/auth/v1/user`, (route) =>
+      route.fulfill({
+        json: { id: "test-user", email: "owner@example.com", role: "authenticated", factors: [] },
+      }),
+    );
   });
 
   // Per-digest metadata is shown.
@@ -75,6 +82,7 @@ test.describe("history (fixture data)", () => {
     await expect(page.getByTestId("history-list")).toBeVisible();
     // Top-level grouping is date-first (issue #101): assert a date section renders.
     await expect(page.locator("section.date-group").first()).toBeVisible();
+    await expect(page.locator(".digest-card")).toHaveCount(150);
     const interactive = Date.now() - start;
     expect(interactive).toBeLessThan(1000);
 

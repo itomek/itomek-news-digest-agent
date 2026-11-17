@@ -8,15 +8,17 @@ import {newPagedShadowRun} from '../../supabase/functions/news-agent/paged-runti
 import {buildReviewRequest} from '../../supabase/functions/news-agent/evaluation.mjs';
 import {serializeReviewBody} from '../../supabase/functions/news-agent/openrouter.mjs';
 import {requestProfileForModel,expectedProviderForModel} from '../../supabase/functions/news-agent/model-profiles.mjs';
+import {approvedRuntimeModel} from '../../supabase/functions/news-agent/approved-runtime-models.mjs';
 const root=new URL('../../',import.meta.url);
 const uuid=/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/;
 export function buildSmokePlan({runId,model,reservationUsd,cases}){
- const profile=requestProfileForModel(model),expectedProvider=expectedProviderForModel(model);
+ const approved=approvedRuntimeModel(model),profile=requestProfileForModel(model,approved?.discoveryProfileVersion),expectedProvider=expectedProviderForModel(model,profile?.version),maxOutputTokens=approved?.maxOutputTokens??2048,reviewBatchSize=approved?.reviewBatchSize??4;
+ if(approved&&reservationUsd!==approved.maxCostCredits)throw Error('Reviewed smoke reservation required');
  if(!uuid.test(runId??'')||profile?.provider.zdr!==true||!expectedProvider||!Number.isFinite(reservationUsd)||reservationUsd<=0||reservationUsd>2||!Array.isArray(cases)||cases.length!==8)throw Error('Invalid smoke configuration');
  const candidates=cases.slice(0,4).map((c,i)=>({id:createHash('sha256').update('canary-case-'+i).digest('hex'),sourceUrl:c.sourceUrl,sourceType:c.sourceType,sourceCreatedAt:c.sourceCreatedAt,discoveryText:c.discoveryText})).sort((a,b)=>a.id.localeCompare(b.id));
- const request=buildReviewRequest(candidates,{model,allowedModels:[model],maxOutputTokens:2048,requestProfile:profile});
+ const request=buildReviewRequest(candidates,{model,allowedModels:[model],maxOutputTokens,requestProfile:profile});
  const body=serializeReviewBody(request),requestHash=createHash('sha256').update(body).digest('hex');
- return {kind:'one-shot-sql-backed-public-development-smoke-v1',runId,model,expectedProvider,reservationUsd,maxOutputTokens:2048,reviewBatchSize:4,timeoutMs:30000,leaseSeconds:120,requestHash,requestBytes:Buffer.byteLength(body),candidates,requestBody:body,publishingEnabled:false,modelQualityProven:false};
+ return {kind:'one-shot-sql-backed-public-development-smoke-v1',runId,model,expectedProvider,reservationUsd,maxOutputTokens,reviewBatchSize,timeoutMs:30000,leaseSeconds:120,requestHash,requestBytes:Buffer.byteLength(body),candidates,requestBody:body,publishingEnabled:false,modelQualityProven:false};
 }
 async function privateDirectory(dir){
  if(!path.isAbsolute(dir))throw Error('Private absolute plan directory required');
@@ -38,7 +40,7 @@ async function main(){
   if(mode==='prepare'){
    if(typeof env.JWT_SECRET!=='string'||env.JWT_SECRET.length<32)throw Error('Disposable JWT signing secret required');
    const cases=JSON.parse(await fs.readFile(new URL('supabase/functions/news-agent/real-story-cases.json',root),'utf8'));
-   const plan=buildSmokePlan({runId:randomUUID(),model:env.HALO_PAID_MODEL??'openai/gpt-oss-120b',reservationUsd:Number(env.HALO_PAID_RESERVATION_USD??'0.058983'),cases});
+   const plan=buildSmokePlan({runId:randomUUID(),model:env.HALO_PAID_MODEL??'openai/gpt-oss-120b',reservationUsd:Number(env.HALO_PAID_RESERVATION_USD??approvedRuntimeModel(env.HALO_PAID_MODEL??'openai/gpt-oss-120b')?.maxCostCredits??0.058983),cases});
    // Refuse overwrite BEFORE installing or changing any database object.
    for(const file of ['plan.json','plan.env']){try{await fs.lstat(path.join(dir,file));throw Error('Plan already exists');}catch(error){if(error.code!=='ENOENT')throw error;}}
    if(!await value("select to_regnamespace('shadow_agent') is null and not exists(select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and left(c.relname,9)='warpcore_') as value"))throw Error('Fresh disposable database required');

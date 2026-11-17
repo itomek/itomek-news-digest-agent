@@ -44,6 +44,9 @@ test('native original approves only exact native repost with actual post date an
  const input={storyKey:'a'.repeat(64),evidenceHash:'b'.repeat(64),evidence:[evidence],sources:[{evidenceId:evidence.id,url,contentSha256,fetchedAt:now,body,fetchedUrl:'https://public.api.bsky.app/xrpc/app.bsky.feed.getPosts?uris='+encodeURIComponent(uri),nativeUri:uri,nativeCid:cid,nativeAuthorDid:did}],history:{snapshotHash:'c'.repeat(64),items:[],complete:true},now};
  const result={action:'approve',editorial:{mode:'repost',political:false,change:'🦀 Official "quoted" release\nPath C:\\models\\new is available.',evidenceIds:[evidence.id]},publicationDate:date,scopeReason:'Direct work relevance.',changeReason:'A new capability.',dedupReason:'No previous event match.',claims:[{claim:'🦀 Official "quoted" release\nPath C:\\models\\new is available.',quote:original.posts[0].record.text},{claim:date,quote:date}].map(c=>({...c,evidenceId:evidence.id,url,contentSha256}))};
  const out=await validateVerificationResult(result,input);assert.equal(out.editorial.mode,'repost');assert.equal(out.editorial.summary,undefined);assert.ok(out.judgment.claims.every(c=>Number.isInteger(c.quoteStart)));assert.equal(out.judgment.claims[0].originalQuote,original.posts[0].record.text);assert.equal(out.judgment.claims[0].quote,JSON.stringify(original.posts[0].record.text).slice(1,-1));assert.equal(Array.from(body).slice(out.judgment.claims[0].quoteStart,out.judgment.claims[0].quoteEnd).join(''),out.judgment.claims[0].quote);
+ const nativeFormat=buildVerificationRequest(input,{model:'openai/gpt-oss-120b',maxOutputTokens:4096}).response_format;
+ const branch=nativeFormat.json_schema.schema.properties.result.anyOf.find(b=>b.properties.action.enum[0]==='approve');assert.deepEqual(branch.properties.supports.required,['change','publicationDate']);assert.deepEqual(branch.properties.editorial.properties.mode.enum,['repost']);
+ const wire={...result,supports:{change:{evidenceId:evidence.id,quote:original.posts[0].record.text},publicationDate:{evidenceId:evidence.id,quote:date}}};delete wire.claims;assert.deepEqual((await validateVerificationResult(wire,input)).judgment.claims,out.judgment.claims);
  for(const mutate of [x=>x.editorial.summary='Invented commentary',x=>{delete x.editorial.mode;x.editorial.summary='A summary';x.editorial.whyItMatters='A reason';},x=>x.claims[0].quote=original.posts[0].author.description,x=>x.publicationDate='2000-01-01']){
   const bad=structuredClone(result);mutate(bad);await assert.rejects(()=>validateVerificationResult(bad,input));
  }
@@ -66,4 +69,12 @@ test('private audit omits PostgreSQL-invalid strings while preserving newlines a
  for(const mutate of [r=>r.editorial.summary=invalid,r=>r.editorial.evidenceIds=[invalid],r=>r.claims[0].url=invalid,r=>r.claims[0].quote=invalid,r=>r.scopeReason=invalid]){const bad=structuredClone(result);mutate(bad);assert.equal(boundedVerificationAuditResult(bad),undefined);}
  }
  const good={action:'defer',reason:'Normal newline\nAstral emoji 🦀 preserved.'};assert.deepEqual(boundedVerificationAuditResult(good),good);
+});
+test('V2 source-aware wire requires named date support and cannot repost RSS or use ISO timestamps',async()=>{
+ const {buildVerificationResponseFormat,normalizeVerificationResult}=await import('./verification-contract.mjs');assert.equal(typeof buildVerificationResponseFormat,'function');
+ const {input,result}=await fixture(),format=buildVerificationResponseFormat(input),branches=format.json_schema.schema.properties.result.anyOf;
+ const approve=branches.find(b=>b.properties.action.enum[0]==='approve');assert.equal(approve.properties.editorial.properties.mode,undefined);assert.deepEqual(approve.properties.supports.required,['summary','whyItMatters','change','publicationDate']);assert.equal(approve.properties.publicationDate.pattern,'^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+ const wire={...result,supports:Object.fromEntries(['summary','whyItMatters','change','publicationDate'].map((field,i)=>[field,{evidenceId:'e1',quote:result.claims[i].quote}]))};delete wire.claims;
+ const normalized=normalizeVerificationResult(wire,input);assert.deepEqual(normalized,result);assert.equal((await validateVerificationResult(wire,input)).action,'approve');
+ for(const mutate of [r=>delete r.supports.publicationDate,r=>r.supports.summary.evidenceId='unknown',r=>r.claims=[],r=>r.publicationDate+='T00:00:00Z']){const bad=structuredClone(wire);mutate(bad);await assert.rejects(validateVerificationResult(bad,input));}
 });

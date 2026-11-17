@@ -98,7 +98,7 @@ begin
  perform shadow_agent.verification_lock();
  if not coalesce((select enabled from shadow_agent.verification_settings where singleton),false) then raise exception 'Verification disabled';end if;
  if p_metadata is null or jsonb_typeof(p_metadata) is distinct from 'object' or (p_metadata-'model'-'profileVersion'-'expectedProvider')<>'{}'::jsonb
- or p_metadata->>'profileVersion' is distinct from '2026-11-16.verify.1'
+ or not coalesce(p_metadata->>'profileVersion' in ('2026-11-16.verify.1','2026-11-17.verify.2'),false)
  or not coalesce((p_metadata->>'model'='openai/gpt-oss-120b' and p_metadata->>'expectedProvider'='Groq' and p_max=0.058983)
  or (p_metadata->>'model'='openai/gpt-oss-120b' and p_metadata->>'expectedProvider'='Cerebras' and p_max=0.076596)
  or (p_metadata->>'model'='nvidia/nemotron-3.5-super-vl' and p_metadata->>'expectedProvider' in ('DeepInfra','Together') and p_max=0.157287)
@@ -138,7 +138,7 @@ begin
   if result->>'action'='defer' then
    if (result-'action'-'reason')<>'{}'::jsonb or jsonb_typeof(result->'reason') is distinct from 'string' or length(result->>'reason')>1000 then raise exception 'Invalid verification result';end if;
   elsif result->>'action'='approve' then
-   if (result-'action'-'editorial'-'claims'-'publicationDate'-'scopeReason'-'changeReason'-'dedupReason')<>'{}'::jsonb then raise exception 'Invalid verification result';end if;
+   if (result-'action'-'editorial'-'claims'-'supports'-'publicationDate'-'scopeReason'-'changeReason'-'dedupReason')<>'{}'::jsonb or (result ? 'claims')=(result ? 'supports') then raise exception 'Invalid verification result';end if;
    foreach k in array array['publicationDate','scopeReason','changeReason','dedupReason'] loop
     if jsonb_typeof(result->k) is distinct from 'string' or length(result->>k)>(case when k='publicationDate' then 64 else 1000 end) then raise exception 'Invalid verification result';end if;
    end loop;
@@ -158,14 +158,30 @@ begin
    for item in select value from jsonb_array_elements(editorial->'evidenceIds') loop
     if jsonb_typeof(item) is distinct from 'string' or length(item#>>'{}')>2048 then raise exception 'Invalid verification result';end if;
    end loop;
-   if jsonb_typeof(result->'claims') is distinct from 'array' then raise exception 'Invalid verification result';end if;
-   if jsonb_array_length(result->'claims')>20 then raise exception 'Invalid verification result';end if;
-   for item in select value from jsonb_array_elements(result->'claims') loop
-    if jsonb_typeof(item) is distinct from 'object' or (item-'claim'-'evidenceId'-'url'-'contentSha256'-'quote')<>'{}'::jsonb then raise exception 'Invalid verification result';end if;
-    foreach k in array array['claim','evidenceId','url','contentSha256','quote'] loop
-     if jsonb_typeof(item->k) is distinct from 'string' or length(item->>k)>(case when k in ('claim','quote') then 3000 when k='contentSha256' then 64 else 2048 end) then raise exception 'Invalid verification result';end if;
+   if result ? 'claims' then
+    if jsonb_typeof(result->'claims') is distinct from 'array' then raise exception 'Invalid verification result';end if;
+    if jsonb_array_length(result->'claims')>20 then raise exception 'Invalid verification result';end if;
+    for item in select value from jsonb_array_elements(result->'claims') loop
+     if jsonb_typeof(item) is distinct from 'object' or (item-'claim'-'evidenceId'-'url'-'contentSha256'-'quote')<>'{}'::jsonb then raise exception 'Invalid verification result';end if;
+     foreach k in array array['claim','evidenceId','url','contentSha256','quote'] loop
+      if jsonb_typeof(item->k) is distinct from 'string' or length(item->>k)>(case when k in ('claim','quote') then 3000 when k='contentSha256' then 64 else 2048 end) then raise exception 'Invalid verification result';end if;
+     end loop;
     end loop;
-   end loop;
+   else
+    if jsonb_typeof(result->'supports') is distinct from 'object'
+    or ((result->'supports')-'summary'-'whyItMatters'-'change'-'publicationDate')<>'{}'::jsonb then raise exception 'Invalid verification result';end if;
+    if editorial->>'mode'='repost' then
+     if (result->'supports') ? 'summary' or (result->'supports') ? 'whyItMatters' then raise exception 'Invalid verification result';end if;
+    else
+     if not ((result->'supports') ? 'summary' and (result->'supports') ? 'whyItMatters') then raise exception 'Invalid verification result';end if;
+    end if;
+    if not ((result->'supports') ? 'change' and (result->'supports') ? 'publicationDate') then raise exception 'Invalid verification result';end if;
+    for item in select value from jsonb_each(result->'supports') loop
+     if jsonb_typeof(item) is distinct from 'object' or (item-'evidenceId'-'quote')<>'{}'::jsonb
+     or jsonb_typeof(item->'evidenceId') is distinct from 'string' or length(item->>'evidenceId')>2048
+     or jsonb_typeof(item->'quote') is distinct from 'string' or length(item->>'quote')>3000 then raise exception 'Invalid verification result';end if;
+    end loop;
+   end if;
   else raise exception 'Invalid verification result';end if;
  end if;
  if p_audit ? 'diagnostic' then

@@ -38,10 +38,9 @@ assert.equal(await scalar('select public.warpcore_verification_claim() value'),n
   await db.exec("update shadow_agent.verification_settings set enabled=true,submit_enabled=true,job_limit_credits=.3;update shadow_agent.producer_settings set enabled=true,run_limit_credits=.3,policy_version='2026-11-14.1'");
 
   await q("update public.warpcore_candidates set source_type='bluesky',source_url=$2,source_links=$3,native_uri=$4,native_url=$2,native_cid=$5,native_author_did=$6 where story_key=$1",[key(1),nativeUrl,[nativeUrl],nativeUri,nativeCid,nativeDid]);
-  // Existing Dot writer contributes four slots before model history capture.
-  for(let n=2;n<=5;n++){const s=await snapshot(key(n));await scalar('select public.warpcore_curator_submit($1,$2,$3,$4,$5,$6) value',[key(n),s.evidence_hash,editorial(s),attest,'real-dot',randomUUID()]);}
+
  });
- assert.equal(await queueCount(),4);
+ assert.equal(await queueCount(),0);
  const runtimeConfig={enabled:true,model,maxCostCredits:reviewedModel.maxCostCredits,maxOutputTokens:reviewedModel.maxOutputTokens,apiKey:'synthetic-not-a-credential',allowedModels:[model],expectedProvider:reviewedModel.provider,allowedSourceHosts:['example.com']};
  const lease=await scalar('select shadow_agent.claim($1,120) value',[run]);let state=await scalar('select shadow_agent.load($1) value',[run]);
  const cfg={model:discoveryModel,requestProfile:requestProfileForModel(discoveryModel,'2026-11-16.4'),expectedProvider:'Groq',maxOutputTokens:100,maxCostCredits:.1,timeoutMs:1000,maxResponseBytes:20000,policyVersion:state.policyVersion,routing:'openrouter-no-fallback'};
@@ -65,15 +64,22 @@ assert.equal(await scalar('select public.warpcore_verification_claim() value'),n
   const attempt=await admin(()=>q('select a.status,a.request_hash from shadow_agent.attempts a join shadow_agent.verification_jobs j on j.child_run_id=a.run_id where j.id=$1',[jobId]));assert.equal(attempt[0].status,'dispatched');assert.equal(attempt[0].request_hash,requestHash);
   if(model==='meta-llama/llama-4-maverick'){const posted=JSON.parse(options.body);assert.equal(Object.hasOwn(posted,'reasoning'),false);assert.equal(posted.temperature,0);assert.deepEqual(posted.provider.only,['parasail/fp8']);}
   if(model==='google/gemma-4-26b-a4b-it'){const posted=JSON.parse(options.body);assert.deepEqual(posted.reasoning,{effort:'none'});assert.equal(Object.hasOwn(posted,'temperature'),false);assert.deepEqual(posted.provider.only,['primeintellect/bf16']);}
-  const input=JSON.parse(JSON.parse(options.body).messages[1].content),source=input.sources[0];assert.equal(source.nativeCid,nativeCid);assert.equal(Object.hasOwn(source,'body'),false);assert.equal(source.bodyChunks.map(c=>c.text).join(''),nativeBody);assert.ok(source.bodyChunks.every(c=>c.text.length<=2500));assert.equal(input.history.items.length,4);assert.equal(options.body.includes(runtimeConfig.apiKey),false);
-  const result={action:'approve',editorial:{mode:'repost',political:false,change:originalText,evidenceIds:[source.evidenceId]},publicationDate:date,scopeReason:'Direct engineering relevance.',changeReason:'Official new capability.',dedupReason:'New event compared with all four existing pending events.',supports:{change:source.quoteReferences.find(q=>q.id.endsWith('-original-text')).id,publicationDate:source.quoteReferences.find(q=>q.id.endsWith('-created-at')).id}};
+  const input=JSON.parse(JSON.parse(options.body).messages[1].content),source=input.sources[0];assert.equal(source.nativeCid,nativeCid);assert.equal(Object.hasOwn(source,'body'),false);assert.equal(source.bodyChunks.map(c=>c.text).join(''),nativeBody);assert.ok(source.bodyChunks.every(c=>c.text.length<=2500));assert.equal(input.history.items.length,0);assert.equal(options.body.includes(runtimeConfig.apiKey),false);
+  const result={action:'approve',editorial:{mode:'repost',political:false,change:originalText,evidenceIds:[source.evidenceId]},publicationDate:date,scopeReason:'Direct engineering relevance.',changeReason:'Official new capability.',dedupReason:'New event with no existing pending events.',supports:{change:source.quoteReferences.find(q=>q.id.endsWith('-original-text')).id,publicationDate:source.quoteReferences.find(q=>q.id.endsWith('-created-at')).id}};
   return Response.json({id:'synthetic-native-verification',model,provider:reviewedModel.provider,usage:{prompt_tokens:10,completion_tokens:5,total_tokens:15,cost:.02},choices:[{finish_reason:'stop',message:{content:JSON.stringify({result})}}]});
  }});
  assert.equal(outcome.status,'submitted');assert.equal(modelCalls,1);assert.equal(sourceCalls,1);const inbox=outcome.inboxId,receipt=outcome.receiptId;
- assert.equal(await queueCount(),5);assert.equal(material.requestProfileVersion,'2026-11-17.verify.8');assert.equal(material.editorial.mode,'repost');assert.equal(material.editorial.summary,undefined);
- const rows=await q('select * from public.warpcore_curator_claim(5)'),agent=rows.find(r=>r.id===inbox),dot=rows.find(r=>r.actor_kind==='dot');assert.equal(agent.agent_id,material.agentId);assert.equal(agent.dot_id,null);assert.equal(dot.dot_id,'real-dot');
+ assert.equal(await queueCount(),1);assert.equal(material.requestProfileVersion,'2026-11-17.verify.8');assert.equal(material.editorial.mode,'repost');assert.equal(material.editorial.summary,undefined);
+ const rows=await q('select * from public.warpcore_curator_claim(5)'),agent=rows.find(r=>r.id===inbox);assert.equal(agent.agent_id,material.agentId);assert.equal(agent.dot_id,null);
  const finalize=async row=>{const packet=await createReviewPacket({storyKey:row.story_key,evidence:row.evidence,editorial:row.editorial});const transport={...await prepareTransport({...packet.recordDraft,verified:true,approved:true},account,new Date(row.created_at).toISOString()),storyKey:row.story_key};assert.equal(await scalar('select public.warpcore_curator_finalize($1,$2,$3,$4) value',[row.id,row.lease_token,packet,transport]),true);return transport;};
- const approved=await finalize(agent);assert.equal(await queueCount(),5,'Transfer does not double count at capacity');
+ const approved=await finalize(agent);assert.equal(await queueCount(),1,'Agent inbox transfers to one publication');
+ // Test legacy Dot coexistence after the agent receipt is finalized, so the
+ // fixture respects serialized history capture without weakening the shared cap.
+ await admin(async()=>{
+  for(let n=2;n<=5;n++){const s=await snapshot(key(n));await scalar('select public.warpcore_curator_submit($1,$2,$3,$4,$5,$6) value',[key(n),s.evidence_hash,editorial(s),attest,'real-dot',randomUUID()]);}
+ });
+ assert.equal(await queueCount(),5,'Four Dot items and the prepared agent share the five-item cap');
+ const dot=(await q('select * from public.warpcore_curator_claim(5)')).find(r=>r.actor_kind==='dot');assert.equal(dot.dot_id,'real-dot');
  const publication=(await q('select * from public.warpcore_publications where story_key=$1',[key(1)]))[0];assert.equal(publication.state,'prepared');assert.deepEqual(publication.record_payload,approved.record);assert.equal(publication.record_key,approved.recordKey);assert.equal(publication.content_hash,approved.contentHash);assert.ok(publication.approved_at);assert.equal(publication.remote_uri,null);assert.equal(publication.record_payload.$type,'app.bsky.feed.repost');assert.deepEqual(publication.record_payload.subject,{uri:nativeUri,cid:nativeCid});
  await finalize(dot);assert.equal(await queueCount(),5,'Old Dot path preserves global cap');
  await assert.rejects(()=>scalar('select public.warpcore_prepare_publication($1,$2,$3,$4,$5) value',[account,key(6),hash('sixth'),{$type:'app.bsky.feed.post',text:'No admission'},'3m3e4a2b22222']),/Combined pending limit/);

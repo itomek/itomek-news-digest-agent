@@ -207,6 +207,7 @@ export async function validateVerificationResult(result,input){
  if(!exact(result,['action','editorial','claims','publicationDate','scopeReason','changeReason','dedupReason'])||result.action!=='approve')fail();
  const {editorial,claims,publicationDate}=result;
  const repost=editorial?.mode==='repost';
+ if(repost&&typeof editorial.change==='string'&&quoteIdPattern.test(editorial.change))fail();
  if(!exact(editorial,repost?['mode','political','change','evidenceIds']:['political','summary','whyItMatters','change','evidenceIds'])||editorial.political!==false||!(repost?['change']:['summary','whyItMatters','change']).every(k=>text(editorial[k]))||!Array.isArray(editorial.evidenceIds)||!editorial.evidenceIds.length||new Set(editorial.evidenceIds).size!==editorial.evidenceIds.length||!Array.isArray(claims)||claims.length<(repost?2:4)||claims.length>20||!['scopeReason','changeReason','dedupReason'].every(k=>text(result[k],1000)))fail();
  const date=Date.parse(publicationDate+'T00:00:00Z');
  const today=Date.parse(new Date(time).toISOString().slice(0,10)+'T00:00:00Z');

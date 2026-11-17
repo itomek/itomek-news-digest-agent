@@ -12,10 +12,10 @@ This is the central current reference for Warp Core. The checkpoint below is an 
 | Source acquisition health | All 43 sources attempted within the checkpoint’s two-hour window: 37 historical gaps, five partial traversals and one Perplexity HTTP 403 failure; these are distinct outcomes, not 43 collection outages |
 | Existing curator | Version 6, hourly at `:23`, active with the existing Dot pipeline and receipt-aware agent adapter; authenticated empty-queue check passed |
 | Publisher | Version 11, hourly at `:27`, active with its existing account, queue and guards |
-| Autonomous producer | `news-agent` version 11, full runtime from `bcfe2bc`; GPT-oss-120B / Cerebras profile `2026-11-17.6` and verification V4. Controlled nonpublishing previews in progress; continuation cron and submission remain off |
+| Autonomous producer | `news-agent` version 14, full runtime with the native-description guard; GPT-oss-120B / Cerebras profile `2026-11-17.6` and verification V4. Source-verified native previews recorded; producer, continuation cron and submission remain off |
 | Paused discovery run | Two Together discovery cycles completed 650/650 and 651/651 assessments for 0.06916930 and 0.06925995 credits. Earlier unknown holds remain preserved; full coverage does not establish editorial quality |
 | Replacement discovery contract | Reviewed GPT-oss-120B / Cerebras profile `2026-11-17.6`, coded keyed discovery schema v4, 8192 output ceiling and 0.076596-credit conservative reservation. Historical Groq/NVIDIA profiles remain immutable; current Cerebras discovery still needs a complete live cycle |
-| Verification and admission | Receipt, verification-job and shared five-item guard SQL installed; verification enabled, backfill enabled, `submit_enabled=false`; no source-verified receipt or autonomous publication yet |
+| Verification and admission | Receipt, verification-job and shared five-item guard SQL installed; verification enabled, backfill enabled, `submit_enabled=false`; source-verified native previews available; no autonomous publication yet |
 | Spending policy | Private ledger and existing prepaid OpenRouter credits; recorded limits are 2 credits per UTC day and 19.99 credits lifetime |
 | Exception alerts | Dashboard delivery implemented as a prepared option; disabled. The owner has not selected the delivery channel |
 | Public owner feedback | SQL and full runtime deployed, disabled. Halo public-API check returned an explicit empty-feed coverage gap |
@@ -98,6 +98,8 @@ Use the existing reviewed deployment and admin tooling. Record exact targets and
 6. **Choose and enable the producer.** Once the evidence gates pass, use the shared cutover boundary to make the agent the sole new editorial producer, enable its submission gate, and confirm the Dot no longer creates new submissions. Preserve existing pending work and the collection-aware publisher. Select the operational alert channel and enable only its reviewed delivery path. Do not remove the Dot fallback before independent operation is proven.
 
 The implementation, new public-readback acceptance, owner-reviewed model quality and final cutover are separate milestones. This document does not declare the overall autonomous-agent goal complete.
+
+A concrete [editorial review packet](evidence/2026-11-17-editorial-review.md) records the first real-news canary preview, independent primary-source review and representative omissions. Its owner decision is pending. Current pilot source capture is limited to 100,000 full raw bytes without truncation; meaningful larger pages may defer.
 
 ## Launch acceptance targets
 

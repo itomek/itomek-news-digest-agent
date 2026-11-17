@@ -164,3 +164,14 @@ test('pilot source capacity guard defers over100KB before any paid reservation w
  const f=fixture();f.evidenceFetcher=async()=>new Response(new ReadableStream({start(controller){controller.enqueue(new TextEncoder().encode('x'.repeat(100001)));controller.close();}}),{headers:{'content-type':'text/plain'}});
  const out=await run(f);assert.equal(out.status,'deferred');assert.equal(out.reason,'evidence_or_history_unavailable');assert.equal(f.events.some(e=>['model_post','warpcore_verification_reserve','warpcore_verification_dispatch'].includes(e.name)),false);assert.equal(f.events.at(-1).name,'warpcore_verification_finish');
 });
+
+test('native quote-ID prose retains known paid result then defers without issuing receipt',async()=>{
+ const f=fixture(),now=f.now(),did='did:plc:abcdefghijklmnopqrstuvwx',uri=`at://${did}/app.bsky.feed.post/3m3e4a2b22222`,cid='bafyre'+'a'.repeat(53),nativeUrl=`https://bsky.app/profile/${did}/post/3m3e4a2b22222`;
+ const item={id:'native:1',url:nativeUrl,nativeUrl,nativeUri:uri,nativeCid:cid,nativeAuthorDid:did,text:'Official new capability.',sourceType:'bluesky',visibility:'public',sourceLinks:[nativeUrl]};
+ const original={posts:[{uri,cid,author:{did},record:{$type:'app.bsky.feed.post',text:item.text,createdAt:now},labels:[]}]};
+ const baseRpc=f.rpc;f.rpc=async(name,args)=>name==='warpcore_curator_snapshot'?{story_key:story,evidence_hash:evidenceHash,evidence:[item]}:baseRpc(name,args);
+ f.evidenceFetcher=async()=>Response.json(original);
+ f.result={action:'approve',editorial:{mode:'repost',political:false,change:'source-1-original-text',evidenceIds:[item.id]},supports:{change:'source-1-original-text',publicationDate:'source-1-created-at'},publicationDate:now.slice(0,10),scopeReason:'Engineering.',changeReason:'New capability.',dedupReason:'No duplicate.'};
+ const out=await run(f),settled=f.events.find(e=>e.name==='warpcore_verification_settle').args;
+ assert.equal(out.status,'deferred');assert.equal(out.reason,'unsupported_verification');assert.equal(settled.p_status,'settled');assert.equal(settled.p_cost,.01);assert.deepEqual(settled.p_audit.result,f.result);assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);assert.ok(f.events.findIndex(e=>e.name==='warpcore_verification_settle')<f.events.findIndex(e=>e.name==='warpcore_verification_finish'));
+});

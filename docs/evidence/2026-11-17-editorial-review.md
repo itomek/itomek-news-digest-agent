@@ -1,6 +1,6 @@
 # Editorial launch review — November 17
 
-Status: no launch approval recorded and no autonomous publication. This packet distinguishes expected editorial behavior from measured runtime outcomes. The complete post preview and public display/readback must be added before acceptance.
+Status: one independently reviewed, source-verified native preview is ready. No launch approval or autonomous publication is recorded. Other previews remain held; public display/readback is pending.
 
 ## Launch targets
 
@@ -22,6 +22,22 @@ Every submitted item must have current captured primary support or an exact nati
 
 Two hosted NVIDIA/Together scans durably assessed every captured candidate (650/650 and 651/651). They produced investigation proposals, followed by zero accepted receipts. These are complete discovery scans and empty publication outcomes, not current-model editorial acceptance or actual Bluesky-display evidence. GPT-oss/Cerebras still needs a complete unattended discovery cycle. Current runtime tests separately cover overlap, restarts, uncertain outcomes, exact native identity, multibyte text and the actual 300-grapheme boundary; fabricated integration inputs are not public canaries.
 
-## Pending final review
+## First real-news canary preview
 
-Add the actual verified text/native subject, its primary support, full prepared-record counts and owner go/no-go. Issue #164 requires owner review before production switching and requests an isolated-account display canary; only the existing Warp Core production account is currently available. A real-news production canary requires an explicit recorded substitution for that isolated-account criterion. No synthetic fixtures may be posted to production.
+Proposed target: **warp-core.bsky.social**, publishing one native repost of [The Register original](https://bsky.app/profile/theregister.com/post/3n2gouvb5zy2h), preserving the original author and article card.
+
+> Google: AI agent turned a security patch into a working exploit with no human help
+
+The original text has 82 graphemes and 82 UTF-8 bytes. The bot's `app.bsky.feed.repost` record contains only the exact original URI/CID and creation time; it adds no bot-written text or truncation. Pure production helpers confirm the native record shape. This is not a sent publication.
+
+Independent review checked the public author/DID, exact text, URI/CID and November 16 source date against AppView. [Google's primary report](https://cloud.google.com/blog/topics/threat-intelligence/agentic-threat-activity-crosses-a-significant-threshold) corroborates attributed security research. **Google reported an attacker-operated agent; Google did not build or operate it.** The autonomous-exploitation claim concerns the described exploit pipeline, not all campaign activity. Current publication history has no matching event.
+
+The source receipt expires at 10:18 UTC on November 17; sending must recheck its current status and history. The publisher must separately re-fetch the original identity immediately before writing and read back its exact record afterward. Approval does not authorize sending a stale or changed subject.
+
+## Staged rollout decision
+
+Issue [#164](https://github.com/itomek/itomek-news-digest-agent/issues/164) requires “Owner-reviewed sample set and recorded go/no-go result precede production switch.” It also requests an isolated-account display canary; only the existing Warp Core production account is currently available. The proposed substitution is this real-news production repost, with all other automatic handoffs still disabled during its canary. No synthetic fixture may be posted to production.
+
+After an approved canary, public rendering/readback, remaining runtime/quality checks and exact-head release checks must pass before autonomous publishing is enabled. Current-model unattended discovery and an actual ordinary-post preview remain pending. Preserve unknown billing reservations and the prior queue throughout. A second native preview with a quote ID as its internal change description is held; future such descriptions now fail before receipt creation. An initial canary's new history row also invalidates older previews before automatic handoff.
+
+Owner decision: **pending**.

@@ -120,3 +120,14 @@ test('V4 prompt exposes numeric trusted editorial caps without changing explicit
  const {input}=await fixture();input.evidence[0].url='https://ir.amd.com/fixture-release';input.sources[0].url=input.evidence[0].url;const options={model:'openai/gpt-oss-120b',maxOutputTokens:4096};const current=buildVerificationRequest(input,options),old=buildVerificationRequest(input,{...options,version:'2026-11-17.verify.3'});
  assert.match(current.messages[0].content,/V4 TRUSTED EDITORIAL LIMITS:/);assert.equal(old.messages[0].content.includes('V4 TRUSTED EDITORIAL LIMITS:'),false);assert.match(current.messages[0].content,/"summaryMaxLength":[0-9]+/);assert.match(current.messages[0].content,/"whyItMattersMaxLength":[0-9]+/);assert.match(current.messages[0].content,/"evidenceIdsExactly":\["e1"\]/);
 });
+test('GitHub API provenance reconstructs exact raw JSON and binds approval date to published_at',async()=>{
+ const {projectVerificationInput,reconstructVerificationInput}=await import('./verification-contract.mjs');
+ const {input,result}=await fixture(),url='https://github.com/lemonade-sdk/lemonade/releases/tag/v2026.47.1';
+ input.evidence[0].url=url;const raw=JSON.stringify({html_url:url,tag_name:'v2026.47.1',draft:false,prerelease:true,published_at:'2026-11-16T12:00:00Z',body:'Actual release notes. 🦀'});
+ Object.assign(input.sources[0],{url,body:raw,contentSha256:await digest(raw),captureKind:'github-release-v1',fetchedUrl:'https://api.github.com/repos/lemonade-sdk/lemonade/releases/tags/v2026.47.1'});
+ for(const c of result.claims)Object.assign(c,{url,contentSha256:input.sources[0].contentSha256,quote:raw});
+ assert.deepEqual(reconstructVerificationInput(projectVerificationInput(input)),input);assert.equal((await validateVerificationResult(result,input)).judgment.publicationDate,'2026-11-16');
+ const wrongDate=structuredClone(result);wrongDate.publicationDate='2026-11-15';wrongDate.claims.at(-1).claim=wrongDate.publicationDate;await assert.rejects(validateVerificationResult(wrongDate,input),error=>error.code==='verification_date_invalid');
+ for(const patch of [{fetchedUrl:input.sources[0].fetchedUrl+'/other'},{captureKind:'github-release-v2'}]){const bad=structuredClone(input);Object.assign(bad.sources[0],patch);assert.throws(()=>projectVerificationInput(bad));}
+ const projected=projectVerificationInput(input);projected.sources[0].bodyChunks[0].id='source-9-chunk-0001';assert.throws(()=>reconstructVerificationInput(projected));
+});

@@ -16,6 +16,14 @@ test('pins approved address and TLS hostname and sends no ambient credentials',a
  assert.equal(await r.text(),'hello');assert.deepEqual(f.connected,[{hostname:'93.184.216.34',port:443,transport:'tcp'}]);assert.deepEqual(f.tls,[{hostname:'example.com',alpnProtocols:['http/1.1']}]);
  assert.match(f.sent,/Host: example.com\r\n/);assert.doesNotMatch(f.sent,/authorization|cookie|referer/i);assert.ok(f.closed);
 });
+test('identifies fixed GitHub API requests without accepting caller identity headers',async()=>{
+ const {createPublicEvidenceTransport}=await mod();const api=fixture();
+ await createPublicEvidenceTransport({runtime:api.runtime})('https://api.github.com/repos/lemonade-sdk/lemonade/releases/tags/candidate-v2026.47.1',options());
+ assert.match(api.sent,/\r\nUser-Agent: WarpCore-NewsDigest\/1\.0\r\n/);
+ assert.doesNotMatch(api.sent,/authorization|cookie|referer/i);
+ const ordinary=fixture();await createPublicEvidenceTransport({runtime:ordinary.runtime})('https://example.com/',options());assert.doesNotMatch(ordinary.sent,/User-Agent:/i);
+ const caller=fixture();await assert.rejects(createPublicEvidenceTransport({runtime:caller.runtime})('https://api.github.com/',{...options(),headers:{...options().headers,'User-Agent':'caller-controlled'}}));assert.equal(caller.sent,'');
+});
 test('mixed DNS and TLS certificate failures fail closed without fallback',async()=>{
  const {createPublicEvidenceTransport}=await mod();for(const answers of [['8.8.8.8','127.0.0.1'],['8.8.8.8','::1'],[]]){const f=fixture({answers});await assert.rejects(createPublicEvidenceTransport({runtime:f.runtime})('https://example.com/',options()));assert.equal(f.connected.length,0);}
  const f=fixture({tlsError:true});await assert.rejects(createPublicEvidenceTransport({runtime:f.runtime})('https://example.com/',options()));assert.equal(f.connected.length,1);assert.equal(f.sent,'');assert.ok(f.closed);

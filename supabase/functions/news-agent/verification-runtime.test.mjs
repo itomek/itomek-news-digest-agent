@@ -175,3 +175,12 @@ test('native quote-ID prose retains known paid result then defers without issuin
  const out=await run(f),settled=f.events.find(e=>e.name==='warpcore_verification_settle').args;
  assert.equal(out.status,'deferred');assert.equal(out.reason,'unsupported_verification');assert.equal(settled.p_status,'settled');assert.equal(settled.p_cost,.01);assert.deepEqual(settled.p_audit.result,f.result);assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);assert.ok(f.events.findIndex(e=>e.name==='warpcore_verification_settle')<f.events.findIndex(e=>e.name==='warpcore_verification_finish'));
 });
+test('reviewed GitHub release uses full fixed API capture and trusted date before paid verification',async()=>{
+ const f=fixture(),releaseUrl='https://github.com/lemonade-sdk/lemonade/releases/tag/v2026.47.1',item={...evidence,url:releaseUrl,sourceLinks:[releaseUrl]},base=f.rpc;
+ f.config.allowedSourceHosts=['github.com'];f.rpc=async(name,args)=>name==='warpcore_curator_snapshot'?{story_key:story,evidence_hash:evidenceHash,evidence:[item]}:base(name,args);
+ const data={html_url:releaseUrl,tag_name:'v2026.47.1',draft:false,prerelease:true,published_at:f.now(),body:'The new release expands access. Developers gain practical capabilities. A new supported capability was released.'};
+ f.evidenceFetcher=async(u,o)=>{assert.equal(u,'https://api.github.com/repos/lemonade-sdk/lemonade/releases/tags/v2026.47.1');assert.equal(o.credentials,'omit');return Response.json(data);};
+ f.result={...f.result,supports:{summary:'source-1-chunk-0001',whyItMatters:'source-1-chunk-0001',change:'source-1-chunk-0001',publicationDate:'source-1-chunk-0001'}};delete f.result.claims;
+ assert.equal((await run(f)).status,'submitted');assert.equal(f.material.sources[0].captureKind,'github-release-v1');assert.equal(f.material.sources[0].url,releaseUrl);assert.equal(f.material.sources[0].body,JSON.stringify(data));assert.equal(f.material.judgment.publicationDate,data.published_at.slice(0,10));
+ const rejected=fixture();rejected.config.allowedSourceHosts=['github.com'];const rpc=rejected.rpc;rejected.rpc=async(name,args)=>name==='warpcore_curator_snapshot'?{story_key:story,evidence_hash:evidenceHash,evidence:[item]}:rpc(name,args);rejected.evidenceFetcher=async()=>Response.json({...data,draft:true});assert.equal((await run(rejected)).reason,'evidence_or_history_unavailable');assert.equal(rejected.events.some(e=>e.name==='warpcore_verification_reserve'||e.name==='model_post'),false);
+});

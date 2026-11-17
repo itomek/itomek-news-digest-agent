@@ -97,7 +97,7 @@ export async function runVerificationInvocation({config={},rpc,modelFetcher,evid
   const snapshot=await rpc('warpcore_curator_snapshot',{p_story:job.storyKey});
   if(!plain(snapshot)||snapshot.story_key!==job.storyKey||!sha(snapshot.evidence_hash)||!Array.isArray(snapshot.evidence)||snapshot.evidence.length<1||snapshot.evidence.length>20)throw Error();
   const evidence=snapshot.evidence.map(e=>{if(!plain(e))throw Error();return project(e,['id','url','text','sourceType','visibility','sourceLinks','nativeUri','nativeUrl','nativeCid','nativeAuthorDid']);});
-  const history=await readHistory(rpc,started),sources=[];let remainingBytes=approved.provider==='Cerebras'?100000:200000; // Full captures or deferral, never truncation; Cerebras retains the pilot capacity mitigation.
+  const history=await readHistory(rpc,started),sources=[];let remainingBytes=approved.provider==='Cerebras'?120000:200000; // Full captures or deferral, never truncation; Cerebras retains a bounded capacity mitigation, not a token-context guarantee.
   for(const item of evidence){
    if(Date.now()-started>30000||remainingBytes<1)throw Error();
    if(item.sourceType==='bluesky'){

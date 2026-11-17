@@ -7,7 +7,9 @@ export const LEGACY_VERIFICATION_REQUEST_PROFILE_VERSION='2026-11-16.verify.1';
 export const V2_VERIFICATION_REQUEST_PROFILE_VERSION='2026-11-17.verify.2';
 export const V3_VERIFICATION_REQUEST_PROFILE_VERSION='2026-11-17.verify.3';
 export const V4_VERIFICATION_REQUEST_PROFILE_VERSION='2026-11-17.verify.4';
-export const VERIFICATION_REQUEST_PROFILE_VERSION='2026-11-17.verify.5';
+export const V5_VERIFICATION_REQUEST_PROFILE_VERSION='2026-11-17.verify.5';
+export const V6_VERIFICATION_REQUEST_PROFILE_VERSION='2026-11-17.verify.6';
+export const VERIFICATION_REQUEST_PROFILE_VERSION='2026-11-17.verify.7';
 const ENDPOINT='https://openrouter.ai/api/v1/chat/completions';
 const encoder=new TextEncoder();
 const plain=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
@@ -26,8 +28,8 @@ async function validate(request,config,fetcher){
  if(!Array.isArray(request.messages)||request.messages.length!==2||request.messages[0]?.role!=='system'||request.messages[1]?.role!=='user'||request.messages.some(m=>!keys(m,['role','content'])||typeof m.content!=='string'||!m.content))fail('invalid_messages');
  let input;try{input=JSON.parse(request.messages[1].content);}catch{fail('invalid_messages');}
  if(!keys(input,['storyKey','evidenceHash','evidence','sources','history','now']))fail('invalid_messages');
- const version=request.response_format?.json_schema?.name==='primary_evidence_verification_v2'?V2_VERIFICATION_REQUEST_PROFILE_VERSION:request.response_format?.json_schema?.name==='primary_evidence_verification_v3'?V3_VERIFICATION_REQUEST_PROFILE_VERSION:request.response_format?.json_schema?.name==='primary_evidence_verification_v4'?V4_VERIFICATION_REQUEST_PROFILE_VERSION:VERIFICATION_REQUEST_PROFILE_VERSION;
- let canonical,raw;try{raw=version!==V2_VERIFICATION_REQUEST_PROFILE_VERSION?reconstructVerificationInput(input):input;for(const source of raw.sources){const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',encoder.encode(source.body))),b=>b.toString(16).padStart(2,'0')).join('');if(digest!==source.contentSha256)fail('invalid_messages');}canonical=buildVerificationRequest(raw,{model:approved.model,maxOutputTokens:request.max_tokens,version});}catch{fail('invalid_messages');}
+ const version=request.response_format?.json_schema?.name==='primary_evidence_verification_v2'?V2_VERIFICATION_REQUEST_PROFILE_VERSION:request.response_format?.json_schema?.name==='primary_evidence_verification_v3'?V3_VERIFICATION_REQUEST_PROFILE_VERSION:request.response_format?.json_schema?.name==='primary_evidence_verification_v4'?V4_VERIFICATION_REQUEST_PROFILE_VERSION:request.response_format?.json_schema?.name==='primary_evidence_verification_v5'?V5_VERIFICATION_REQUEST_PROFILE_VERSION:request.response_format?.json_schema?.name==='primary_evidence_verification_v6'?V6_VERIFICATION_REQUEST_PROFILE_VERSION:VERIFICATION_REQUEST_PROFILE_VERSION;
+ let canonical,raw;try{raw=version!==V2_VERIFICATION_REQUEST_PROFILE_VERSION?reconstructVerificationInput(input,{version}):input;for(const source of raw.sources){const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',encoder.encode(source.body))),b=>b.toString(16).padStart(2,'0')).join('');if(digest!==source.contentSha256)fail('invalid_messages');}canonical=buildVerificationRequest(raw,{model:approved.model,maxOutputTokens:request.max_tokens,version});}catch{fail('invalid_messages');}
  if(!equal(request.messages,canonical.messages)||!equal(request.response_format,canonical.response_format))fail('invalid_messages');
  if(approved.provider==='Cerebras'){try{assertCerebrasSchemaCompatibility(request.response_format.json_schema.schema);}catch{fail('invalid_messages');}}
  const body=JSON.stringify({...request,stream:false});if(encoder.encode(body).length>750000)fail('request_too_large');

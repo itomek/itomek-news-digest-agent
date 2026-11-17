@@ -1,4 +1,4 @@
-// Current V5 runtime acceptance; historical V1/V2 archive compatibility is tested separately.
+// Current V7 runtime acceptance; historical V1/V2 archive compatibility is tested separately.
 // Full real-contract composition. Fabricated source/model only, never a sender.
 // Optional independent PostgreSQL backend must be exclusively disposable loopback.
 import {PGlite} from '@electric-sql/pglite';import {Client} from 'pg';
@@ -82,7 +82,7 @@ assert.equal(await scalar('select public.warpcore_verification_claim() value'),n
  await db.exec('rollback');invalidDate=false;modelCalls=0;sourceCalls=0;
  const outcome=await invoke();
  assert.equal(outcome.status,'submitted',JSON.stringify(outcome));assert.equal(modelCalls,1);assert.equal(sourceCalls,1);const inbox=outcome.inboxId,receipt=outcome.receiptId;
- assert.equal(await queueCount(),5);assert.equal(material.requestProfileVersion,'2026-11-17.verify.5');assert.equal(material.editorial.summary,attributionPrefix+summary);assert.equal(material.judgment.claims.length,4);assert.ok(material.judgment.claims.every(c=>c.quote.length<=2500&&sourceBody.includes(c.quote)));assert.ok(material.judgment.claims.every(c=>c.url===sourceUrl&&c.contentSha256===hash(sourceBody)));
+ assert.equal(await queueCount(),5);assert.equal(material.requestProfileVersion,'2026-11-17.verify.7');assert.equal(material.editorial.summary,attributionPrefix+summary);assert.equal(material.judgment.claims.length,4);assert.ok(material.judgment.claims.every(c=>c.quote.length<=2500&&sourceBody.includes(c.quote)));assert.ok(material.judgment.claims.every(c=>c.url===sourceUrl&&c.contentSha256===hash(sourceBody)));
  const rows=await q('select * from public.warpcore_curator_claim(5)'),agent=rows.find(r=>r.id===inbox),dot=rows.find(r=>r.actor_kind==='dot');assert.equal(agent.agent_id,material.agentId);assert.equal(agent.dot_id,null);assert.equal(dot.dot_id,'real-dot');
  const finalize=async row=>{const packet=await createReviewPacket({storyKey:row.story_key,evidence:row.evidence,editorial:row.editorial});const transport={...await prepareTransport({...packet.recordDraft,verified:true,approved:true},account,new Date(row.created_at).toISOString()),storyKey:row.story_key};assert.equal(await scalar('select public.warpcore_curator_finalize($1,$2,$3,$4) value',[row.id,row.lease_token,packet,transport]),true);return transport;};
  const approved=await finalize(agent);assert.equal(await queueCount(),5,'Transfer does not double count at capacity');
@@ -92,5 +92,5 @@ assert.equal(await scalar('select public.warpcore_verification_claim() value'),n
  await admin(async()=>{const budget=(await q('select * from shadow_agent.budgets'))[0];assert.equal(Number(budget.spent_credits),.03);assert.equal(Number(budget.held_credits),0);const ledger=(await q('select j.*,a.request_hash,a.status attempt_status from shadow_agent.verification_jobs j join shadow_agent.attempts a on a.run_id=j.child_run_id'))[0];assert.equal(ledger.status,'verified');assert.equal(ledger.request_hash,material.requestSha256);assert.equal(ledger.receipt_id,receipt);assert.equal(ledger.attempt_status,'settled');const retained=(await q("select audit from shadow_agent.verification_audit where status='settled'"))[0].audit.result;assert.ok(Object.values(retained.supports).every(id=>/^source-1-chunk-[0-9]{4}$/.test(id)));assert.equal(retained.claims,undefined);assert.equal((await q('select count(*)::int n from public.warpcore_publication_slots'))[0].n,0,'No sending attempt');});
  for(const table of ['verification_settings','verification_jobs','verification_audit','budgets'])await assert.rejects(()=>q('select * from shadow_agent.'+table),/permission/);
  for(const role of ['anon','authenticated']){await db.exec('set role '+role);for(const expression of ['warpcore_verification_claim()'])await assert.rejects(()=>scalar('select public.'+expression+' value'),/permission/);await db.exec('reset role');}
- console.log('PASS: V5 raw chunk-ID supports + actual runtime + ranked paid ledger + exact date/hash/quote receipt + curator 300-grapheme post; five global slots with Dot coexistence and zero sends');
+ console.log('PASS: V7 raw chunk-ID supports + actual runtime + ranked paid ledger + exact date/hash/quote receipt + curator 300-grapheme post; five global slots with Dot coexistence and zero sends');
 }finally{await db.close();}

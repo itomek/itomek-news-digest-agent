@@ -1,5 +1,7 @@
 # Editorial launch review — November 17
 
+> Historical pre-cutover packet. The owner later approved shipping the Gemma rollout; the [current publication checkpoint](2026-11-17-scheduled-discovery-quality.md#gemma-cutover-and-first-publications) records its actual ordinary post and native repost. This does not release the held llama.cpp preview below.
+
 Status: one independently reviewed native preview was produced, but its source receipt has expired. Fresh verification is required before sending. No launch approval or autonomous publication is recorded. Other previews remain held; public display/readback is pending.
 
 ## Launch targets
@@ -15,7 +17,7 @@ Every submitted item must have current captured primary support or an exact nati
 | [Lemonade release candidate 47.0](https://github.com/lemonade-sdk/lemonade/releases/tag/candidate-v2026.47.0) | Describe a release candidate accurately, including explicitly unreviewed AI-generated notes; never call it a stable release | Earlier source acquisition deferred; subsequent newer release pages exposed provider compatibility/capacity gaps |
 | [Fable game demo](https://www.techpowerup.com/354636/anthropics-fable-5-2-one-shots-a-playable-fps-game-in-just-8-hours) | Skip an event whose primary announcement is outside the seven-day window; attribute creator performance/cost claims | Deferred; no publication |
 | [AMD World Labs acquisition](https://ir.amd.com/news-events/press-releases/detail/1306/amd-completes-acquisition-of-world-labs) | Report the completed acquisition, not speculative future benefits as achieved results | Meaningful primary-supported omission; acquisition could not yet be verified within retrieval/runtime bounds |
-| [GLM 5.2 on MI355X](https://rocm.blogs.amd.com/artificial-intelligence/glm5.2-mi355x-kvcache/README.html) | Attribute AMD's configured benchmark; retain the 90% shared-prefix qualification and relevant concurrency conditions | V2 quotation binding rejected copied/rewritten source text; no receipt |
+| [GLM 5.2 on MI355X](https://rocm.blogs.amd.com/artificial-intelligence/glm5.2-mi355x-kvcache/README.html) | Attribute AMD's configured benchmark; retain the 90% shared-prefix qualification and relevant concurrency conditions | V2 quotation binding rejected copied/rewritten source text at that checkpoint; a later Gemma V8 run produced the [published 240-character ordinary post](https://bsky.app/profile/warp-core.bsky.social/post/3n2j6ehbk7sdg) |
 | [llama.cpp b12416](https://github.com/ggml-org/llama.cpp/releases/tag/b12416) | Bind each claim to a substantively supporting passage and check later corrections; distinguish speculative decoding from hardware support | V5 ordinary preview fits at 289 graphemes, but independent review holds metadata-only quote spans and missed later correction; no send |
 | [MLPerf Training 6.1](https://rocm.blogs.amd.com/artificial-intelligence/mlperf-training-v6.1/README.html) | Attribute vendor-reported results across the specified workloads; do not invent a cross-vendor victory | V4 inference completed, but local approval constraints failed; exact bad field was not retained in that historical attempt |
 

@@ -17,7 +17,7 @@ test('optional reasoning is disabled only for the two nonmandatory-reasoning can
 test('Gemma pilot profiles pin exact quantized routes, prices and ZDR with no reasoning',()=>{
  assert.equal(requestProfileForModel('qwen/qwen3.6-35b-a3b'),undefined);assert.equal(requestProfileForModel('deepseek/deepseek-v4-flash-0731'),undefined);
  for(const [model,route,prompt,completion] of [['google/gemma-4-26b-a4b-it','primeintellect/bf16',0.06,0.18],['google/gemma-4-31b-it','deepinfra/fp8',0.20,0.40]]){
-  const p=requestProfileForModel(model);
+  const p=requestProfileForModel(model,'2026-11-16.1');
   assert.deepEqual(p,{version:'2026-11-16.1',reasoning:{effort:'none'},responseFormat:'discovery-json-schema-v1',provider:{only:[route],order:[route],allow_fallbacks:false,require_parameters:true,max_price:{prompt,completion,request:0},zdr:true}});
   assert.ok(Object.isFrozen(p));assert.ok(Object.isFrozen(p.provider));assert.ok(Object.isFrozen(p.provider.max_price));assert.ok(Object.isFrozen(p.reasoning));
   assert.throws(()=>{p.provider.zdr=false;});assert.throws(()=>{p.provider.max_price.prompt=100;});
@@ -32,7 +32,7 @@ test('only added candidate is GPT-OSS120B with fixed Groq, low reasoning and new
  const model='openai/gpt-oss-120b',p=requestProfileForModel(model,'2026-11-16.2');
  assert.deepEqual(p,{version:'2026-11-16.2',reasoning:{effort:'low'},responseFormat:'discovery-json-schema-v1',provider:{only:['groq'],order:['groq'],allow_fallbacks:false,require_parameters:true,max_price:{prompt:0.15,completion:0.60,request:0},zdr:true}});
  assert.equal(expectedProviderForModel(model,'2026-11-16.2'),'Groq');assert.ok(Object.isFrozen(p.reasoning));assert.ok(Object.isFrozen(p.provider.max_price));assert.throws(()=>{p.reasoning.effort='high';});
- for(const gemma of ['google/gemma-4-26b-a4b-it','google/gemma-4-31b-it']){const old=requestProfileForModel(gemma);assert.equal(old.version,'2026-11-16.1');assert.deepEqual(old.reasoning,{effort:'none'});}
+ for(const gemma of ['google/gemma-4-26b-a4b-it','google/gemma-4-31b-it']){const old=requestProfileForModel(gemma,'2026-11-16.1');assert.equal(old.version,'2026-11-16.1');assert.deepEqual(old.reasoning,{effort:'none'});}
 });
 test('historical ranked array retains explicit immutable GPT-oss profile',()=>{
  const current=requestProfileForModel('openai/gpt-oss-120b','2026-11-16.3');
@@ -77,4 +77,10 @@ test('Together route changes only provider pins and retains exact coded stage-aw
 test('fresh GPT-oss Cerebras17.6 uses coded low reasoning and retains historical Groq versions',()=>{
  const model='openai/gpt-oss-120b',p=requestProfileForModel(model);assert.equal(p.version,'2026-11-17.6');assert.equal(p.responseFormat,'discovery-keyed-coded-ranking-json-schema-v4');assert.deepEqual(p.reasoning,{effort:'low'});assert.deepEqual(p.provider,{only:['cerebras/fp16'],order:['cerebras/fp16'],allow_fallbacks:false,require_parameters:true,max_price:{prompt:.35,completion:.75,request:0},zdr:true});assert.equal(expectedProviderForModel(model),'Cerebras');
  for(const version of ['2026-11-16.2','2026-11-16.3','2026-11-16.4']){assert.equal(requestProfileForModel(model,version).provider.only[0],'groq');assert.equal(expectedProviderForModel(model,version),'Groq');}
+});
+test('Maverick profile pins Parasail with explicit temperature zero and truly omitted reasoning',()=>{
+ const model='meta-llama/llama-4-maverick',p=requestProfileForModel(model);assert.ok(p);assert.equal(p.version,'2026-11-17.7');assert.equal(p.responseFormat,'discovery-keyed-coded-ranking-json-schema-v4');assert.equal(p.rankingRubricVersion,'2026-11-16.1');assert.equal(Object.hasOwn(p,'reasoning'),false);assert.equal(p.temperature,0);assert.deepEqual(p.provider,{only:['parasail/fp8'],order:['parasail/fp8'],allow_fallbacks:false,require_parameters:true,max_price:{prompt:.35,completion:1,request:0},zdr:true});assert.equal(expectedProviderForModel(model),'Parasail');assert.equal(requestProfileForModel(model,'2026-11-17.6'),undefined);assert.ok(Object.isFrozen(p));
+});
+test('adding Maverick preserves every billed open-model profile canonical byte hash',async()=>{
+ const {createHash}=await import('node:crypto');const entries=[['openai/gpt-oss-120b',['2026-11-16.2','2026-11-16.3','2026-11-16.4','2026-11-17.6']],['nvidia/nemotron-3.5-super-vl',['2026-11-17.1','2026-11-17.3','2026-11-17.4','2026-11-17.5']],['nvidia/nemotron-3-super-120b-a12b',['2026-11-17.2']],['google/gemma-4-26b-a4b-it',['2026-11-16.1']],['google/gemma-4-31b-it',['2026-11-16.1']]];assert.equal(createHash('sha256').update(JSON.stringify(entries.flatMap(([model,versions])=>versions.map(v=>[model,v,requestProfileForModel(model,v)])))).digest('hex'),'b7ff494833618a57a032bab6e4d86ad565271307e0dec48b014a4516e703f3de');
 });

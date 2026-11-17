@@ -5,7 +5,7 @@ import {serializeReviewBody} from '../../supabase/functions/news-agent/openroute
 import {requestProfileForModel} from '../../supabase/functions/news-agent/model-profiles.mjs';
 import {reservationEnvelope,fundingReady,campaignBlockReason,requireZdrEndpoint} from './preflight.mjs';
 import {openPilotLedger} from './ledger.mjs';
-import {executeCanary} from './canary.mjs';
+import {executeCanary,assertActivePilotModel} from './canary.mjs';
 import {selectDevelopmentBatch} from './batches.mjs';
 const allowedModels=['nvidia/nemotron-3.5-super-vl','nvidia/nemotron-3-super-120b-a12b','openai/gpt-oss-120b','google/gemma-4-31b-it','google/gemma-4-26b-a4b-it'];
 const MODEL=process.argv[3]??'openai/gpt-oss-120b';
@@ -34,6 +34,7 @@ try{
  if(!['--preflight','--canary'].includes(mode))stop('use_preflight_or_canary');
  if(!allowedModels.includes(MODEL)||process.argv.length>5||!['all','first-half','second-half','helion-scope','scope-challenge'].includes(batch))stop('unsupported_pilot_model_or_arguments');
  if(MODEL.startsWith('nvidia/')&&batch!=='scope-challenge')stop('nvidia_requires_scope_challenge');
+ assertActivePilotModel(MODEL); // Refuse before credentials, ledger opening or any reservation.
  const key=await loadKey();
  ledger=openPilotLedger(path.join(stateDir,'campaign.sqlite3'));
  const keyData=(await jsonGet('https://openrouter.ai/api/v1/key',key)).data;

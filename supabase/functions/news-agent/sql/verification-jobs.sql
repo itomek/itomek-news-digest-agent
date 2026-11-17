@@ -52,6 +52,7 @@ language sql stable security definer set search_path='' as $$
  and (cfg.ranking_finalized_since is null or k.finalized_at>=cfg.ranking_finalized_since)
  and (select count(distinct v.story_key) from shadow_agent.verification_jobs v where v.ranking_run_id=k.run_id and v.status='verified')<5
  and not exists(select 1 from shadow_agent.verification_jobs v where v.ranking_run_id=c.run_id and v.story_key=c.candidate_id)
+ and not exists(select 1 from shadow_agent.verification_jobs held where held.story_key=c.candidate_id and held.status='uncertain')
  and (selected.ordinal is not null or (cfg.backfill_enabled
   and d.decision->>'action'='verify'
   and exists(select 1 from public.warpcore_stories s where s.story_key=c.candidate_id and s.status='unverified_review_required')
@@ -69,6 +70,8 @@ begin
  select * into cfg from shadow_agent.verification_settings where singleton;
  if not found or not cfg.enabled then return null;end if;
  if cfg.job_limit_credits is null then raise exception 'Invalid verification configuration';end if;
+ if to_regprocedure('shadow_agent.advance_verification_rate_limits()') is not null then
+  perform shadow_agent.advance_verification_rate_limits();end if;
  -- Recover a completed verification's unsent receipt without paid replay.
  select * into j from shadow_agent.verification_jobs v where cfg.submit_enabled and v.status='verified' and not v.quarantined and v.handoff_status='pending'
  and not exists(select 1 from public.warpcore_curator_inbox inbox where inbox.verification_receipt_id=v.receipt_id) order by v.id limit 1;
@@ -100,10 +103,13 @@ begin
  perform shadow_agent.verification_lock();
  if not coalesce((select enabled from shadow_agent.verification_settings where singleton),false) then raise exception 'Verification disabled';end if;
  if p_metadata is null or jsonb_typeof(p_metadata) is distinct from 'object' or (p_metadata-'model'-'profileVersion'-'expectedProvider')<>'{}'::jsonb
- or not coalesce(p_metadata->>'profileVersion' in ('2026-11-16.verify.1','2026-11-17.verify.2','2026-11-17.verify.3','2026-11-17.verify.4','2026-11-17.verify.5','2026-11-17.verify.6','2026-11-17.verify.7'),false)
+ or not coalesce(p_metadata->>'profileVersion' in ('2026-11-16.verify.1','2026-11-17.verify.2','2026-11-17.verify.3','2026-11-17.verify.4','2026-11-17.verify.5','2026-11-17.verify.6','2026-11-17.verify.7') or (p_metadata->>'profileVersion'='2026-11-17.verify.8' and p_metadata->>'model' in ('openai/gpt-oss-120b','google/gemma-4-26b-a4b-it')),false)
+ or not coalesce(p_metadata->>'model' in ('openai/gpt-oss-120b','google/gemma-4-26b-a4b-it'),false) -- Retired models remain accounting history, never new reservations.
  or not coalesce((p_metadata->>'model'='openai/gpt-oss-120b' and p_metadata->>'expectedProvider'='Groq' and p_max=0.058983)
  or (p_metadata->>'model'='openai/gpt-oss-120b' and p_metadata->>'expectedProvider'='Cerebras' and p_max=0.076596)
+ or (p_metadata->>'model'='google/gemma-4-26b-a4b-it' and p_metadata->>'expectedProvider'='PrimeIntellect' and p_metadata->>'profileVersion'='2026-11-17.verify.8' and p_max=0.036045)
  or (p_metadata->>'model'='nvidia/nemotron-3.5-super-vl' and p_metadata->>'expectedProvider' in ('DeepInfra','Together') and p_max=0.157287)
+ or (p_metadata->>'model'='meta-llama/llama-4-maverick' and p_metadata->>'expectedProvider'='Parasail' and p_metadata->>'profileVersion'='2026-11-17.verify.7' and p_max=0.216269)
  or (p_metadata->>'model'='nvidia/nemotron-3-super-120b-a12b' and p_metadata->>'expectedProvider'='DeepInfra' and p_max=0.026215),false) then raise exception 'Invalid verification metadata';end if;
  select * into j from shadow_agent.verification_jobs where id=p_job;
  if not found or j.status<>'pending' then raise exception 'Verification job unavailable';end if;
@@ -198,7 +204,7 @@ begin
   or (d-'generationId'-'model'-'provider'-'httpStatus'-'validationIssue'-'decisionIndex'-'providerErrorCode'-'providerErrorType'-'errorProvider'-'limitSource'-'retryAfterSeconds'-'requestId'-'cloudflareRay')<>'{}'::jsonb then raise exception 'Invalid verification diagnostic';end if;
   if d ? 'providerErrorCode' and not coalesce((jsonb_typeof(d->'providerErrorCode')='number' and d->>'providerErrorCode' in ('400','401','402','403','404','408','409','413','422','429','500','502','503','504','529')) or (jsonb_typeof(d->'providerErrorCode')='string' and d->>'providerErrorCode' in ('rate_limit_exceeded','insufficient_quota','invalid_request_error','authentication_error','permission_error','not_found_error','overloaded_error','api_error','context_length_exceeded','unsupported_parameter','rate_limited','rate_limit_error','quota_exceeded','too_many_requests','RESOURCE_EXHAUSTED','engine_overloaded')),false) then raise exception 'Invalid verification diagnostic';end if;
   if d ? 'providerErrorType' and (jsonb_typeof(d->'providerErrorType') is distinct from 'string' or not coalesce(d->>'providerErrorType' in ('invalid_request_error','authentication_error','permission_error','not_found_error','rate_limit_error','overloaded_error','api_error','server_error','insufficient_quota','context_length_exceeded','rate_limit_exceeded','provider_overloaded','provider_unavailable','timeout','server','authentication','permission_denied','payment_required','invalid_request','content_policy_violation','refusal','unmapped'),false)) then raise exception 'Invalid verification diagnostic';end if;
-  if d ? 'errorProvider' and (jsonb_typeof(d->'errorProvider') is distinct from 'string' or not coalesce(d->>'errorProvider' in ('DeepInfra','Together','Cerebras','Groq','Anthropic','OpenAI','PrimeIntellect','Google AI Studio'),false)) then raise exception 'Invalid verification diagnostic';end if;
+  if d ? 'errorProvider' and (jsonb_typeof(d->'errorProvider') is distinct from 'string' or not coalesce(d->>'errorProvider' in ('DeepInfra','Together','Cerebras','Parasail','Groq','Anthropic','OpenAI','PrimeIntellect','Google AI Studio'),false)) then raise exception 'Invalid verification diagnostic';end if;
   if d ? 'limitSource' and (jsonb_typeof(d->'limitSource') is distinct from 'string' or not coalesce(d->>'limitSource' in ('upstream_provider_shared_pool','openrouter_in_flight_budget','openrouter_key_limit','openrouter_credits','openrouter_guardrail_budget','openrouter_workspace_budget'),false)) then raise exception 'Invalid verification diagnostic';end if;
   if d ? 'retryAfterSeconds' and (jsonb_typeof(d->'retryAfterSeconds') is distinct from 'number' or coalesce(d->>'retryAfterSeconds','') !~ '^[0-9]{1,5}$' or (d->>'retryAfterSeconds')::numeric not between 0 and 86400) then raise exception 'Invalid verification diagnostic';end if;
   if d ? 'requestId' and (jsonb_typeof(d->'requestId') is distinct from 'string' or length(d->>'requestId')>128 or d->>'requestId' !~ '^(req[-_]|gen-)[A-Za-z0-9_-]{1,124}$' or d->>'requestId' ~ U&'[\0001-\001F\007F-\009F]') then raise exception 'Invalid verification diagnostic';end if;

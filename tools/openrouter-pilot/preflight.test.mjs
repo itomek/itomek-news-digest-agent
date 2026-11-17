@@ -54,7 +54,7 @@ const gemma26Model='google/gemma-4-26b-a4b-it',gemma31Model='google/gemma-4-31b-
 const gemma26Endpoint={tag:'primeintellect/bf16',provider_name:'PrimeIntellect',model_id:gemma26Model,safety_retention:false,service_tier:null,context_length:262144,max_completion_tokens:32768,supported_parameters:['max_tokens','response_format','structured_outputs','reasoning'],pricing:{prompt:'0.000000042',completion:'0.000000126',input_cache_read:'0.000000021'}};
 const gemma31Endpoint={...gemma26Endpoint,tag:'deepinfra/fp8',provider_name:'DeepInfra',model_id:gemma31Model,context_length:262144,max_completion_tokens:16384,pricing:{prompt:'0.00000020',completion:'0.00000040'}};
 test('Gemma pilot endpoints retain exact provider pins and conservative price envelopes',()=>{
- const q=reservationEnvelope(gemma26Endpoint,gemma26Model);assert.equal(q.expectedProvider,'PrimeIntellect');assert.ok(q.reservationUsd>=0.021627&&q.reservationUsd<=0.021628);
+ const q=reservationEnvelope(gemma26Endpoint,gemma26Model);assert.equal(q.expectedProvider,'PrimeIntellect');assert.ok(q.reservationUsd===0.036045);
  assert.equal(reservationEnvelope({...gemma26Endpoint,pricing:{prompt:'0.00000001',completion:'0.0000001'}},gemma26Model).reservationUsd,q.reservationUsd,'reservation floors at approved routing caps');
  const d=reservationEnvelope(gemma31Endpoint,gemma31Model);assert.equal(d.expectedProvider,'DeepInfra');assert.ok(d.reservationUsd>=0.058983&&d.reservationUsd<=0.058984);
  for(const [endpoint,model]of [[gemma26Endpoint,gemma26Model],[gemma31Endpoint,gemma31Model]]){

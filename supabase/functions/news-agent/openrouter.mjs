@@ -1,3 +1,4 @@
+import {requestProfileForModel} from './model-profiles.mjs';
 import {DISCOVERY_RATING_CODES,isKeyedCodedRankingFormat,isKeyedRankedDiscoveryFormat,isRankedDiscoveryFormat,matchesDiscoveryFormat,validateProviderPolicy,validateReasoningControl} from './review-contract.mjs';
 // OpenRouter Chat Completions contract:
 // https://openrouter.ai/docs/api_reference/overview
@@ -18,7 +19,7 @@ const httpErrorCodes=new Set([400,401,402,403,404,408,409,413,422,429,500,502,50
 const providerErrorTypes=new Set(['invalid_request_error','authentication_error','permission_error','not_found_error','rate_limit_error','overloaded_error','api_error','server_error','insufficient_quota','context_length_exceeded']);
 const upstreamErrorCodes=new Set([...httpErrorCodes,'engine_overloaded','rate_limited','rate_limit_error','quota_exceeded','too_many_requests','RESOURCE_EXHAUSTED']);
 const typedErrors=new Set([...providerErrorTypes,'rate_limit_exceeded','provider_overloaded','provider_unavailable','timeout','server','authentication','permission_denied','payment_required','invalid_request','content_policy_violation','refusal','unmapped']);
-const errorProviders=new Set(['Cerebras','Together','DeepInfra','Groq','Anthropic','OpenAI','PrimeIntellect','Google AI Studio']);
+const errorProviders=new Set(['Cerebras','Together','DeepInfra','Groq','Anthropic','OpenAI','PrimeIntellect','Google AI Studio','Parasail']);
 const limitSources=new Set(['upstream_provider_shared_pool','openrouter_in_flight_budget','openrouter_key_limit','openrouter_credits','openrouter_guardrail_budget','openrouter_workspace_budget']);
 // Shared adapter/runtime sanitizer: no arbitrary error text or header map survives.
 export function sanitizedHttpDiagnostics(value,secret){
@@ -62,7 +63,10 @@ function validate(request,config,fetcher){
  if(typeof fetcher!=='function'||typeof config.apiKey!=='string'||!config.apiKey.trim()||/[\r\n]/.test(config.apiKey))fail('invalid_transport_configuration');
  if(Object.hasOwn(config,'expectedProvider')&&!validProviderName(config.expectedProvider))fail('invalid_transport_configuration');
  if(!config.reservation||typeof config.reservation.id!=='string'||!config.reservation.id.trim()||!Number.isFinite(config.reservation.maxCostCredits)||config.reservation.maxCostCredits<=0)fail('missing_cost_reservation');
- if(!request||Object.keys(request).some(k=>!['model','max_tokens','messages','response_format','provider','reasoning'].includes(k)))fail('unsupported_request');
+ if(!request||Object.keys(request).some(k=>!['model','max_tokens','messages','response_format','provider','reasoning','temperature'].includes(k)))fail('unsupported_request');
+ if(typeof request.model==='string'&&(request.model.startsWith('nvidia/')||request.model.startsWith('meta-llama/')))fail('unsupported_request');
+ if(Object.hasOwn(request,'temperature')&&(request.model!=='meta-llama/llama-4-maverick'||request.temperature!==0))fail('unsupported_request');
+ if(request.model==='google/gemma-4-26b-a4b-it'){const p=requestProfileForModel(request.model);if(JSON.stringify(request.reasoning)!==JSON.stringify(p.reasoning)||request.max_tokens>4096||config.expectedProvider!=='PrimeIntellect'||config.reservation.maxCostCredits!==.036045||JSON.stringify(validateReviewProvider(request.provider))!==JSON.stringify(p.provider))fail('unsupported_request');}
  if(typeof request.model!=='string'||!Array.isArray(config.allowedModels)||!config.allowedModels.includes(request.model)||!boundedInteger(request.max_tokens,16384))fail('invalid_model_or_budget');
  if(!Array.isArray(request.messages)||request.messages.length!==2||request.messages[0]?.role!=='system'||request.messages[1]?.role!=='user'||request.messages.some(m=>typeof m.content!=='string'||!m.content||Object.keys(m).some(k=>!['role','content'].includes(k))))fail('invalid_messages');
  if(Object.hasOwn(request,'provider'))validateReviewProvider(request.provider);
@@ -73,6 +77,7 @@ function validate(request,config,fetcher){
  const ids=new Set();
  for(const c of candidates){if(typeof c?.id!=='string'||!c.id||ids.has(c.id))fail('invalid_candidates');ids.add(c.id);}
  if(!matchesDiscoveryFormat(request.response_format,[...ids]))fail('invalid_messages');
+ if(request.model==='google/gemma-4-26b-a4b-it'&&!isKeyedCodedRankingFormat(request.response_format,[...ids]))fail('invalid_messages');
  return ids;
 }
 async function readBounded(response,maxBytes,signal){

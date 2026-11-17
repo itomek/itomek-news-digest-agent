@@ -11,12 +11,14 @@ language sql immutable security definer set search_path='' as $$
  select jsonb_build_object('model',model,'provider',provider,'discoveryProfileVersion',profile,'maxCostCredits',cap,'maxOutputTokens',output_cap,'reviewBatchSize',16)
  from (values ('openai/gpt-oss-120b','Cerebras','2026-11-17.6',0.076596::numeric,8192),
  ('nvidia/nemotron-3.5-super-vl','Together','2026-11-17.5',0.157287::numeric,4096),
- ('nvidia/nemotron-3-super-120b-a12b','DeepInfra','2026-11-17.2',0.026215::numeric,4096)) approved(model,provider,profile,cap,output_cap) where model=p_model
+ ('nvidia/nemotron-3-super-120b-a12b','DeepInfra','2026-11-17.2',0.026215::numeric,4096),
+ ('meta-llama/llama-4-maverick','Parasail','2026-11-17.7',0.216269::numeric,4096),
+ ('google/gemma-4-26b-a4b-it','PrimeIntellect','2026-11-17.8',0.036045::numeric,4096)) approved(model,provider,profile,cap,output_cap) where model=p_model
 $$;
 revoke all on function shadow_agent.approved_runtime_model(text) from public,anon,authenticated,service_role;
 create table shadow_agent.runtime_settings(
  singleton boolean primary key default true check(singleton),
- model text not null default 'openai/gpt-oss-120b' check(model in ('openai/gpt-oss-120b','nvidia/nemotron-3.5-super-vl','nvidia/nemotron-3-super-120b-a12b')),
+ model text not null default 'openai/gpt-oss-120b' check(model in ('openai/gpt-oss-120b','google/gemma-4-26b-a4b-it')),
  allowed_source_hosts text[] not null default '{}'::text[]
 );
 insert into shadow_agent.runtime_settings(singleton) values(true);

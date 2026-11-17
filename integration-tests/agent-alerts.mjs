@@ -46,7 +46,7 @@ try{
  await db.exec(await fs.readFile(new URL('../supabase/functions/news-agent/sql/runtime-bootstrap.sql',import.meta.url),'utf8'));
  const operations=await fs.readFile(new URL('../supabase/functions/news-agent/sql/operations.sql',import.meta.url),'utf8');
  await db.exec(operations.match(/create function shadow_agent\.active_runtime_model\(\)[\s\S]*?end \$\$;/)[0]);await db.exec('revoke all on function shadow_agent.active_runtime_model() from public,anon,authenticated,service_role');
- for(const [model,available,unavailable] of [['openai/gpt-oss-120b',.07,true],['openai/gpt-oss-120b',.08,false],['nvidia/nemotron-3.5-super-vl',.1,true],['nvidia/nemotron-3-super-120b-a12b',.1,false]]){
+ for(const [model,available,unavailable] of [['google/gemma-4-26b-a4b-it',.03,true],['google/gemma-4-26b-a4b-it',.04,false],['openai/gpt-oss-120b',.07,true],['openai/gpt-oss-120b',.08,false]]){
   await q('update shadow_agent.runtime_settings set model=$1',[model]);const selected=structuredClone(normal);selected.activeModel=await v('select shadow_agent.active_runtime_model() v');selected.currentDayBudget.limitCredits=available;await q('update shadow_agent.fixture_health set value=$1',[selected]);await refresh();assert.equal(await v("select active v from shadow_agent.alert_state where code='budget_unavailable'"),unavailable,'Alerts use protected selected model reservation ceiling, including Cerebras .076596');
  }
  await q("update shadow_agent.runtime_settings set model='openai/gpt-oss-120b'");const actual=await v('select shadow_agent.active_runtime_model() v');assert.equal(actual.provider,'Cerebras');assert.equal(actual.maxCostCredits,.076596);

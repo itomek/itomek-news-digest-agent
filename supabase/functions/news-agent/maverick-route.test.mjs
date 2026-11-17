@@ -1,0 +1,5 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {requestProfileForModel} from './model-profiles.mjs';import {approvedRuntimeModel} from './approved-runtime-models.mjs';import {reviewWithOpenRouter} from './openrouter.mjs';import {DISCOVERY_RESPONSE_FORMAT} from './review-contract.mjs';
+test('historical NVIDIA and Meta profiles remain readable but cannot start new paid calls',async()=>{
+ for(const model of ['meta-llama/llama-4-maverick','nvidia/nemotron-3.5-super-vl','nvidia/nemotron-3-super-120b-a12b']){assert.ok(requestProfileForModel(model));assert.equal(approvedRuntimeModel(model),undefined);let calls=0;await assert.rejects(reviewWithOpenRouter({model,max_tokens:100,messages:[{role:'system',content:'No new work'},{role:'user',content:'{}'}],response_format:DISCOVERY_RESPONSE_FORMAT},{enabled:true,apiKey:'synthetic-key',allowedModels:[model],reservation:{id:'fixture',maxCostCredits:1}},()=>{calls++;throw Error('forbidden');}),e=>e.outcome==='not_started');assert.equal(calls,0);}
+});

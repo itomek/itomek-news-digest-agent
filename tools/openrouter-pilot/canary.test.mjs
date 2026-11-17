@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {executeCanary} from './canary.mjs';
+import {executeCanary,assertActivePilotModel} from './canary.mjs';
 import {buildReviewRequest} from '../../supabase/functions/news-agent/evaluation.mjs';
 import {requestProfileForModel} from '../../supabase/functions/news-agent/model-profiles.mjs';
 const model='anthropic/claude-haiku-5.5';
@@ -24,17 +24,10 @@ test('invalid decision report retains precise issue and audited identity with kn
  assert.deepEqual(report.completionAudit,{model,generationId:'synthetic-generation',provider:'Anthropic'});
  assert.equal(JSON.stringify(report).includes('private-model-reason'),false);assert.deepEqual(f.events,['dispatch','failure']);
 });
-test('both NVIDIA trials dispatch the same neutral eight IDs once with a 30s timeout and keyed decoding',async()=>{
- const {selectDevelopmentBatch}=await import('./batches.mjs');
- const trialCases=selectDevelopmentBatch(cases.concat(Array(7).fill(cases[0])),'scope-challenge');
- for(const trialModel of ['nvidia/nemotron-3.5-super-vl','nvidia/nemotron-3-super-120b-a12b']){
- const f=fixture();let calls=0;
- const trialRequest=buildReviewRequest(trialCases,{model:trialModel,allowedModels:[trialModel],maxOutputTokens:2048,requestProfile:requestProfileForModel(trialModel)});
- const result=await executeCanary({...args(f),request:trialRequest,model:trialModel,cases:trialCases,expectedProvider:'DeepInfra',maxCostCredits:trialModel.includes('3.5')?.157287:.026215,fetcher:async(_url,options)=>{
- calls++;assert.ok(options.signal instanceof AbortSignal);assert.equal(options.signal.aborted,false);
- const sent=JSON.parse(options.body);assert.equal(sent.max_tokens,2048);assert.deepEqual(sent.reasoning,{effort:'none'});assert.equal(sent.provider.allow_fallbacks,false);
- return Response.json({id:'synthetic-nvidia-generation',model:trialModel,provider:'DeepInfra',usage:{prompt_tokens:100,completion_tokens:200,total_tokens:300,cost:.001},choices:[{finish_reason:'stop',message:{content:JSON.stringify({decisions:Object.fromEntries([...trialCases].reverse().map(c=>[c.id,trialModel.includes('3.5')?{rating:'skip',reason:'Synthetic fixture decision'}:{action:'skip',reason:'Synthetic fixture decision',importance:0,relevance:0}]))})}}]});
- }});
- assert.equal(calls,1);assert.deepEqual(result.decisions.map(d=>d.id),trialCases.map(c=>c.id));assert.deepEqual(f.events,['dispatch','success']);assert.equal(result.modelQualityProven,false);
+test('retired NVIDIA and Meta trials are denied before dispatch or new pilot reservation',async()=>{
+ for(const retired of ['nvidia/nemotron-3.5-super-vl','nvidia/nemotron-3-super-120b-a12b','meta-llama/llama-4-maverick']){
+  const f=fixture();let calls=0,reservations=0;assert.throws(()=>{assertActivePilotModel(retired);reservations++;},e=>e.pilotCode==='pilot_model_not_active');
+  await assert.rejects(executeCanary({...args(f),model:retired,request:{...request,model:retired},fetcher:async()=>{calls++;throw Error('must not call');}}),e=>e.pilotCode==='pilot_model_not_active');assert.equal(calls,0);assert.equal(reservations,0);assert.deepEqual(f.events,[]);
  }
+ assert.doesNotThrow(()=>assertActivePilotModel('google/gemma-4-26b-a4b-it'));
 });

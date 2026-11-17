@@ -1,9 +1,10 @@
-// Current V7 runtime acceptance; historical V1/V2 archive compatibility is tested separately.
+// Current V8 runtime acceptance; historical V1/V2 archive compatibility is tested separately.
 // Full real-contract composition. Fabricated source/model only, never a sender.
 // Optional independent PostgreSQL backend must be exclusively disposable loopback.
 import {PGlite} from '@electric-sql/pglite';import {Client} from 'pg';
 import fs from 'node:fs/promises';import assert from 'node:assert/strict';
 import {randomUUID,createHash,webcrypto} from 'node:crypto';
+import {approvedRuntimeModel} from '../supabase/functions/news-agent/approved-runtime-models.mjs';
 import {runVerificationInvocation} from '../supabase/functions/news-agent/verification-runtime.mjs';
 import {newPagedShadowRun} from '../supabase/functions/news-agent/paged-runtime.mjs';
 import {requestProfileForModel} from '../supabase/functions/news-agent/model-profiles.mjs';
@@ -18,7 +19,8 @@ const q=async(s,a=[])=>(await db.query(s,a)).rows,scalar=async(s,a=[])=>(await q
 const load=async f=>db.exec(await fs.readFile(new URL(f,import.meta.url),'utf8'));
 const admin=async fn=>{await db.exec('reset role');try{return await fn();}finally{await db.exec('set role service_role');}};
 const hash=s=>createHash('sha256').update(s).digest('hex'),key=n=>n.toString(16).padStart(64,'0');
-const account='did:plc:pfq2p7n2oiiy2k4pv6xnsgdk',model='openai/gpt-oss-120b',run=randomUUID();
+const account='did:plc:pfq2p7n2oiiy2k4pv6xnsgdk',discoveryModel='openai/gpt-oss-120b',model=process.env.WARPCORE_TEST_MODEL??discoveryModel,run=randomUUID(),reviewedModel=approvedRuntimeModel(model);
+if(!reviewedModel)throw Error('Code-approved fixture model required');
 const snapshot=s=>scalar('select public.warpcore_curator_snapshot($1) value',[s]);
 const history=()=>scalar('select public.warpcore_agent_history() value');
 const queueCount=()=>scalar("select count(*)::int value from (select story_key from public.warpcore_curator_inbox where state in ('pending','leased') union select story_key from public.warpcore_publications where state in ('prepared','sending','uncertain','manual_review'))x");
@@ -36,23 +38,23 @@ assert.equal(await scalar('select public.warpcore_verification_claim() value'),n
   await q('select public.warpcore_ingest($1)',[Array.from({length:6},(_,i)=>({uri:'fixture:'+i,story_key:key(i+1),source_type:'rss',source_id:'official',actor:'official',text:'Synthetic public release '+i,source_created_at:new Date().toISOString(),source_url:i===0?sourceUrl:'https://example.com/'+(i+1),source_links:[i===0?sourceUrl:'https://example.com/'+(i+1)]}))]);
   await q("insert into shadow_agent.budgets(day,limit_credits) values((now() at time zone 'utc')::date,1)");
   await q('insert into shadow_agent.runs(id,state,limit_credits) values($1,$2,.3)',[run,newPagedShadowRun({runId:run,scanStartedAt:new Date().toISOString()})]);
-  await db.exec("update shadow_agent.verification_settings set enabled=true,submit_enabled=true,job_limit_credits=.2;update shadow_agent.producer_settings set enabled=true,run_limit_credits=.3,policy_version='2026-11-14.1'");
+  await db.exec("update shadow_agent.verification_settings set enabled=true,submit_enabled=true,job_limit_credits=.3;update shadow_agent.producer_settings set enabled=true,run_limit_credits=.3,policy_version='2026-11-14.1'");
 
 
   // Existing Dot writer contributes four slots before model history capture.
   for(let n=2;n<=5;n++){const s=await snapshot(key(n));await scalar('select public.warpcore_curator_submit($1,$2,$3,$4,$5,$6) value',[key(n),s.evidence_hash,editorial(s),attest,'real-dot',randomUUID()]);}
  });
  assert.equal(await queueCount(),4);
- const runtimeConfig={enabled:true,model,maxCostCredits:.076596,maxOutputTokens:8192,apiKey:'synthetic-not-a-credential',allowedModels:[model],expectedProvider:'Cerebras',allowedSourceHosts:['github.com']};
+ const runtimeConfig={enabled:true,model,maxCostCredits:reviewedModel.maxCostCredits,maxOutputTokens:reviewedModel.maxOutputTokens,apiKey:'synthetic-not-a-credential',allowedModels:[model],expectedProvider:reviewedModel.provider,allowedSourceHosts:['github.com']};
  const lease=await scalar('select shadow_agent.claim($1,120) value',[run]);let state=await scalar('select shadow_agent.load($1) value',[run]);
- const cfg={model,requestProfile:requestProfileForModel(model,'2026-11-16.4'),expectedProvider:'Groq',maxOutputTokens:100,maxCostCredits:.1,timeoutMs:1000,maxResponseBytes:20000,policyVersion:state.policyVersion,routing:'openrouter-no-fallback'};
+ const cfg={model:discoveryModel,requestProfile:requestProfileForModel(discoveryModel,'2026-11-16.4'),expectedProvider:'Groq',maxOutputTokens:100,maxCostCredits:.1,timeoutMs:1000,maxResponseBytes:20000,policyVersion:state.policyVersion,routing:'openrouter-no-fallback'};
  await scalar('select shadow_agent.paged_bind_config($1,$2,$3) value',[run,lease,cfg]);
  state=await scalar('select shadow_agent.paged_append($1,$2,$3,$4) value',[run,lease,state.revision,[{id:key(1),sourceUrl,discoveryText:'Synthetic candidate needing complete verification.'}]]);
  state=await scalar('select shadow_agent.paged_append($1,$2,$3,$4) value',[run,lease,state.revision,[]]);
  state=(await scalar('select shadow_agent.paged_begin($1,$2,$3,1) value',[run,lease,state.revision])).state;
  const discovery=await scalar('select shadow_agent.paged_reserve($1,$2,$3,$4,.1) value',[run,lease,state.revision,hash('fabricated discovery request')]);
  await scalar('select shadow_agent.dispatch($1,$2) value',[discovery.attemptId,lease]);
- const audit=cost=>({model,provider:'Groq',generationId:'synthetic-'+randomUUID(),usage:{promptTokens:10,completionTokens:5,totalTokens:15,costCredits:cost}});
+ const audit=cost=>({model:discoveryModel,provider:'Groq',generationId:'synthetic-'+randomUUID(),usage:{promptTokens:10,completionTokens:5,totalTokens:15,costCredits:cost}});
  await scalar("select shadow_agent.paged_settle($1,$2,'settled',.01,$3) value",[discovery.attemptId,lease,audit(.01)]);
  state=await scalar('select shadow_agent.paged_commit($1,$2,$3,$4) value',[run,lease,state.revision,[{id:key(1),action:'verify',reason:'Synthetic meaningful release.',importance:3,relevance:4}]]);
  state=(await scalar('select shadow_agent.paged_begin($1,$2,$3,1) value',[run,lease,state.revision])).state;assert.equal(state.phase,'complete');
@@ -70,6 +72,8 @@ assert.equal(await scalar('select public.warpcore_verification_claim() value'),n
  const invoke=()=>runVerificationInvocation({config:runtimeConfig,rpc,evidenceFetcher:async(target,options)=>{sourceCalls++;assert.equal(target,'https://api.github.com/repos/lemonade-sdk/lemonade/releases/tags/v2026.47.1');assert.equal(options.headers.Authorization,undefined);return new Response(sourceBody,{headers:{'content-type':'application/json'}});},modelFetcher:async(target,options)=>{
   modelCalls++;assert.equal(target,'https://openrouter.ai/api/v1/chat/completions');const requestHash=hash(options.body);
   const attempt=await admin(()=>q('select a.status,a.request_hash from shadow_agent.attempts a join shadow_agent.verification_jobs j on j.child_run_id=a.run_id where j.id=$1',[jobId]));assert.equal(attempt[0].status,'dispatched');assert.equal(attempt[0].request_hash,requestHash);
+  if(model==='meta-llama/llama-4-maverick'){const posted=JSON.parse(options.body);assert.equal(Object.hasOwn(posted,'reasoning'),false);assert.equal(posted.temperature,0);assert.deepEqual(posted.provider.only,['parasail/fp8']);}
+  if(model==='google/gemma-4-26b-a4b-it'){const posted=JSON.parse(options.body);assert.deepEqual(posted.reasoning,{effort:'none'});assert.equal(Object.hasOwn(posted,'temperature'),false);assert.deepEqual(posted.provider.only,['primeintellect/bf16']);}
   const input=JSON.parse(JSON.parse(options.body).messages[1].content),source=input.sources[0];assert.equal(source.url,sourceUrl);assert.equal(source.captureKind,'github-release-v1');assert.equal(source.fetchedUrl,'https://api.github.com/repos/lemonade-sdk/lemonade/releases/tags/v2026.47.1');assert.equal(Object.hasOwn(source,'body'),false);assert.equal(source.bodyChunks.map(c=>c.text).join(''),sourceBody);assert.ok(source.bodyChunks.length>1);assert.ok(source.bodyChunks.every(c=>c.text.length<=2500));assert.equal(source.attributionPrefix,attributionPrefix);assert.equal(input.history.items.length,4);assert.equal(options.body.includes(runtimeConfig.apiKey),false);
   const contentId=source.quoteRoles.content.find(id=>{const text=source.bodyChunks.find(c=>c.id===id).text;return text.includes(summary)&&text.includes(why)&&text.includes(change);}),dateId=source.quoteRoles.publicationDate[0];
   assert.ok(contentId);assert.notEqual(contentId,dateId);assert.ok(source.bodyChunks.find(c=>c.id===dateId).text.includes(releaseData.published_at));
@@ -77,7 +81,7 @@ assert.equal(await scalar('select public.warpcore_verification_claim() value'),n
   const supports={summary:metadataSupport?metadataId:contentId,whyItMatters:metadataSupport?metadataId:contentId,change:metadataSupport?metadataId:contentId,publicationDate:dateId};
   const result={action:'approve',editorial:{political:false,summary,whyItMatters:why,change,evidenceIds:[source.evidenceId]},publicationDate:invalidDate?date+'T12:00:00Z':date,scopeReason:'Direct engineering relevance.',changeReason:'Official new backend.',dedupReason:'Distinct from all four pending events.',supports};
 
-  return Response.json({id:'synthetic-native-verification',model,provider:'Cerebras',usage:{prompt_tokens:10,completion_tokens:5,total_tokens:15,cost:.02},choices:[{finish_reason:'stop',message:{content:JSON.stringify({result})}}]});
+  return Response.json({id:'synthetic-native-verification',model,provider:reviewedModel.provider,usage:{prompt_tokens:10,completion_tokens:5,total_tokens:15,cost:.02},choices:[{finish_reason:'stop',message:{content:JSON.stringify({result})}}]});
  }});
  await db.exec('begin');invalidDate=true;
  const badDate=await invoke();assert.equal(badDate.status,'deferred');assert.equal(badDate.reason,'billed_invalid_completion');
@@ -89,7 +93,7 @@ assert.equal(await scalar('select public.warpcore_verification_claim() value'),n
  await db.exec('rollback');metadataSupport=false;modelCalls=0;sourceCalls=0;
  const outcome=await invoke();
  assert.equal(outcome.status,'submitted',JSON.stringify(outcome));assert.equal(modelCalls,1);assert.equal(sourceCalls,1);const inbox=outcome.inboxId,receipt=outcome.receiptId;
- assert.equal(await queueCount(),5);assert.equal(material.requestProfileVersion,'2026-11-17.verify.7');assert.equal(material.sources[0].url,sourceUrl);assert.equal(material.sources[0].captureKind,'github-release-v1');assert.equal(material.sources[0].body,sourceBody);assert.equal(material.editorial.summary,attributionPrefix+summary);assert.equal(material.judgment.claims.length,4);assert.ok(material.judgment.claims.every(c=>c.quote.length<=2500&&sourceBody.includes(c.quote)));assert.ok(material.judgment.claims.every(c=>c.url===sourceUrl&&c.contentSha256===hash(sourceBody)));
+ assert.equal(await queueCount(),5);assert.equal(material.requestProfileVersion,'2026-11-17.verify.8');assert.equal(material.sources[0].url,sourceUrl);assert.equal(material.sources[0].captureKind,'github-release-v1');assert.equal(material.sources[0].body,sourceBody);assert.equal(material.editorial.summary,attributionPrefix+summary);assert.equal(material.judgment.claims.length,4);assert.ok(material.judgment.claims.every(c=>c.quote.length<=2500&&sourceBody.includes(c.quote)));assert.ok(material.judgment.claims.every(c=>c.url===sourceUrl&&c.contentSha256===hash(sourceBody)));
  const rawReleaseNotes=JSON.stringify(releaseData.body).slice(1,-1);
  for(const claim of material.judgment.claims){if(claim.claim===date)assert.equal(claim.quote,releaseData.published_at,'Date binds only the published_at value');else assert.ok(rawReleaseNotes.includes(claim.quote),'Editorial support comes wholly from actual release.body raw text');}
  const rows=await q('select * from public.warpcore_curator_claim(5)'),agent=rows.find(r=>r.id===inbox),dot=rows.find(r=>r.actor_kind==='dot');assert.equal(agent.agent_id,material.agentId);assert.equal(agent.dot_id,null);assert.equal(dot.dot_id,'real-dot');
@@ -101,5 +105,5 @@ assert.equal(await scalar('select public.warpcore_verification_claim() value'),n
  await admin(async()=>{const budget=(await q('select * from shadow_agent.budgets'))[0];assert.equal(Number(budget.spent_credits),.03);assert.equal(Number(budget.held_credits),0);const ledger=(await q('select j.*,a.request_hash,a.status attempt_status from shadow_agent.verification_jobs j join shadow_agent.attempts a on a.run_id=j.child_run_id'))[0];assert.equal(ledger.status,'verified');assert.equal(ledger.request_hash,material.requestSha256);assert.equal(ledger.receipt_id,receipt);assert.equal(ledger.attempt_status,'settled');const retained=(await q("select audit from shadow_agent.verification_audit where status='settled'"))[0].audit.result;assert.ok(Object.values(retained.supports).every(id=>/^source-1-chunk-[0-9]{4}$/.test(id)));assert.equal(retained.claims,undefined);assert.equal((await q('select count(*)::int n from public.warpcore_publication_slots'))[0].n,0,'No sending attempt');});
  for(const table of ['verification_settings','verification_jobs','verification_audit','budgets'])await assert.rejects(()=>q('select * from shadow_agent.'+table),/permission/);
  for(const role of ['anon','authenticated']){await db.exec('set role '+role);for(const expression of ['warpcore_verification_claim()'])await assert.rejects(()=>scalar('select public.'+expression+' value'),/permission/);await db.exec('reset role');}
- console.log('PASS: GitHub official release API → V7 raw JSON chunk-ID supports + actual runtime + ranked paid ledger + exact date/hash/quote receipt + curator 300-grapheme post; five global slots with Dot coexistence and zero sends');
+ console.log('PASS: GitHub official release API → V8 raw JSON chunk-ID supports + actual runtime + ranked paid ledger + exact date/hash/quote receipt + curator 300-grapheme post; five global slots with Dot coexistence and zero sends');
 }finally{await db.close();}

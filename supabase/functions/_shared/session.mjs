@@ -1,6 +1,6 @@
 import {readJson} from './adapters.mjs';
 // Internal server-only boundary. Never log this return value or persist tokens.
-// One login per invocation, no retries/redirects. Scheduler must stay hourly.
+// One login per nonempty invocation, no retries/redirects. A durable hourly attempt budget gates authentication.
 export async function connect(config,fetcher=fetch){
  if(config.enabled!==true)return {enabled:false};
  if(!/^did:plc:[a-z2-7]{24}$/.test(config.accountDid)||config.identifier!=='warp-core.bsky.social'||typeof config.appPassword!=='string'||!config.appPassword.trim())throw Error('Account configuration required');

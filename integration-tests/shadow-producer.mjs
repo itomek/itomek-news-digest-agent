@@ -25,6 +25,7 @@ try{
  await assert.rejects(()=>select(),/configuration/);
  await q('update shadow_agent.producer_settings set run_limit_credits=1,policy_version=$1',[POLICY_VERSION]);
  await db.exec('set role service_role');
+ await db.exec('reset role');await db.exec("create function shadow_agent.pipeline_collection_pending() returns boolean language sql as 'select true'");await db.exec('set role service_role');assert.equal(await select(),null,'Pending collection prevents only a new fixed scan');await db.exec('reset role');await db.exec('drop function shadow_agent.pipeline_collection_pending()');await db.exec('set role service_role');
  const first=await select();assert.match(first,/^[a-f0-9-]{36}$/);
  assert.equal(await select(),first,'Repeat trigger selects same resumable run');
  const state=await scalar('select public.warpcore_shadow_load($1) as value',[first]);
@@ -95,11 +96,14 @@ try{
  insert into shadow_agent.runs(id,state,limit_credits) values('00000000-0000-4000-8000-000000000001','{"phase":"complete","storageKind":"paged-v1"}',1);
  insert into shadow_agent.candidates(run_id,ordinal,candidate_id,candidate) values('00000000-0000-4000-8000-000000000001',0,repeat('a',64),'{}');
  alter table shadow_agent.decisions disable trigger paged_require_audit;
- insert into shadow_agent.decisions(run_id,ordinal,decision) values('00000000-0000-4000-8000-000000000001',0,'{}');
+ insert into shadow_agent.decisions(run_id,ordinal,decision) values('00000000-0000-4000-8000-000000000001',0,'{"action":"verify","importance":3,"relevance":4}');
+ insert into public.warpcore_stories(story_key,status) values(repeat('a',64),'unverified_review_required');
  alter table shadow_agent.decisions enable trigger paged_require_audit;
  insert into shadow_agent.ranking_runs values('00000000-0000-4000-8000-000000000001','2026-11-16.1','importance-relevance-id-v1',1,1,1,0,clock_timestamp());
  insert into shadow_agent.selection_items(run_id,rank,ordinal) values('00000000-0000-4000-8000-000000000001',1,0);`);
  const helperSource=await fs.readFile(new URL('../supabase/functions/news-agent/sql/verification-jobs.sql',import.meta.url),'utf8');
+ await precedence.exec(helperSource.match(/create function shadow_agent\.quarantined_gemma_prefix_eligible\(p_run uuid\)[\s\S]*?\$\$;/)[0]);
+ await precedence.exec(helperSource.match(/create function shadow_agent\.verification_queue_has_capacity\(\)[\s\S]*?\$\$;/)[0]);
  await precedence.exec(helperSource.match(/create function shadow_agent\.next_verification_candidate\(\)[\s\S]*?\$\$;/)[0]);
  assert.equal(await pick(),null,'Manual completed real-clock shortlist precedes a fresh hourly slot');
  assert.equal((await pq('select count(*)::int n from shadow_agent.producer_slots'))[0].n,0,'No fabricated scheduler slot');

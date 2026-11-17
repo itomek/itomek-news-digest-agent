@@ -120,6 +120,10 @@ try{
  }while(pages.length<10);
  assert.ok(pages.length>=2);assert.equal(pages.at(-1).complete,true);assert.equal(new Set(seen).size,seen.length);
  assert.ok(pages.flatMap(p=>p.items).some(x=>x.storyKey===key(100)),'Old publications remain conservatively visible');
+ // Over time a parent may admit more than five stories, while actual pending capacity stays bounded.
+ await db.exec('begin');await admin(()=>db.exec("update public.warpcore_curator_inbox set state='rejected',reason='fixture_release',completed_at=now() where state in ('pending','leased')"));const rollingRun=randomUUID();
+ for(let n=201;n<=206;n++){const story=await seed(n),proposal=await material(story);proposal.runId=rollingRun;const proof=await issue(proposal),inbox=await submit(proof);assert.ok(inbox);await admin(()=>q("update public.warpcore_curator_inbox set state='rejected',reason='fixture_release',completed_at=now() where id=$1",[inbox]));}
+ assert.equal((await admin(()=>q('select count(*)::int n from public.warpcore_curator_inbox where run_id=$1',[rollingRun])))[0].n,6,'No separate historical per-parent five-submission ceiling');await db.exec('rollback');
  for(const role of ['anon','authenticated']){await db.exec('set role '+role);for(const fn of [()=>issue(m),()=>submit(id),()=>receipt(id),history])await assert.rejects(fn,/permission denied/);}
  console.log('PASS: trusted-service receipt provenance/Unicode quotes, agent actor, idempotency/immutability, current snapshot/history rechecks, Dot coexistence and private grants; no posting');
 }finally{await db.close();}

@@ -3,12 +3,15 @@ import {initialize} from '../_shared/runtime.mjs';
 import {databaseAdapter} from '../_shared/adapters.mjs';
 import {initializeWithPassword} from '../_shared/session.mjs';
 // Scheduler cannot submit drafts, account IDs, enable flags or configuration.
-export async function handlePublish(req,env,init=initialize,reserve=async config=>databaseAdapter(config).reserveLogin(config.accountDid)){
+export async function handlePublish(req,env,init=initialize,reserve=async config=>databaseAdapter(config).reserveLogin(config.accountDid),pending=async config=>databaseAdapter(config).pending(config.accountDid)){
  if(req.method!=='POST')return new Response('POST required',{status:405});
  if(!await authorized(req.headers.get('x-warpcore-token'),env.WARPCORE_PUBLISH_CRON_TOKEN))return new Response('Unauthorized',{status:401});
  if(env.WARPCORE_PUBLISH_ENABLED!=='true')return Response.json({mode:'disabled',processed:0});
  try{
  const config={enabled:true,accountDid:env.BLUESKY_ACCOUNT_DID,pdsUrl:env.BLUESKY_PDS_URL,accessToken:env.BLUESKY_ACCESS_TOKEN,projectUrl:env.SUPABASE_URL,serviceKey:env.SUPABASE_SERVICE_ROLE_KEY};
+ const queued=await pending(config);
+ if(!Array.isArray(queued)||queued.length>5)throw Error('Invalid publisher queue');
+ if(queued.length===0)return Response.json({processed:0,states:[]});
  if(!await reserve(config))return Response.json({error:'hourly_limit_reached'},{status:429});
  const runtime=env.BLUESKY_APP_PASSWORD?await initializeWithPassword({...config,identifier:env.BLUESKY_IDENTIFIER,appPassword:env.BLUESKY_APP_PASSWORD},init):await init(config);
  const results=await runtime.runPending();

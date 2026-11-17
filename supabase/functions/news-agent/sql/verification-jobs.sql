@@ -38,33 +38,64 @@ begin
 end $$;
 -- One deterministic source of new work for claim and the discovery selector.
 -- Existing jobs preserve attempted candidates; original top-five proposals stay immutable.
+-- A fenced terminal parent can contribute its paid committed prefix, never its failed batch.
+create function shadow_agent.quarantined_gemma_prefix_eligible(p_run uuid) returns boolean
+language plpgsql stable security definer set search_path='' as $$
+begin
+ if to_regclass('shadow_agent.billing_quarantine_audit') is null then return false;end if;
+ return exists(select 1 from shadow_agent.runs r join shadow_agent.run_config cfg on cfg.run_id=r.id
+ join shadow_agent.billing_quarantine_audit a on a.run_id=r.id and a.state_after=r.state
+ join shadow_agent.attempt_audit x on x.attempt_id=a.attempt_id and x.status='uncertain'
+ where r.id=p_run and r.blocked and r.state->>'storageKind'='paged-v1' and r.state->>'phase'='deferred'
+ and r.state->'activeBatch'='null'::jsonb and a.billing_status='unknown_held'
+ and cfg.config->>'model'='google/gemma-4-26b-a4b-it' and cfg.config->>'expectedProvider'='PrimeIntellect'
+ and cfg.config->'maxCostCredits'='0.036045'::jsonb and cfg.config->'requestProfile'->>'version'='2026-11-17.8'
+ and (x.audit='{"errorCode":"timeout"}'::jsonb or (x.audit-'errorCode'-'diagnostic')='{}'::jsonb
+  and x.audit @> '{"errorCode":"http_failure","diagnostic":{"httpStatus":429,"limitSource":"upstream_provider_shared_pool","errorProvider":"PrimeIntellect","providerErrorCode":"rate_limited"}}'::jsonb
+  and ((x.audit->'diagnostic')-'httpStatus'-'limitSource'-'errorProvider'-'providerErrorCode'-'retryAfterSeconds'-'cloudflareRay'-'requestId'-'providerErrorType')='{}'::jsonb
+  and (not(x.audit->'diagnostic' ? 'providerErrorType') or x.audit->'diagnostic'->>'providerErrorType' in ('rate_limit_error','rate_limit_exceeded'))));
+end $$;
+revoke all on function shadow_agent.quarantined_gemma_prefix_eligible(uuid) from public,anon,authenticated,service_role;
+create function shadow_agent.verification_queue_has_capacity() returns boolean
+language sql stable security definer set search_path='' as $$
+ select count(*)<5 from (
+  select story_key from public.warpcore_curator_inbox where state in ('pending','leased')
+  union select story_key from public.warpcore_publications where state in ('prepared','sending','uncertain','manual_review')
+ ) live
+$$;
+revoke all on function shadow_agent.verification_queue_has_capacity() from public,anon,authenticated,service_role;
 create function shadow_agent.next_verification_candidate()
 returns table(ranking_run_id uuid,story_key text,ordinal bigint)
 language sql stable security definer set search_path='' as $$
  select k.run_id,c.candidate_id,c.ordinal
  from shadow_agent.ranking_runs k
- join shadow_agent.runs r on r.id=k.run_id and r.state->>'phase'='complete'
+ join shadow_agent.runs r on r.id=k.run_id and r.state->>'phase' in ('review','complete','deferred')
  join shadow_agent.candidates c on c.run_id=k.run_id
- left join shadow_agent.selection_items selected on selected.run_id=c.run_id and selected.ordinal=c.ordinal
- left join shadow_agent.decisions d on d.run_id=c.run_id and d.ordinal=c.ordinal
+ join shadow_agent.decisions d on d.run_id=c.run_id and d.ordinal=c.ordinal
  cross join shadow_agent.verification_settings cfg
- where cfg.singleton and cfg.enabled and k.finalized_at is not null
- and (cfg.ranking_finalized_since is null or k.finalized_at>=cfg.ranking_finalized_since)
- and (select count(distinct v.story_key) from shadow_agent.verification_jobs v where v.ranking_run_id=k.run_id and v.status='verified')<5
+ where cfg.singleton and cfg.enabled and shadow_agent.verification_queue_has_capacity()
+ and ((r.state->>'phase'='complete' and k.finalized_at is not null)
+  or (r.state->>'phase'='review' and k.finalized_at is null and r.state->'activeBatch'='null'::jsonb
+   and (r.lease_until is null or r.lease_until<=clock_timestamp())
+   and k.assessed_count=(r.state->>'reviewedCount')::bigint and c.ordinal<(r.state->>'reviewedCount')::bigint
+   and not exists(select 1 from shadow_agent.verification_jobs prior join shadow_agent.runs child on child.id=prior.child_run_id
+    where prior.ranking_run_id=r.id and child.state->'parentReviewedCount'=r.state->'reviewedCount'))
+  or (r.state->>'phase'='deferred' and shadow_agent.quarantined_gemma_prefix_eligible(r.id)
+   and k.finalized_at is null and k.assessed_count=(r.state->>'reviewedCount')::bigint and c.ordinal<(r.state->>'reviewedCount')::bigint))
+ and (cfg.ranking_finalized_since is null or coalesce(k.finalized_at,(r.state->>'scanStartedAt')::timestamptz)>=cfg.ranking_finalized_since)
  and not exists(select 1 from shadow_agent.verification_jobs v where v.ranking_run_id=c.run_id and v.story_key=c.candidate_id)
  and not exists(select 1 from shadow_agent.verification_jobs held where held.story_key=c.candidate_id and held.status='uncertain')
- and (selected.ordinal is not null or (cfg.backfill_enabled
-  and d.decision->>'action'='verify'
-  and exists(select 1 from public.warpcore_stories s where s.story_key=c.candidate_id and s.status='unverified_review_required')
-  and not exists(select 1 from public.warpcore_curator_inbox i where i.story_key=c.candidate_id)
-  and not exists(select 1 from public.warpcore_publications p where p.story_key=c.candidate_id)))
- order by k.finalized_at,k.run_id,(selected.ordinal is not null) desc,selected.rank,
+ and d.decision->>'action'='verify'
+ and exists(select 1 from public.warpcore_stories s where s.story_key=c.candidate_id and s.status='unverified_review_required')
+ and not exists(select 1 from public.warpcore_curator_inbox i where i.story_key=c.candidate_id)
+ and not exists(select 1 from public.warpcore_publications p where p.story_key=c.candidate_id)
+ order by coalesce(k.finalized_at,(r.state->>'scanStartedAt')::timestamptz),k.run_id,
  (d.decision->>'importance')::integer desc,(d.decision->>'relevance')::integer desc,c.candidate_id
  limit 1
 $$;
 revoke all on function shadow_agent.next_verification_candidate() from public,anon,authenticated,service_role;
 create function public.warpcore_verification_claim() returns jsonb language plpgsql security definer set search_path='' as $$
-declare cfg shadow_agent.verification_settings;j shadow_agent.verification_jobs;c record;child uuid;token uuid;
+declare cfg shadow_agent.verification_settings;j shadow_agent.verification_jobs;c record;parent shadow_agent.runs;child uuid;token uuid;
 begin
  perform shadow_agent.verification_lock();
  select * into cfg from shadow_agent.verification_settings where singleton;
@@ -73,7 +104,7 @@ begin
  if to_regprocedure('shadow_agent.advance_verification_rate_limits()') is not null then
   perform shadow_agent.advance_verification_rate_limits();end if;
  -- Recover a completed verification's unsent receipt without paid replay.
- select * into j from shadow_agent.verification_jobs v where cfg.submit_enabled and v.status='verified' and not v.quarantined and v.handoff_status='pending'
+ select * into j from shadow_agent.verification_jobs v where cfg.submit_enabled and shadow_agent.verification_queue_has_capacity() and v.status='verified' and not v.quarantined and v.handoff_status='pending'
  and not exists(select 1 from public.warpcore_curator_inbox inbox where inbox.verification_receipt_id=v.receipt_id) order by v.id limit 1;
  if found then
   token:=shadow_agent.claim(j.child_run_id,180);if token is null then return null;end if;
@@ -84,12 +115,15 @@ begin
  where existing_job.child_run_id=r.id and existing_job.status='pending' and not existing_job.quarantined and r.lease_until<=clock_timestamp()
  and exists(select 1 from shadow_agent.attempts a where a.run_id=r.id);
  if exists(select 1 from shadow_agent.verification_jobs where status='uncertain' and not quarantined) then return null;end if;
+ if not shadow_agent.verification_queue_has_capacity() then return null;end if;
  select * into j from shadow_agent.verification_jobs where status='pending' and not quarantined order by id limit 1;
  if not found then
   select next.ranking_run_id as run_id,next.story_key as candidate_id into c from shadow_agent.next_verification_candidate() next;
   if not found then return null;end if;
+  select * into parent from shadow_agent.runs where id=c.run_id for share nowait;
+  if not found or not exists(select 1 from shadow_agent.next_verification_candidate() fresh where fresh.ranking_run_id=c.run_id and fresh.story_key=c.candidate_id) then return null;end if;
   child:=gen_random_uuid();
-  insert into shadow_agent.runs(id,state,limit_credits) values(child,jsonb_build_object('storageKind','verification-v1','runId',child,'phase','reviewing','revision',0,'activeBatch',jsonb_build_array(c.candidate_id),'publishingEnabled',false),cfg.job_limit_credits);
+  insert into shadow_agent.runs(id,state,limit_credits) values(child,jsonb_build_object('storageKind','verification-v1','runId',child,'phase','reviewing','revision',0,'activeBatch',jsonb_build_array(c.candidate_id),'publishingEnabled',false,'parentReviewedCount',parent.state->'reviewedCount'),cfg.job_limit_credits);
   insert into shadow_agent.verification_jobs(ranking_run_id,story_key,child_run_id) values(c.run_id,c.candidate_id,child) returning * into j;
  end if;
  if exists(select 1 from shadow_agent.attempts where run_id=j.child_run_id) then return null;end if;
@@ -261,7 +295,6 @@ begin
  select * into a from shadow_agent.attempts where run_id=j.child_run_id;
  if found and (a.status<>'settled' or not exists(select 1 from shadow_agent.verification_audit where job_id=p_job and status='settled')) then raise exception 'Settled verification attempt required';end if;
  if p_status='verified' then
-  if (select count(distinct story_key) from shadow_agent.verification_jobs where ranking_run_id=j.ranking_run_id and status='verified')>=5 then raise exception 'Verification run qualified limit reached';end if;
   if a.id is null then raise exception 'Settled verification attempt required';end if;
   select audit into paid_audit from shadow_agent.verification_audit where job_id=p_job and status='settled';
   if paid_audit->'model' is distinct from j.metadata->'model' or paid_audit->'provider' is distinct from j.metadata->'expectedProvider' or paid_audit ? 'validationError' or paid_audit ? 'errorCode' or r.blocked

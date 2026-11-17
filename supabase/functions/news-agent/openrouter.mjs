@@ -162,7 +162,7 @@ export function serializeReviewBody(request){
 export async function reviewWithOpenRouter(request,config={},fetcher){
  const ids=validate(request,config,fetcher);
  const timeoutMs=config.timeoutMs??10000,maxResponseBytes=config.maxResponseBytes??200000;
- if(!boundedInteger(timeoutMs,30000)||!boundedInteger(maxResponseBytes,200000))fail('invalid_limits');
+ if(!boundedInteger(timeoutMs,60000)||!boundedInteger(maxResponseBytes,200000))fail('invalid_limits');
  const body=serializeReviewBody(request);
  const pinnedRequest={model:request.model,response_format:structuredClone(request.response_format),...(Object.hasOwn(config,'expectedProvider')?{expectedProvider:config.expectedProvider}:{})};
  const pinnedReservation={maxCostCredits:config.reservation.maxCostCredits};

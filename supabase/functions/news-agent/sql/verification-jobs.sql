@@ -76,7 +76,7 @@ begin
  select * into j from shadow_agent.verification_jobs v where cfg.submit_enabled and v.status='verified' and not v.quarantined and v.handoff_status='pending'
  and not exists(select 1 from public.warpcore_curator_inbox inbox where inbox.verification_receipt_id=v.receipt_id) order by v.id limit 1;
  if found then
-  token:=shadow_agent.claim(j.child_run_id,120);if token is null then return null;end if;
+  token:=shadow_agent.claim(j.child_run_id,180);if token is null then return null;end if;
   return jsonb_build_object('jobId',j.id,'rankingRunId',j.ranking_run_id,'storyKey',j.story_key,'lease',token,'handoffReceiptId',j.receipt_id);
  end if;
  -- A lost response after reservation is never an authorization to dispatch again.
@@ -93,7 +93,7 @@ begin
   insert into shadow_agent.verification_jobs(ranking_run_id,story_key,child_run_id) values(c.run_id,c.candidate_id,child) returning * into j;
  end if;
  if exists(select 1 from shadow_agent.attempts where run_id=j.child_run_id) then return null;end if;
- token:=shadow_agent.claim(j.child_run_id,120);if token is null then return null;end if;
+ token:=shadow_agent.claim(j.child_run_id,180);if token is null then return null;end if;
  return jsonb_build_object('jobId',j.id,'rankingRunId',j.ranking_run_id,'storyKey',j.story_key,'lease',token);
 end $$;
 create function public.warpcore_verification_reserve(p_job uuid,p_lease uuid,p_hash text,p_max numeric,p_metadata jsonb) returns uuid

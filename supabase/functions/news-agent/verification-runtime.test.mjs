@@ -230,3 +230,6 @@ test('V6 API metadata or date chunks cannot support substantive claims and known
  const out=await run(f),settlement=f.events.find(e=>e.name==='warpcore_verification_settle').args;assert.equal(out.status,'deferred');assert.equal(out.reason,'billed_invalid_completion');assert.equal(settlement.p_status,'settled');assert.equal(settlement.p_cost,.01);assert.equal(settlement.p_audit.validationError,'invalid_verification_schema');assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);assert.ok(f.events.findIndex(e=>e.name==='warpcore_verification_settle')<f.events.findIndex(e=>e.name==='warpcore_verification_finish'));
  }
 });
+test('verification accepts60s model calls while retaining10s source acquisition deadlines',async t=>{
+ const f=fixture(),delays=[],timer=setTimeout;t.mock.method(globalThis,'setTimeout',(fn,delay,...args)=>{delays.push(delay);return timer(fn,delay,...args);});f.config.timeoutMs=60000;assert.equal((await run(f)).status,'submitted');assert.ok(delays.includes(10000));assert.ok(delays.includes(60000));const bad=fixture();bad.config.timeoutMs=60001;assert.equal((await run(bad)).reason,'invalid_configuration');assert.equal(bad.events.length,0);
+});

@@ -48,7 +48,7 @@ export function createHostedApplication(config,dependencies={}){
     const value=await rpc('warpcore_agent_runtime_config');
     const approved=approvedRuntimeModel(value?.model);
     if(!approved||Object.keys(value).length!==5||typeof value.apiKey!=='string'||!value.apiKey||value.maxOutputTokens!==approved.maxOutputTokens||value.maxCostCredits!==approved.maxCostCredits||!Array.isArray(value.allowedSourceHosts)||!value.allowedSourceHosts.length)throw Error();
-    return {...value,enabled:true,requireModelProfile:true,allowedModels:[approved.model],expectedProvider:approved.provider,reviewBatchSize:approved.reviewBatchSize,timeoutMs:30000,leaseSeconds:120};
+    return {...value,enabled:true,requireModelProfile:true,allowedModels:[approved.model],expectedProvider:approved.provider,reviewBatchSize:approved.reviewBatchSize,timeoutMs:60000,leaseSeconds:180};
    })();
    const getDiscovery=async()=>{const settings=await getSettings();return discovery??=discoveryFactory({...config,invocationOptions:{pageSteps:1,reviewBatchSize:settings.reviewBatchSize,releaseLeaseOnSuccess:true},runtimeConfig:settings});};
    const getVerifier=async()=>{

@@ -41,7 +41,7 @@ begin
   if jsonb_typeof(p_config->k) is distinct from 'number' or p_config->>k !~ '^[0-9]+$' then raise exception 'Invalid runtime config'; end if;
  end loop;
  if (p_config->>'maxOutputTokens')::numeric not between 1 and 16384
- or (p_config->>'timeoutMs')::numeric not between 1 and 30000
+ or (p_config->>'timeoutMs')::numeric not between 1 and 60000
  or (p_config->>'maxResponseBytes')::numeric not between 1 and 200000
  or jsonb_typeof(p_config->'maxCostCredits') is distinct from 'number' then raise exception 'Invalid runtime config'; end if;
  if not((p_config->>'maxCostCredits')::numeric>0 and (p_config->>'maxCostCredits')::numeric<1000000) then raise exception 'Invalid runtime config'; end if;

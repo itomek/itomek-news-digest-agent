@@ -13,7 +13,9 @@ try{
  assert.equal((await q('select ranking_finalized_since from shadow_agent.verification_settings'))[0].ranking_finalized_since,null,'New-job cohort boundary defaults NULL');
  assert.equal((await q('select backfill_enabled from shadow_agent.verification_settings'))[0].backfill_enabled,false,'Backfill is admin-disabled by default');
  assert.equal((await q('select submit_enabled from shadow_agent.verification_settings'))[0].submit_enabled,false,'Live verification defaults to nonpublishing preview');
- await db.exec('update shadow_agent.verification_settings set enabled=true,submit_enabled=true,job_limit_credits=0.3');const job=await claim();assert.equal(job.storyKey,key);assert.equal(job.rankingRunId,root);assert.equal(await claim(),null);
+ await db.exec('update shadow_agent.verification_settings set enabled=true,submit_enabled=true,job_limit_credits=0.3');const job=await claim();assert.equal(job.storyKey,key);
+ const leaseSeconds=async id=>Number(await value('select extract(epoch from (lease_until-clock_timestamp())) v from shadow_agent.runs where id=(select child_run_id from shadow_agent.verification_jobs where id=$1)',[id]));
+ assert.ok(await leaseSeconds(job.jobId)>179,'Fresh verification gets a full180-second lease for evidence/model/settlement');assert.equal(job.rankingRunId,root);assert.equal(await claim(),null);
  const reserve=(lease=job.lease,metadata={model:'openai/gpt-oss-120b',profileVersion:'2026-11-16.verify.1',expectedProvider:'Groq'})=>value('select public.warpcore_verification_reserve($1,$2,$3,0.058983,$4) v',[job.jobId,lease,hash,metadata]);
  await assert.rejects(()=>reserve(),/Missing daily budget/);await db.exec("insert into shadow_agent.budgets(day,limit_credits) values((now() at time zone 'utc')::date,1)");
  await assert.rejects(()=>reserve(job.lease,{model:'other',profileVersion:'2026-11-16.verify.1',expectedProvider:'Groq'}),/metadata/);
@@ -68,7 +70,7 @@ try{
  assert.equal((await q('select count(*)::int n from public.warpcore_curator_inbox'))[0].n,0);
  await db.exec('update shadow_agent.verification_settings set submit_enabled=true');
  await q("update shadow_agent.runs set lease_until=now()-interval '1 second' where id=(select child_run_id from shadow_agent.verification_jobs where id=$1)",[fresh.jobId]);
- const recovered=await claim();assert.equal(recovered.jobId,fresh.jobId);assert.equal(recovered.handoffReceiptId,good);
+ const recovered=await claim();assert.equal(recovered.jobId,fresh.jobId);assert.ok(await leaseSeconds(recovered.jobId)>179,'Recovered handoff uses the same180-second lease');assert.equal(recovered.handoffReceiptId,good);
  assert.equal(await value('select public.warpcore_verification_handoff($1,$2) v',[fresh.jobId,fresh.lease]),null,'Old handoff lease cannot submit');
  const handed=await value('select public.warpcore_verification_handoff($1,$2) v',[fresh.jobId,recovered.lease]);assert.ok(handed);assert.equal(await value('select public.warpcore_verification_handoff($1,$2) v',[fresh.jobId,recovered.lease]),handed);
  const fetchFail=await nextStory('e',2);await q("update shadow_agent.runs set lease_until=now()-interval '1 second' where id=(select child_run_id from shadow_agent.verification_jobs where id=$1)",[fetchFail.jobId]);const resumed=await claim();assert.equal(resumed.jobId,fetchFail.jobId);assert.notEqual(resumed.lease,fetchFail.lease);

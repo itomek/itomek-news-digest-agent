@@ -20,7 +20,7 @@ Deno.serve((req:Request)=>{
   serviceKey:Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),
   // Server-owned bounded settings; request data cannot override them.
   invocationOptions:{pageSteps:1,reviewBatchSize:4},
-  runtimeConfig:{enabled:true,requireModelProfile:true,timeoutMs:30000,leaseSeconds:120,
+  runtimeConfig:{enabled:true,requireModelProfile:true,timeoutMs:60000,leaseSeconds:180,
    model:Deno.env.get('WARPCORE_AGENT_MODEL'),
    allowedModels:[Deno.env.get('WARPCORE_AGENT_MODEL')],
    maxOutputTokens:Number(Deno.env.get('WARPCORE_AGENT_MAX_OUTPUT_TOKENS')??'2048'),

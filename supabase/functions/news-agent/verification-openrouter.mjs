@@ -1,6 +1,6 @@
 import {approvedRuntimeModel} from './approved-runtime-models.mjs';
 import {OpenRouterAttemptError,classifyOpenRouterHttpError,openRouterResponseDiagnostics} from './openrouter.mjs';
-import {VERIFICATION_RESPONSE_FORMAT,buildVerificationRequest,matchesVerificationSchema,reconstructVerificationInput,buildVerificationResponseFormat,assertCerebrasSchemaCompatibility} from './verification-contract.mjs';
+import {VERIFICATION_RESPONSE_FORMAT,buildVerificationRequest,matchesVerificationSchema,reconstructVerificationInput,assertCerebrasSchemaCompatibility} from './verification-contract.mjs';
 import {requestProfileForModel} from './model-profiles.mjs';
 // A separate response contract; discovery versions and paid history stay intact.
 export const LEGACY_VERIFICATION_REQUEST_PROFILE_VERSION='2026-11-16.verify.1';
@@ -30,7 +30,7 @@ async function validate(request,config,fetcher){
  if(!equal(request.messages,canonical.messages)||!equal(request.response_format,canonical.response_format))fail('invalid_messages');
  if(approved.provider==='Cerebras'){try{assertCerebrasSchemaCompatibility(request.response_format.json_schema.schema);}catch{fail('invalid_messages');}}
  const body=JSON.stringify({...request,stream:false});if(encoder.encode(body).length>750000)fail('request_too_large');
- return {body,postSchema:buildVerificationResponseFormat(raw,{version:version===VERIFICATION_REQUEST_PROFILE_VERSION?V3_VERIFICATION_REQUEST_PROFILE_VERSION:version}).json_schema.schema};
+ return {body};
 }
 async function readBounded(response,maxBytes,signal){
  const declared=response.headers.get('content-length');
@@ -49,6 +49,7 @@ function parse(data,reservation,schema,approved){
  if(u.cost>reservation.maxCostCredits)billedFail('reservation_exceeded');
  if(data.model!==approved.model||!validIdentity(data.id,256)||data.provider!==approved.provider||!Array.isArray(data.choices)||data.choices.length!==1||data.choices[0]?.finish_reason!=='stop')billedFail('invalid_completion');
  let parsed;try{parsed=JSON.parse(data.choices[0].message.content);}catch{billedFail('invalid_verification_json');}
+ // Validate wire shape only. Runtime archives/settles before full semantic proof.
  if(!matchesVerificationSchema(parsed,schema))billedFail('invalid_verification_schema');
  return {generationId:data.id,model:data.model,provider:data.provider,usage,result:parsed.result};
 }
@@ -58,7 +59,7 @@ export async function verifyWithOpenRouter(request,config={},fetcher){
 
  const checked=await validate(request,config,fetcher),body=checked.body,timeoutMs=config.timeoutMs??10000,maxResponseBytes=config.maxResponseBytes??200000;
  if(!integer(timeoutMs,30000)||!integer(maxResponseBytes,200000))fail('invalid_limits');
- const approved=approvedRuntimeModel(request.model),key=config.apiKey,reservation={maxCostCredits:config.reservation.maxCostCredits},schema=structuredClone(checked.postSchema);
+ const approved=approvedRuntimeModel(request.model),key=config.apiKey,reservation={maxCostCredits:config.reservation.maxCostCredits},schema=structuredClone(request.response_format.json_schema.schema);
  const controller=new AbortController();let timer,httpDiagnostics={};
  const deadline=new Promise((_resolve,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Object.assign(new OpenRouterAttemptError('timeout','uncertain'),httpDiagnostics));},timeoutMs);});
  const operation=(async()=>{

@@ -154,3 +154,9 @@ test('APPROVE NUL and lone-surrogate editorial/reasons settle known usage then d
  const out=await run(f);assert.equal(out.status,'deferred');assert.equal(out.reason,'unsupported_verification');const settled=f.events.find(e=>e.name==='warpcore_verification_settle').args;assert.equal(settled.p_status,'settled');assert.equal(settled.p_cost,.01);assert.equal(Object.hasOwn(settled.p_audit,'result'),false);assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);assert.equal(f.events.at(-1).name,'warpcore_verification_finish');
  }
 });
+test('wire-valid oversized text and empty evidence IDs retain private result and known settlement before semantic deferral',async()=>{
+ for(const invalid of ['oversized','empty_ids']){
+ const f=fixture();if(invalid==='oversized'){const previous=f.result.editorial.summary;f.result.editorial.summary='x'.repeat(500);f.result.claims.find(c=>c.claim===previous).claim=f.result.editorial.summary;}else f.result.editorial.evidenceIds=[];
+ const out=await run(f),settlement=f.events.find(e=>e.name==='warpcore_verification_settle').args;assert.equal(out.status,'deferred');assert.equal(out.reason,'unsupported_verification');assert.equal(settlement.p_status,'settled');assert.equal(settlement.p_cost,.01);assert.deepEqual(settlement.p_audit.result,wireResult(f.result,f.projectedInput));assert.equal(settlement.p_audit.validationError,undefined);assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);assert.ok(f.events.findIndex(e=>e.name==='warpcore_verification_settle')<f.events.findIndex(e=>e.name==='warpcore_verification_finish'));
+ }
+});

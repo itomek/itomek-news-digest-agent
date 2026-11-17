@@ -26,6 +26,8 @@ begin
  if not found or not settings.enabled then return null; end if;
  if settings.run_limit_credits is null or settings.policy_version is distinct from '2026-11-14.1'
  then raise exception 'Invalid producer configuration'; end if;
+ if to_regprocedure('shadow_agent.advance_verification_rate_limits()') is not null then
+  perform shadow_agent.advance_verification_rate_limits();end if;
  if exists(select 1 from shadow_agent.runs where state->>'storageKind'='paged-v1' and state->>'phase' in ('reviewing','uncertain')) then return null; end if;
  select * into r from shadow_agent.runs where state->>'storageKind'='paged-v1'
  and state->>'phase' in ('scan','review') order by (state->>'scanStartedAt')::timestamptz,id limit 1;

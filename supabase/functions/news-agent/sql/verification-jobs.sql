@@ -52,6 +52,7 @@ language sql stable security definer set search_path='' as $$
  and (cfg.ranking_finalized_since is null or k.finalized_at>=cfg.ranking_finalized_since)
  and (select count(distinct v.story_key) from shadow_agent.verification_jobs v where v.ranking_run_id=k.run_id and v.status='verified')<5
  and not exists(select 1 from shadow_agent.verification_jobs v where v.ranking_run_id=c.run_id and v.story_key=c.candidate_id)
+ and not exists(select 1 from shadow_agent.verification_jobs held where held.story_key=c.candidate_id and held.status='uncertain')
  and (selected.ordinal is not null or (cfg.backfill_enabled
   and d.decision->>'action'='verify'
   and exists(select 1 from public.warpcore_stories s where s.story_key=c.candidate_id and s.status='unverified_review_required')
@@ -69,6 +70,8 @@ begin
  select * into cfg from shadow_agent.verification_settings where singleton;
  if not found or not cfg.enabled then return null;end if;
  if cfg.job_limit_credits is null then raise exception 'Invalid verification configuration';end if;
+ if to_regprocedure('shadow_agent.advance_verification_rate_limits()') is not null then
+  perform shadow_agent.advance_verification_rate_limits();end if;
  -- Recover a completed verification's unsent receipt without paid replay.
  select * into j from shadow_agent.verification_jobs v where cfg.submit_enabled and v.status='verified' and not v.quarantined and v.handoff_status='pending'
  and not exists(select 1 from public.warpcore_curator_inbox inbox where inbox.verification_receipt_id=v.receipt_id) order by v.id limit 1;

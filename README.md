@@ -2,7 +2,7 @@
 
 This repository contains Warp Core's news collection and guarded Bluesky publishing pipeline, a digest reader with text-to-speech, and the earlier GAIA/Lemonade digest implementation.
 
-Warp Core runs on the existing Supabase News Digest project. Its collector, Dot curator and publisher remain active. The replacement autonomous producer uses OpenRouter with a private spending ledger; it is paused during discovery-contract validation and has not taken over publishing.
+Warp Core runs on the existing Supabase News Digest project. Its collector, Gemma-backed autonomous editorial producer, curation drain and guarded publisher are active, using OpenRouter with a private spending ledger. The owner approved shipping, and the first ordinary post and native repost are published. Reviewed workflow recovery now handles the exact recorded shared-pool 429 after backoff while preserving its unknown charge; generic unknown failures still stop for owner recovery. See the dated checkpoint below.
 
 See [Warp Core architecture and operational status](docs/warpcore-architecture.md) for the central current reference, deployment checkpoint, activation checks and rollback steps. Historical design and test reports are linked there with their limits.
 
@@ -11,7 +11,7 @@ See [Warp Core architecture and operational status](docs/warpcore-architecture.m
 | Component | Purpose | Current role |
 |---|---|---|
 | Supabase Edge Functions and PostgreSQL | Collect public news, retain evidence, curate and publish guarded records | Active Warp Core pipeline |
-| Autonomous `news-agent` | Review every eligible candidate, rank globally, verify evidence and prepare guarded submissions | Staged replacement; discovery validation paused, verification and submission disabled at the recorded checkpoint |
+| Autonomous `news-agent` | Review every eligible candidate, rank globally, verify evidence and prepare guarded submissions | Active Gemma producer with exclusive new submissions and bounded, audited shared-pool 429 continuation |
 | Web reader | Read stored digests, browse history and play text-to-speech | Separate existing application; unaffected by the producer transition |
 | Python GAIA/Lemonade pipeline | Generate personalized digests using local inference | Earlier implementation and development path; not the current Warp Core production runtime |
 | Strix Halo | Run disposable SQL, HTTP and model integration checks | Test infrastructure; not a required production news service |

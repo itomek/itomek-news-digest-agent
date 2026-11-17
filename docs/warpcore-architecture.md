@@ -1,6 +1,6 @@
 # Warp Core architecture and operational status
 
-Warp Core collects public news into the existing Supabase News Digest project and publishes through a guarded Bluesky queue. The existing Dot-driven editorial pipeline remains active. An autonomous producer is being validated alongside it; its new code and installed SQL do not establish that production cutover or editorial acceptance has passed.
+Warp Core collects public news into the existing Supabase News Digest project and publishes through a guarded Bluesky queue. The Gemma-backed autonomous agent is the enabled editorial producer, and its first ordinary post and native repost have been published through the existing guarded sender. The owner explicitly approved shipping. The old Dot task is off according to the owner; that task's retirement was not independently verified through a schedule-control tool.
 
 This is the central current reference for Warp Core. The checkpoint below is an operator-reported deployment snapshot, not an automatically refreshed status page. Confirm live versions and flags before changing a deployment. Older documents retain useful contracts and evidence, but their deployment statements describe their recorded dates.
 
@@ -9,13 +9,16 @@ This is the central current reference for Warp Core. The checkpoint below is an 
 | Area | Recorded state |
 |---|---|
 | Collector | Version 17, hourly at minute `:17`, active; 43 configured public sources |
-| Source acquisition health | All 43 sources attempted within the checkpoint’s two-hour window: 37 historical gaps, five partial traversals and one Perplexity HTTP 403 failure; these are distinct outcomes, not 43 collection outages |
-| Existing curator | Version 6, hourly at `:23`, active with the existing Dot pipeline and receipt-aware agent adapter; authenticated empty-queue check passed |
+| Source acquisition health | Earlier recorded two-hour window: all 43 sources attempted; 37 historical gaps, five partial traversals and one Perplexity HTTP 403 failure; these are distinct outcomes, not 43 collection outages |
+| Curation drain | Version 6, hourly at `:23`, active as the receipt-aware database drain; retained legacy inbox work is not deleted |
 | Publisher | Version 11, hourly at `:27`, active with its existing account, queue and guards |
-| Autonomous producer | `news-agent` version 19 from `f4b3321`, with role-bound GitHub release-note quotes and verification V7. The last bounded NVIDIA Nemotron 3 Super / DeepInfra test hit upstream capacity limits; producer, submission and continuation cron are off. Ordinary-post acceptance remains held |
-| Paused discovery run | Two Together discovery cycles completed 650/650 and 651/651 assessments for 0.06916930 and 0.06925995 credits. A cloud-scheduled Cerebras cycle also completed 652/652 for 0.17891190 credits. Earlier unknown holds remain preserved; full coverage does not establish editorial quality |
-| Replacement discovery contract | Current protected selection is the paused NVIDIA Nemotron 3 Super / DeepInfra profile `2026-11-17.2`, with 4096 output ceiling and 0.026215-credit conservative reservation. Its last request has unknown billing held. Historical profiles and completed scans remain immutable; a separately reviewed alternative is pending |
-| Verification and admission | Receipt, verification-job and shared five-item guard SQL installed; verification enabled, backfill enabled, `submit_enabled=false`; historical source-verified native receipts have expired; fresh verification and owner go/no-go remain required; no autonomous publication yet |
+| Autonomous producer | `news-agent` version 21, using Gemma 4 26B / PrimeIntellect and verification V8; producer, verification, submission and minute continuation cron enabled. Reviewed shared-pool 429 continuation is installed; generic unknown failures still require owner recovery |
+| Retained discovery evidence | Two Together discovery cycles completed 650/650 and 651/651 assessments for 0.06916930 and 0.06925995 credits. A cloud-scheduled Cerebras cycle also completed 652/652 for 0.17891190 credits. Earlier unknown holds remain preserved; full coverage does not establish editorial quality |
+| Latest Gemma discovery cycle | Run `755c7c94-ca0b-4e58-8d71-c98e46bcf6f7` failed on timeout after 64/654 assessments, revision 18; 0.0060952 spent and 0.036045 unknown held. Owner-CAS workflow quarantine advanced it to revision 19, deferred/blocked, without releasing money. No complete Gemma scan is claimed |
+| Active model contract | `google/gemma-4-26b-a4b-it`, pinned `primeintellect/bf16`, discovery profile `2026-11-17.8`, no provider fallback, ZDR and reasoning `none`; 4096 output tokens and a 0.036045-credit reservation. Future active selection is restricted to GPT-oss or Gemma; NVIDIA/Meta history remains retained for accounting |
+| Verification and admission | Receipt, verification-job and shared five-item guards installed; verification, backfill and submission enabled. `exclusive_agent=true` fences new Dot submissions; existing jobs, queues and financial history remain intact |
+| First published results | Publisher request 842 returned HTTP 200 with two processed records, both `published`: a 240-character GLM post and a Verano native repost. Exact ordinary AppView/UI and native public-PDS readback evidence is recorded in the [cutover report](evidence/2026-11-17-scheduled-discovery-quality.md#gemma-cutover-and-first-publications) |
+| Legacy Dot schedule | Owner-confirmed off; exact legacy automation control was unavailable to this operator. This is distinct from the still-needed curation drain |
 | Spending policy | Private ledger and existing prepaid OpenRouter credits; recorded limits are 2 credits per UTC day and 19.99 credits lifetime |
 | Exception alerts | Dashboard backend enabled by the operator; authenticated RPC verified. Signed-in frontend delivery remains unverified; no owner channel selection is claimed |
 | Public owner feedback | SQL and full runtime deployed, disabled. Halo public-API check returned an explicit empty-feed coverage gap |
@@ -28,7 +31,7 @@ These are OpenRouter credit limits and measured credit charges, not a claim of f
 
 | System | Responsibility |
 |---|---|
-| Supabase Edge Functions | Existing public-source collection, curator processing and publishing; staged autonomous discovery and verification |
+| Supabase Edge Functions | Existing public-source collection, curator processing and publishing; autonomous discovery and verification |
 | PostgreSQL, pg_cron, pg_net and Vault | Durable evidence and queues, leases, budgets, authenticated scheduled requests and private server credentials |
 | OpenRouter, explicit reviewed model/provider registry | Bounded model judgments about discovery and evidence, with explicit provider/privacy/price controls and no fallback |
 | Strix Halo | Disposable PostgreSQL/PostgREST/Deno tests and bounded model checks; it is not a production dependency of the Supabase pipeline |
@@ -43,24 +46,24 @@ The reader is documented in [web/README.md](../web/README.md). The older [GAIA/L
 flowchart TD
     Sources[Configured public sources] --> Collector[Active collector]
     Collector --> Evidence[Captured candidates and frozen evidence]
-    Evidence --> Dot[Existing Dot editorial selection]
-    Dot --> Inbox[Guarded curator inbox]
-    Evidence --> Discovery[Staged full-scan discovery]
-    Discovery --> Ranking[Durable global ranking: zero to five proposals]
+    Evidence -.-> Dot[Legacy Dot task: owner reports off]
+    Dot -.-> Fence[New Dot submissions fenced]
+    Evidence --> Discovery[Active full-scan discovery]
+    Discovery --> Ranking[Complete global ranking and bounded fallthrough]
     Ranking --> Verify[Public retrieval and model-supported verification]
-    Verify --> Preview[Durable receipt and owner-review preview]
+    Verify --> Preview[Durable source-bound receipt]
     Preview --> Admission[Submission gate and shared capacity guard]
-    Admission --> Inbox
+    Admission --> Inbox[Guarded curator inbox]
     Inbox --> Curator[Existing curator: exact prepared record]
     Curator --> Queue[Immutable publication queue]
     Queue --> Publisher[Existing guarded publisher]
     Publisher --> Readback[Exact public record readback]
 ```
 
-The staged route is gated independently from the active Dot route. A ranking proposal is not verified news, a verification receipt is not a publication, and an inbox ID is not public-readback evidence.
+The agent is the sole enabled new editorial producer at this checkpoint. Owner-reported Dot task retirement and the database exclusivity fence are separate controls. A ranking proposal is not verified news, a verification receipt is not a publication, and an inbox ID is not public-readback evidence.
 
 1. **Collection:** the configured roster supplies public discovery material. Each source has durable attempt/checkpoint state. A fresh successful retrieval can still have a historical coverage gap; a `gap` is not automatically an outage or proof of complete upstream history. See [source acquisition checkpoints](warpcore-source-checkpoints.md).
-2. **Discovery:** one fixed scan timestamp and a keyset cursor cover every eligible candidate. Bounded pages and batches control each invocation, not total review coverage. Committed assessments survive restart. Global ordering happens only after complete coverage, using importance, relevance and a deterministic story-ID tie break.
+2. **Discovery:** one fixed scan timestamp and a keyset cursor cover every eligible candidate. Bounded pages and batches control each invocation, not total review coverage. Committed assessments survive restart. Global ordering happens only after complete coverage, using importance, relevance and a deterministic story-ID tie break. Ranked fallthrough can continue past deferred original proposals using the same frozen decisions; the per-run bound is five verified stories, while the shared pending queue remains globally bounded.
 3. **Verification:** exact captured URLs or a fixed public Bluesky API route provide bounded public evidence. DNS/IP-pinned TLS retrieval rejects private destinations and redirects. Source text and model output remain untrusted. Trusted code binds hashes, exact quotations, original identities and dates; whether a quotation supports a natural-language claim remains an explicitly recorded model judgment.
 4. **Preview and receipt:** current evidence and complete publication/pending-work history bind a durable receipt. Verification can finish while submission remains disabled for owner review. Stale evidence, changed history or expired receipts prevent transfer.
 5. **Admission and curation:** a distinct agent identity enters the existing guarded inbox only through the submission gate. It does not impersonate a Dot. The shared admission boundary keeps combined pending editorial/publication work within five distinct stories, including legacy writers. The curator reconstructs and checks the exact frozen packet and publication job.
@@ -76,7 +79,7 @@ The hosted bootstrap uses the existing Supabase project URL and trusted server s
 
 The service role is trusted server infrastructure, not a model worker. Managed Supabase already gives it Vault privileges. Private tables and administrative helpers retain their own grants; anonymous/authenticated callers and the model receive neither credentials nor arbitrary SQL authority. See [producer implementation details](warpcore-agent-producer.md) for the fixed RPC and scheduler contracts.
 
-Every paid request requires a pre-existing ledger reservation and a recorded dispatch. Known usage settles before content validation; an invalid completion does not erase its cost. Unknown usage retains a conservative hold and prevents automatic paid replay. Daily provisioning respects lifetime headroom and never raises or resets an existing budget. Reviewed runtime rows retain their model-specific 16-candidate batch and output limits: Cerebras 8192 tokens, NVIDIA routes 4096. The producer is currently paused. Optional fenced release of a successfully committed lease lets the next invocation continue promptly without changing coverage or paid-attempt history.
+Every paid request requires a pre-existing ledger reservation and a recorded dispatch. Known usage settles before content validation; an invalid completion does not erase its cost. Unknown usage retains a conservative hold and prevents automatic paid replay. Daily provisioning respects lifetime headroom and never raises or resets an existing budget. The active Gemma row retains a 16-candidate discovery batch, 4096 output tokens and its model-specific reservation. GPT-oss/Cerebras remains an allowed alternative with its existing limits; retired NVIDIA/Meta profiles remain accounting history, not future active selections. The producer is enabled. Exact Gemma/PrimeIntellect shared-pool 429 failures can be audited and excluded from future work after at least five minutes beyond lease expiry, respecting longer Retry-After and a ten-per-UTC-day bound; their unknown reservations remain held and failed requests cannot replay. Generic unknown failures still stop verification for owner recovery. Optional fenced release of a successfully committed lease lets the next invocation continue promptly without changing coverage or paid-attempt history.
 
 `warpcore_agent_health()` exposes safe operational aggregates. Source health should be compared against the exact configured 43-source key set using `warpcore_source_sync_health`; the older digest reader's source-health view is a separate dataset. Report recent attempts, partial progress, historical gaps and failures separately.
 
@@ -86,26 +89,19 @@ Prepared dashboard alerts emit fixed exception codes and aggregate counts, with 
 
 The prepared feedback path reads a fixed public author-feed endpoint for the pinned owner DID and verifies replies to Warp Core's public post identities. It records bounded, inert feedback for operator review. It cannot edit editorial policy, spending, credentials or schedules, initiate a Dot chat, read private messages or answer publicly. The Halo empty-feed result is a coverage gap, not proof of complete historical feedback retrieval. See [public owner feedback](warpcore-owner-feedback.md) for its identity, pagination and review boundaries.
 
-## Activation checks and cutover
+## Cutover and continuing validation
 
-Use the existing reviewed deployment and admin tooling. Record exact targets and read back settings after each step; do not run historical installers blindly against the live project.
+The owner explicitly said “Ship it” for the Gemma rollout. Producer, verification, submission, exclusivity and the minute continuation cron were enabled. Publisher request 842 processed two records and reported both published. The GLM ordinary post has public AppView and read-only UI confirmation; the native repost has authoritative public PDS readback of its exact URI, CID and original subject. See the [publication evidence](evidence/2026-11-17-scheduled-discovery-quality.md#gemma-cutover-and-first-publications).
 
-1. **Confirm the baseline.** Read the live function versions, bundle provenance, account, source roster, installed SQL, cron names/commands/owners and gate values. Preserve the active collector, curator and publisher. Confirm current budget spending, holds and queue contents before any new paid request.
-2. **Validate the new discovery contract.** Deploy the reviewed keyed-schema bundle and matching SQL profile acceptance to the intended project. Keep verification and submission off. Use a fresh unbilled run/profile; do not rewrite the paused run, its 48 assessments or settled costs. Confirm complete review, global finalization and exact current-head provider/usage records before enabling scheduled continuation.
-3. **Prepare evidence-backed previews.** Enable bounded verification with submission still off. Inspect source retrieval, original identity/date, quote support, complete-history deduplication and the entire rendered original post or native repost subject. Review selections and representative omissions with the owner. A schema-valid answer alone does not pass this gate.
-4. **Exercise sending safely.** Confirm an available isolated test account and its exact public target for real rendering/readback acceptance; availability has not been established by the retained evidence. Confirm actual visible text/links or original-author attribution and exact stored/public record equality. Do not use synthetic test spam on the production account. No isolated-account or new autonomous public-readback acceptance is established by this checkpoint.
-5. **Prove repeated operation.** Record multiple complete live cycles, truthful zero-selection/empty outcomes, resumes and overlap, with coverage, spend, queue capacity and reconciliation evidence. Historical synthetic tests are useful checks but do not replace this observation. Sample counts and editorial quality thresholds still need explicit owner review; the existing eight-case development corpus is not held-out acceptance.
-6. **Choose and enable the producer.** Once the evidence gates pass, use the shared cutover boundary to make the agent the sole new editorial producer, enable its submission gate, and confirm the Dot no longer creates new submissions. Preserve existing pending work and the collection-aware publisher. Select the operational alert channel and enable only its reviewed delivery path. Do not remove the Dot fallback before independent operation is proven.
+This is a recorded cutover and first-publication result, not a numeric editorial-quality score or proof of sustained unattended reliability. The earlier [editorial review packet](evidence/2026-11-17-editorial-review.md) remains historical: its held llama.cpp preview must not be submitted, and earlier model/source failures are not relabeled as passes. Shipping the current Gemma results does not approve those held records.
 
-The implementation, new public-readback acceptance, owner-reviewed model quality and final cutover are separate milestones. This document does not declare the overall autonomous-agent goal complete.
+Continue observing full discovery coverage, source retrieval and quote support, duplicate handling, actual rendered text and native attribution, spending/holds, overlap and uncertain-write reconciliation. A model judgment is not a deterministic entailment proof. GitHub V6-and-later release-body/date quote roles are enforced in trusted canonical runtime code; SQL still proves raw hashes, spans, source identity and date bindings.
 
-A concrete [editorial review packet](evidence/2026-11-17-editorial-review.md) records the first real-news canary preview, independent primary-source review and representative omissions. Its owner decision is pending. Current pilot source capture is limited to 100,000 full raw bytes without truncation; meaningful larger pages may defer.
+Use exact deployed targets and read back flags before further operational changes. Keep collector, curation drain and collection-aware publisher available. Do not confuse an owner-confirmed disabled Dot task with a tool-verified automation retirement, or the exclusivity fence with stopping Dot reasoning costs.
 
-## Launch acceptance targets
+The reviewed timeout and exact shared-pool 429 workflow controls are installed. The failed 64/654 discovery cycle remains incomplete: an explicit owner-CAS quarantine moved revision 18 to 19, deferred/blocked, preserving its unknown hold. One eligible verification 429 was advanced. Readback found zero blocking discovery runs and zero unquarantined uncertain verifier jobs, and producer, verification, submission and minute cron were restored. All eight unknown attempts and the whole budget were exactly unchanged: 0.625054 held and 0.6044672 spent credits. This releases workflow fences, not billing uncertainty or failed-request replay. Generic unknown failures still require owner recovery; the discovery timeout helper is private and manual. Neither enabled scheduling nor two publications establishes full Gemma coverage or sustained reliability. Source capture remains full or deferred, never truncated: Gemma's aggregate bound is 200000 bytes, GPT-oss/Cerebras 120000, and each GitHub release API capture at most 100000. These byte bounds do not guarantee a provider token-context fit.
 
-Before submission is enabled, every proposed publication must have a supported current primary source or an exact native original, an in-window source date, complete-history duplicate review, all attribution links, and a prepared record within 300 graphemes and 3000 UTF-8 bytes. The reviewed sample set must contain zero unsupported factual assertions, lost material benchmark qualifications, already-published events, political exclusions or wrongly attributed originals. These are launch targets, not measured results.
-
-Coverage requires every captured eligible candidate to receive one durable assessment before ranking, with no silent truncation. Review representative omissions alongside selections, including routine release candidates, old announcements, duplicate launches and material model/hardware changes. Record model judgment separately from deterministic source bindings. Two complete hosted discovery scans are recorded; current-model unattended operation, empty-cycle behavior and actual public display/readback remain separate acceptance evidence.
+Every new record remains subject to public-source/native identity, freshness, complete-history deduplication, attribution, shared pending capacity and the hard 300-grapheme/3000-byte publication checks. Minor prose imperfections accepted by the owner do not bypass these deterministic guards. No new per-story owner approval screen is introduced.
 
 ## Stop and rollback
 

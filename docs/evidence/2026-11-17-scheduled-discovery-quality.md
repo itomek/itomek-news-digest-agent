@@ -1,6 +1,37 @@
 # Scheduled discovery and model comparison
 
-## Completed current-model run
+## Gemma cutover and first publications
+
+This November 17 checkpoint records operator-supplied live deployment and publication results. Runtime `news-agent` v21 uses `google/gemma-4-26b-a4b-it` on the pinned PrimeIntellect route, discovery profile `2026-11-17.8` and verification V8. Producer, verification, submission and the minute continuation cron are enabled; `exclusive_agent=true` blocks new Dot inbox submissions. Existing collector, database curation drain and collection-aware publisher remain in service.
+
+The owner explicitly approved “Ship it” and reports the old Dot task is already off. That retirement is owner-confirmed, not independently tool-verified: the local automation inventory exposed no exact legacy Dot schedule control. The database exclusivity fence alone would not stop a separately running Dot task's reasoning cost.
+
+Publisher request **842** returned **HTTP 200**, processed **two** records and reported both **published**:
+
+| Record | Publication evidence | Known verification charge |
+|---|---|---|
+| GLM ordinary post | [Public Warp Core post](https://bsky.app/profile/warp-core.bsky.social/post/3n2j6ehbk7sdg); exact public text is 240 characters | 0.0057869 OpenRouter credits |
+| Verano native repost | Database state `published`, remote URI `at://did:plc:pfq2p7n2oiiy2k4pv6xnsgdk/app.bsky.feed.repost/3n2j6xnfhkc2y` | 0.0028064 OpenRouter credits |
+
+Public AppView confirmed the GLM post's exact URI, account handle `warp-core.bsky.social`, 240-character text and CID `bafyreibze45vs7emzuljl24wxgcno4icbazc6ivbgfvwihom2ajmo2jmz4`. A read-only browser check also displayed the actual detail page, its AMD source link and November 17, 9:00 AM timestamp as rendered. The native repost also has authoritative public PDS `getRecord` HTTP 200 readback: repost CID `bafyreiga2lv4jrp64g2tl6ofwiasepjscsrpxyazwjdrppl3jdps22rmju`, exact original subject URI `at://did:plc:bz67dxqh5nmjl5it36xylqyy/app.bsky.feed.post/3mzxwb7hwgp2k` and subject CID `bafyreifufmuhox6rfmp2irvumdund32aqxeoux3uuv7np5gkfhozd7eq5e`. Its recorded `createdAt` is `13:54:20.949Z`. Ordinary-post evidence includes UI confirmation; native evidence is the exact public PDS record.
+
+These are per-story verification charges, not total pipeline spending or a currency conversion. Earlier discovery charges, failed requests and unknown reservations remain separate. No budget, key, old attempt, held preview or receipt history was reset to ship these records.
+
+At the initial publication checkpoint a recorded HTTP 429 blocked further verification. The later reviewed workflow recovery below is now installed; its unknown financial reservation remains held.
+
+The next Gemma discovery cycle, run `755c7c94-ca0b-4e58-8d71-c98e46bcf6f7`, failed on a timeout after **64/654** durable assessments at revision **18**. It has **0.0060952 known spent credits** and a separate **0.036045-credit unknown reservation still held**. It is an incomplete failed cycle, not complete Gemma coverage or a new ranked shortlist. Its captured data, assessments and financial records remain retained. An explicit owner-CAS workflow quarantine later advanced revision 18 to 19 and marked the run deferred/blocked. This preserves the failed cycle, all captured evidence and the full unknown hold; it does not turn 64/654 into complete coverage or replay the failed request.
+
+The two publications demonstrate the owner-authorized guarded path, ordinary AppView/UI readback and native public PDS record readback. They do not establish a numeric quality threshold, held-out accuracy or sustained autonomous reliability. The historical experiments below retain their original failures, holds and limitations; they are not current model recommendations. NVIDIA and Meta are not permitted future active selections.
+
+## Applied workflow recovery checkpoint
+
+The reviewed timeout migration (`29e311d58bb8a6feeb369a0b7c5c8d5a654cd72f1a51b4c7dad2645d1e5df958`) and verification 429 migration (`83149e07682919750b0a3f5d653a1ce874b922f51b8c053b73495eef0bcf7032`) were applied. One eligible recorded verification 429 was advanced. Comparison of **all eight unknown attempts and the whole budget** before/after found exact equality: **0.625054 held / 0.6044672 spent credits**. No billing resolution, invented zero cost, money release or original-request replay occurred.
+
+Producer, verification, submission and minute cron were restored to enabled with Gemma unchanged. Readback found zero blocking discovery runs and zero unquarantined uncertain verifier jobs. Future exact Gemma/PrimeIntellect upstream shared-pool 429 cases can continue to a different candidate only after at least five minutes beyond lease expiry, respecting a longer Retry-After, with at most ten audited continuations per UTC day. Uncertain stories remain excluded across parent runs. Generic unknown failures still stop for owner recovery; discovery timeout quarantine remains a private manual action.
+
+The full embedded suite passed 38 scripts / 41 PASS checks, with independent reviews. These are local integration and deployment-state observations, not a sustained-reliability or full-Gemma-coverage claim.
+
+## Historical completed Cerebras run
 
 The cloud-only GPT-oss/Cerebras run `344c83d5-1b8e-48bb-9df6-29d14e013f52` started at 09:37 UTC and finalized at 10:26:01.841243 UTC on November 17. All 652 captured candidates received durable assessments before global ranking. All 41 model calls settled for 0.17891190 credits with zero held credits on this run. Existing older unknown reservations remain separate. The minute cron, pg_net, Vault and Edge Function performed the work; local paid triggers had stopped. Physical local-computer shutdown was not separately tested.
 
@@ -22,11 +53,11 @@ GPT-oss mistook a routine build matrix for new platform capabilities and missed 
 
 The comparison result hashes are `f97a4b902bc5ddab58a4de6b808f143fb657b6117e1900b80f69629ad96c9ac7` (Cerebras) and `1d64eaecd97d1b4c44c3ab55d60c4b0d2206d2ad784fbfdaea9a47897e753ea1` (paired NVIDIA). Private diagnostic artifacts retain the frozen inputs/labels; no paid comparison call was added.
 
-## Next bounded verification test
+## Historical next-test decision before Gemma cutover
 
-The existing approved NVIDIA/Together route is selected for the next nonpublishing test based on this modest diagnostic advantage, lower observed full-scan cost (about 0.069 credits versus 0.179), and its larger published context. Fresh endpoint/ZDR/funding checks confirmed the existing 0.157287-credit reservation, 262144 context, provider identity, price ceilings and safety-retention exclusion. No model, provider fallback, key, budget or paid service is added. The policy and historical request profiles are not tuned to these cases.
+At that earlier checkpoint, the NVIDIA/Together route was selected for the next nonpublishing test based on this modest diagnostic advantage, lower observed full-scan cost (about 0.069 credits versus 0.179), and its larger published context. Fresh endpoint/ZDR/funding checks confirmed the existing 0.157287-credit reservation, 262144 context, provider identity, price ceilings and safety-retention exclusion. No model, provider fallback, key, budget or paid service is added. The policy and historical request profiles are not tuned to these cases.
 
-NVIDIA returns to its earlier 200000-byte aggregate full-source acquisition limit; Cerebras keeps its 100000-byte capacity mitigation. GitHub API captures remain at most 100000 bytes on either route. No capture is truncated; this byte limit is not a general token-context proof.
+At that earlier checkpoint, NVIDIA returned to its 200000-byte aggregate full-source acquisition limit and Cerebras kept its then-100000-byte capacity mitigation. GitHub API captures remain at most 100000 bytes on either route. No capture is truncated; this byte limit is not a general token-context proof.
 
 A nullable private `ranking_finalized_since` boundary affects only allocation of new verification jobs. The owner pins it directly to the stored finalized timestamp of the completed current run and enables existing ranked fallthrough. Earlier manual validation snapshots remain retained without taking priority over the current rollout. Existing jobs/recovery, all financial/history records, combined global five-story capacity and the per-run five-verified-story limit remain unchanged. Default NULL preserves prior allocation behavior. No ranking, date or original shortlist is rewritten.
 

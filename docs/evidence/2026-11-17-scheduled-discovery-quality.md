@@ -2,7 +2,7 @@
 
 ## Completed current-model run
 
-The cloud-only GPT-oss/Cerebras run `344c83d5-1b8e-48bb-9df6-29d14e013f52` started at 09:37 UTC and finalized at 10:25 UTC on November 17. All 652 captured candidates received durable assessments before global ranking. All 41 model calls settled for 0.17891190 credits with zero held credits on this run. Existing older unknown reservations remain separate. The minute cron, pg_net, Vault and Edge Function performed the work; local paid triggers had stopped. Physical local-computer shutdown was not separately tested.
+The cloud-only GPT-oss/Cerebras run `344c83d5-1b8e-48bb-9df6-29d14e013f52` started at 09:37 UTC and finalized at 10:26:01.841243 UTC on November 17. All 652 captured candidates received durable assessments before global ranking. All 41 model calls settled for 0.17891190 credits with zero held credits on this run. Existing older unknown reservations remain separate. The minute cron, pg_net, Vault and Edge Function performed the work; local paid triggers had stopped. Physical local-computer shutdown was not separately tested.
 
 The run started on runtime v14 and continued on v15 after a backward-compatible verification-only/source-capture upgrade; the bound discovery model/profile/policy remained unchanged. This demonstrates hosted scheduled coverage, not approved editorial quality or publication.
 

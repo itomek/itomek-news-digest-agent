@@ -1,4 +1,4 @@
-// Current V4 runtime acceptance; historical V1/V2 archive compatibility is tested separately.
+// Current V5 runtime acceptance; historical V1/V2 archive compatibility is tested separately.
 // Full real-contract composition. Fabricated source/model only, never a sender.
 // Optional independent PostgreSQL backend must be exclusively disposable loopback.
 import {PGlite} from '@electric-sql/pglite';import {Client} from 'pg';
@@ -63,8 +63,9 @@ assert.equal(await scalar('select public.warpcore_verification_claim() value'),n
  const date=new Date().toISOString().slice(0,10),change='A new optimized runtime backend is available.';
  const attributionPrefix=primarySourceAttributionLabel(sourceUrl)+' reports: ';
  const skeleton={storyKey:key(1),verified:true,approved:true,summary:attributionPrefix+'S',whyItMatters:'W',links:[sourceUrl]};
- const remaining=300-preview(skeleton).graphemes,summary='S'+'s'.repeat(Math.floor(remaining/2)),why='W'+'w'.repeat(remaining-Math.floor(remaining/2));
+ const remaining=300-preview(skeleton).graphemes,summary='S'+'s'.repeat(Math.floor(remaining*.75)),why='W'+'w'.repeat(remaining-Math.floor(remaining*.75));
 
+ assert.ok(summary.length>why.length*2,'V5 permits asymmetric prose allocation within the same complete 300-grapheme post');
  const releaseData={html_url:sourceUrl,tag_name:'v2026.47.1',draft:false,prerelease:false,published_at:new Date().toISOString(),body:`Official release ${date}. ${summary} ${why} ${change} `+'Public technical context. '.repeat(200)},sourceBody=JSON.stringify(releaseData);
 
  const invoke=()=>runVerificationInvocation({config:runtimeConfig,rpc,evidenceFetcher:async(target,options)=>{sourceCalls++;assert.equal(target,'https://api.github.com/repos/lemonade-sdk/lemonade/releases/tags/v2026.47.1');assert.equal(options.headers.Authorization,undefined);return new Response(sourceBody,{headers:{'content-type':'application/json'}});},modelFetcher:async(target,options)=>{
@@ -81,7 +82,7 @@ assert.equal(await scalar('select public.warpcore_verification_claim() value'),n
  await db.exec('rollback');invalidDate=false;modelCalls=0;sourceCalls=0;
  const outcome=await invoke();
  assert.equal(outcome.status,'submitted',JSON.stringify(outcome));assert.equal(modelCalls,1);assert.equal(sourceCalls,1);const inbox=outcome.inboxId,receipt=outcome.receiptId;
- assert.equal(await queueCount(),5);assert.equal(material.requestProfileVersion,'2026-11-17.verify.4');assert.equal(material.sources[0].url,sourceUrl);assert.equal(material.sources[0].captureKind,'github-release-v1');assert.equal(material.sources[0].body,sourceBody);assert.equal(material.editorial.summary,attributionPrefix+summary);assert.equal(material.judgment.claims.length,4);assert.ok(material.judgment.claims.every(c=>c.quote.length<=2500&&sourceBody.includes(c.quote)));assert.ok(material.judgment.claims.every(c=>c.url===sourceUrl&&c.contentSha256===hash(sourceBody)));
+ assert.equal(await queueCount(),5);assert.equal(material.requestProfileVersion,'2026-11-17.verify.5');assert.equal(material.sources[0].url,sourceUrl);assert.equal(material.sources[0].captureKind,'github-release-v1');assert.equal(material.sources[0].body,sourceBody);assert.equal(material.editorial.summary,attributionPrefix+summary);assert.equal(material.judgment.claims.length,4);assert.ok(material.judgment.claims.every(c=>c.quote.length<=2500&&sourceBody.includes(c.quote)));assert.ok(material.judgment.claims.every(c=>c.url===sourceUrl&&c.contentSha256===hash(sourceBody)));
  const rows=await q('select * from public.warpcore_curator_claim(5)'),agent=rows.find(r=>r.id===inbox),dot=rows.find(r=>r.actor_kind==='dot');assert.equal(agent.agent_id,material.agentId);assert.equal(agent.dot_id,null);assert.equal(dot.dot_id,'real-dot');
  const finalize=async row=>{const packet=await createReviewPacket({storyKey:row.story_key,evidence:row.evidence,editorial:row.editorial});const transport={...await prepareTransport({...packet.recordDraft,verified:true,approved:true},account,new Date(row.created_at).toISOString()),storyKey:row.story_key};assert.equal(await scalar('select public.warpcore_curator_finalize($1,$2,$3,$4) value',[row.id,row.lease_token,packet,transport]),true);return transport;};
  const approved=await finalize(agent);assert.equal(await queueCount(),5,'Transfer does not double count at capacity');
@@ -91,5 +92,5 @@ assert.equal(await scalar('select public.warpcore_verification_claim() value'),n
  await admin(async()=>{const budget=(await q('select * from shadow_agent.budgets'))[0];assert.equal(Number(budget.spent_credits),.03);assert.equal(Number(budget.held_credits),0);const ledger=(await q('select j.*,a.request_hash,a.status attempt_status from shadow_agent.verification_jobs j join shadow_agent.attempts a on a.run_id=j.child_run_id'))[0];assert.equal(ledger.status,'verified');assert.equal(ledger.request_hash,material.requestSha256);assert.equal(ledger.receipt_id,receipt);assert.equal(ledger.attempt_status,'settled');const retained=(await q("select audit from shadow_agent.verification_audit where status='settled'"))[0].audit.result;assert.ok(Object.values(retained.supports).every(id=>/^source-1-chunk-[0-9]{4}$/.test(id)));assert.equal(retained.claims,undefined);assert.equal((await q('select count(*)::int n from public.warpcore_publication_slots'))[0].n,0,'No sending attempt');});
  for(const table of ['verification_settings','verification_jobs','verification_audit','budgets'])await assert.rejects(()=>q('select * from shadow_agent.'+table),/permission/);
  for(const role of ['anon','authenticated']){await db.exec('set role '+role);for(const expression of ['warpcore_verification_claim()'])await assert.rejects(()=>scalar('select public.'+expression+' value'),/permission/);await db.exec('reset role');}
- console.log('PASS: GitHub official release API → V4 raw JSON chunk-ID supports + actual runtime + ranked paid ledger + exact date/hash/quote receipt + curator 300-grapheme post; five global slots with Dot coexistence and zero sends');
+ console.log('PASS: GitHub official release API → V5 raw JSON chunk-ID supports + actual runtime + ranked paid ledger + exact date/hash/quote receipt + curator 300-grapheme post; five global slots with Dot coexistence and zero sends');
 }finally{await db.close();}

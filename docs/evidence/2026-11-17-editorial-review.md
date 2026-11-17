@@ -1,6 +1,6 @@
 # Editorial launch review — November 17
 
-Status: one independently reviewed, source-verified native preview is ready. No launch approval or autonomous publication is recorded. Other previews remain held; public display/readback is pending.
+Status: one independently reviewed native preview was produced, but its source receipt has expired. Fresh verification is required before sending. No launch approval or autonomous publication is recorded. Other previews remain held; public display/readback is pending.
 
 ## Launch targets
 
@@ -20,7 +20,7 @@ Every submitted item must have current captured primary support or an exact nati
 
 ## Coverage evidence
 
-Two hosted NVIDIA/Together scans durably assessed every captured candidate (650/650 and 651/651). They produced investigation proposals, followed by zero accepted receipts. These are complete discovery scans and empty publication outcomes, not current-model editorial acceptance or actual Bluesky-display evidence. GPT-oss/Cerebras still needs a complete unattended discovery cycle. Current runtime tests separately cover overlap, restarts, uncertain outcomes, exact native identity, multibyte text and the actual 300-grapheme boundary; fabricated integration inputs are not public canaries.
+Two hosted NVIDIA/Together scans durably assessed every captured candidate (650/650 and 651/651). They produced investigation proposals, followed by zero accepted receipts. These are complete discovery scans and empty publication outcomes, not current-model editorial acceptance or actual Bluesky-display evidence. A subsequent cloud-scheduled GPT-oss/Cerebras cycle completed 652/652 assessments with all 41 calls settled for 0.17891190 credits; physical computer shutdown was not separately tested. After bounded V5 comparisons, GPT-oss/Cerebras is the selected protected profile; ordinary-post acceptance remains held. Current runtime tests separately cover overlap, restarts, uncertain outcomes, exact native identity, multibyte text and the actual 300-grapheme boundary; fabricated integration inputs are not public canaries.
 
 ## First real-news canary preview
 
@@ -32,12 +32,12 @@ The original text has 82 graphemes and 82 UTF-8 bytes. The bot's `app.bsky.feed.
 
 Independent review checked the public author/DID, exact text, URI/CID and November 16 source date against AppView. [Google's primary report](https://cloud.google.com/blog/topics/threat-intelligence/agentic-threat-activity-crosses-a-significant-threshold) corroborates attributed security research. **Google reported an attacker-operated agent; Google did not build or operate it.** The autonomous-exploitation claim concerns the described exploit pipeline, not all campaign activity. Current publication history has no matching event.
 
-The source receipt expires at 10:18 UTC on November 17; sending must recheck its current status and history. The publisher must separately re-fetch the original identity immediately before writing and read back its exact record afterward. Approval does not authorize sending a stale or changed subject.
+The source receipt expired at 10:18 UTC on November 17. It cannot be submitted; a fresh receipt and current-history check are required. The publisher must separately re-fetch the original identity immediately before writing and read back its exact record afterward. Approval does not authorize sending a stale or changed subject.
 
 ## Staged rollout decision
 
 Issue [#164](https://github.com/itomek/itomek-news-digest-agent/issues/164) requires “Owner-reviewed sample set and recorded go/no-go result precede production switch.” It also requests an isolated-account display canary; only the existing Warp Core production account is currently available. The proposed substitution is this real-news production repost, with all other automatic handoffs still disabled during its canary. No synthetic fixture may be posted to production.
 
-After an approved canary, public rendering/readback, remaining runtime/quality checks and exact-head release checks must pass before autonomous publishing is enabled. Current-model unattended discovery and an actual ordinary-post preview remain pending. Preserve unknown billing reservations and the prior queue throughout. A second native preview with a quote ID as its internal change description is held; future such descriptions now fail before receipt creation. An initial canary's new history row also invalidates older previews before automatic handoff.
+After an approved canary, public rendering/readback, remaining runtime/quality checks and exact-head release checks must pass before autonomous publishing is enabled. Completed hosted discovery is recorded separately from editorial quality. An accepted ordinary-post preview and public display/readback remain pending. Preserve unknown billing reservations and the prior queue throughout. A second native preview with a quote ID as its internal change description is held; future such descriptions now fail before receipt creation. An initial canary's new history row also invalidates older previews before automatic handoff.
 
 Owner decision: **pending**.

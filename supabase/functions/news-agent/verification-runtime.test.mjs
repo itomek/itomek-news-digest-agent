@@ -5,10 +5,10 @@ const id=n=>`${String(n).padStart(8,'0')}-1111-4111-8111-111111111111`,story='a'
 const cfg={enabled:true,apiKey:'synthetic-not-a-credential',model:'openai/gpt-oss-120b',allowedModels:['openai/gpt-oss-120b'],expectedProvider:'Cerebras',maxOutputTokens:4096,maxCostCredits:VERIFICATION_RESERVATION_CREDITS,allowedSourceHosts:['ir.amd.com']};
 const evidence={id:'rss:release',url,text:'Discovery excerpt.',sourceType:'rss',visibility:'public',sourceLinks:[url],nativeUri:null,nativeUrl:null};
 const hash=s=>createHash('sha256').update(s).digest('hex');
-function wireResult(result){
+function wireResult(result,input){
  if(result?.action!=='approve'||!Array.isArray(result.claims))return result;
  const {claims,...out}=result,fields=result.editorial?.mode==='repost'?['change','publicationDate']:['summary','whyItMatters','change','publicationDate'];
- return {...out,supports:Object.fromEntries(fields.map(field=>{const c=claims.find(c=>c.claim===(field==='publicationDate'?result.publicationDate:result.editorial[field]));return [field,{evidenceId:c?.evidenceId,quote:c?.quote}];}))};
+ return {...out,supports:Object.fromEntries(fields.map(field=>{const c=claims.find(c=>c.claim===(field==='publicationDate'?result.publicationDate:result.editorial[field])),source=input.sources.find(s=>s.evidenceId===c?.evidenceId);const refs=source?.quoteReferences??source?.bodyChunks;const ref=refs?.find(r=>source.quoteReferences?(field==='publicationDate'?r.id.endsWith('-created-at'):r.id.endsWith('-original-text')):r.text.includes(c?.quote));return [field,ref?.id??'unknown-quote'];}))};
 }
 function fixture(){
  const events=[];let charged=false,reservedHash,material;
@@ -32,8 +32,8 @@ function fixture(){
  state.evidenceFetcher=async(request,options)=>{events.push({name:'source_get'});assert.equal(request,url);assert.equal(options.method,'GET');assert.equal(options.headers.Authorization,undefined);return new Response(body,{headers:{'content-type':'text/plain'}});};
  state.modelFetcher=async(request,options)=>{
   events.push({name:'model_post'});assert.equal(request,'https://openrouter.ai/api/v1/chat/completions');assert.equal(options.method,'POST');assert.equal(options.headers.Authorization,'Bearer '+cfg.apiKey);
-  assert.equal(hash(options.body),reservedHash);const parsed=JSON.parse(options.body),input=JSON.parse(parsed.messages[1].content);assert.equal(input.evidence[0].privateIgnored,undefined);assert.equal(JSON.stringify(input.history).includes('never-in-prompt'),false);assert.equal(parsed.stream,false);
-  return Response.json({id:'fixture-generation',model:state.config.model,provider:state.config.expectedProvider,usage:{prompt_tokens:100,completion_tokens:200,total_tokens:300,cost:.01},choices:[{finish_reason:'stop',message:{content:JSON.stringify({result:wireResult(state.result)})}}]});
+  assert.equal(hash(options.body),reservedHash);const parsed=JSON.parse(options.body),input=JSON.parse(parsed.messages[1].content);state.projectedInput=input;assert.equal(input.evidence[0].privateIgnored,undefined);assert.equal(JSON.stringify(input.history).includes('never-in-prompt'),false);assert.equal(parsed.stream,false);
+  return Response.json({id:'fixture-generation',model:state.config.model,provider:state.config.expectedProvider,usage:{prompt_tokens:100,completion_tokens:200,total_tokens:300,cost:.01},choices:[{finish_reason:'stop',message:{content:JSON.stringify({result:wireResult(state.result,input)})}}]});
  };
  return state;
 }
@@ -75,7 +75,7 @@ test('known billed invalid schema records real audit with validationError and de
  const audit=f.events.find(e=>e.name==='warpcore_verification_settle').args;assert.equal(audit.p_status,'settled');assert.equal(audit.p_cost,.01);assert.equal(audit.p_audit.validationError,'invalid_verification_schema');assert.equal(audit.p_audit.generationId,'fixture-generation');assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);
 });
 test('billed unsupported quote settles real cost but cannot issue a receipt',async()=>{
- const f=fixture();f.result.claims[0].quote='invented';assert.equal((await run(f)).reason,'verification_quote_missing');assert.equal(f.events.find(e=>e.name==='warpcore_verification_settle').args.p_cost,.01);assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);
+ const f=fixture();f.result.claims[0].quote='invented';assert.equal((await run(f)).reason,'billed_invalid_completion');assert.equal(f.events.find(e=>e.name==='warpcore_verification_settle').args.p_cost,.01);assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);
 });
 test('lost reservation, dispatch, settlement, receipt, finish or submission responses never retry downstream',async()=>{
  for(const lost of ['warpcore_verification_reserve','warpcore_verification_dispatch','warpcore_verification_settle','warpcore_agent_issue_receipt','warpcore_verification_finish','warpcore_verification_handoff']){
@@ -121,7 +121,7 @@ test('verification429 diagnostics survive durable uncertain settlement without p
 });
 test('parsed verifier result is privately retained before semantic validation and cannot authorize a receipt',async()=>{
  const f=fixture();f.result.claims[0].quote='unsupported quoted statement';const out=await run(f);const audit=f.events.find(e=>e.name==='warpcore_verification_settle').args;
- assert.equal(audit.p_cost,.01);assert.deepEqual(audit.p_audit.result,wireResult(f.result));assert.equal(out.reason,'verification_quote_missing');assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);assert.ok(f.events.findIndex(e=>e.name==='warpcore_verification_settle')<f.events.findIndex(e=>e.name==='warpcore_verification_finish'));
+ assert.equal(audit.p_cost,.01);assert.equal(audit.p_audit.validationError,'invalid_verification_schema');assert.equal(out.reason,'billed_invalid_completion');assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);assert.ok(f.events.findIndex(e=>e.name==='warpcore_verification_settle')<f.events.findIndex(e=>e.name==='warpcore_verification_finish'));
 });
 test('optional archival rejection cannot strand known billed usage or leak a credential-bearing model result',async()=>{
  for(const reason of ['x'.repeat(1001),'Model echoed '+cfg.apiKey]){
@@ -133,7 +133,7 @@ test('NUL and lone-surrogate model output cannot block settlement of known usage
  for(const reason of ['nul\u0000text','lone\ud800high','lone\udffflow']){
  const f=fixture();f.result={action:'defer',reason};const originalRpc=f.rpc;
  f.rpc=async(name,args)=>{if(name==='warpcore_verification_settle')assert.equal(Object.hasOwn(args.p_audit,'result'),false,'PostgreSQL-incompatible result must be omitted before RPC');return originalRpc(name,args);};
- const out=await run(f);assert.equal(out.status,'deferred');assert.equal(out.reason,'model_deferred');const settlement=f.events.find(e=>e.name==='warpcore_verification_settle').args;assert.equal(settlement.p_status,'settled');assert.equal(settlement.p_cost,.01);assert.equal(Object.hasOwn(settlement.p_audit,'result'),false);assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);
+ const out=await run(f);assert.equal(out.status,'deferred');assert.equal(out.reason,'unsupported_verification');const settlement=f.events.find(e=>e.name==='warpcore_verification_settle').args;assert.equal(settlement.p_status,'settled');assert.equal(settlement.p_cost,.01);assert.equal(Object.hasOwn(settlement.p_audit,'result'),false);assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);
  }
 });
 test('unsupported non-native provenance defers before any acquisition, reservation or model call',async()=>{
@@ -143,4 +143,14 @@ test('unsupported non-native provenance defers before any acquisition, reservati
 test('pure publishing preflight rejects editorial that would be rejected as a raw repost, after cost settlement',async()=>{
  const f=fixture(),old=f.result.editorial.summary;f.result.editorial.summary=evidence.text;f.result.claims.find(c=>c.claim===old).claim=evidence.text;
  const out=await run(f);assert.equal(out.reason,'verification_post_unpublishable');assert.equal(f.events.find(e=>e.name==='warpcore_verification_settle').args.p_cost,.01);assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);
+});
+test('V3 short quote references are archived before semantic validation and trusted prefix only enters normalized material',async()=>{
+ const f=fixture();assert.equal((await run(f)).status,'submitted');const settlement=f.events.find(e=>e.name==='warpcore_verification_settle').args;
+ assert.equal(settlement.p_cost,.01);assert.equal(typeof settlement.p_audit.result.supports.summary,'string');assert.match(settlement.p_audit.result.supports.summary,/^source-1-chunk-[0-9]{4}$/);assert.equal(settlement.p_audit.result.editorial.summary,f.result.editorial.summary);assert.equal(f.material.editorial.summary,'AMD reports: '+f.result.editorial.summary);assert.equal(f.material.judgment.claims[0].claim,f.material.editorial.summary);assert.ok(f.events.findIndex(e=>e.name==='warpcore_verification_settle')<f.events.findIndex(e=>e.name==='warpcore_agent_issue_receipt'));
+});
+test('APPROVE NUL and lone-surrogate editorial/reasons settle known usage then defer before receipt RPC',async()=>{
+ for(const invalid of ['bad\u0000text','bad\ud800text','bad\udffftext'])for(const field of ['summary','whyItMatters','change','scopeReason','changeReason','dedupReason']){
+ const f=fixture();if(Object.hasOwn(f.result.editorial,field)){const old=f.result.editorial[field];f.result.editorial[field]=invalid;f.result.claims.find(c=>c.claim===old).claim=invalid;}else f.result[field]=invalid;
+ const out=await run(f);assert.equal(out.status,'deferred');assert.equal(out.reason,'unsupported_verification');const settled=f.events.find(e=>e.name==='warpcore_verification_settle').args;assert.equal(settled.p_status,'settled');assert.equal(settled.p_cost,.01);assert.equal(Object.hasOwn(settled.p_audit,'result'),false);assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);assert.equal(f.events.at(-1).name,'warpcore_verification_finish');
+ }
 });

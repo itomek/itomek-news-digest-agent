@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {isApprovedPrimarySourceUrl,PRIMARY_SOURCE_POLICY_VERSION} from './primary-source-policy.mjs';
+import {isApprovedPrimarySourceUrl,PRIMARY_SOURCE_POLICY_VERSION,primarySourceAttributionLabel} from './primary-source-policy.mjs';
 
 test('reviewed first-party origins and exact official project releases are supported',()=>{
  assert.equal(PRIMARY_SOURCE_POLICY_VERSION,'2026-11-17.1');
@@ -54,4 +54,26 @@ test('noncanonical and namespace-confusing URLs fail closed without URL normaliz
   'https://github.com/lemonade-sdk/lemonade/../unknown/releases/tag/v1',
   'https://huggingface.co/blog/%2funknown/post','https://huggingface.co/blog/../unknown/model',
  ])assert.equal(isApprovedPrimarySourceUrl(raw),false,String(raw));
+});
+
+
+test('every approved publisher and release repository has one deterministic friendly attribution label',()=>{
+ const cases=[
+  ['ir.amd.com','AMD'],['rocm.blogs.amd.com','AMD'],['blogs.nvidia.com','NVIDIA'],['openai.com','OpenAI'],
+  ['www.anthropic.com','Anthropic'],['blog.google','Google'],['deepmind.google','Google'],['research.google','Google'],
+  ['mistral.ai','Mistral'],['supabase.com','Supabase'],['firebase.blog','Firebase'],['www.apple.com','Apple'],
+  ['newsroom.arm.com','Arm'],['www.intc.com','Intel'],['pytorch.org','PyTorch'],['github.blog','GitHub'],
+  ['www.perplexity.ai','Perplexity'],['omarchy.org','Omarchy'],['milfordtownship.org','Milford Township'],['buckslib.org','Bucks County Free Library'],
+ ];
+ for(const [host,label] of cases){const url=`https://${host}/announcement`;assert.equal(isApprovedPrimarySourceUrl(url),true);assert.equal(primarySourceAttributionLabel(url),label,url);}
+ for(const [path,label] of [['lemonade-sdk/lemonade','Lemonade'],['ROCm/TheRock','AMD'],['ggml-org/llama.cpp','llama.cpp'],['vllm-project/vllm','vLLM'],['ollama/ollama','Ollama'],['ml-explore/mlx','MLX'],['anthropics/claude-code','Anthropic']])assert.equal(primarySourceAttributionLabel(`https://github.com/${path}/releases/tag/v1`),label,path);
+ assert.equal(primarySourceAttributionLabel('https://huggingface.co/blog/official-announcement'),'Hugging Face');
+ assert.equal(primarySourceAttributionLabel('https://devblogs.microsoft.com/dotnet/announcement'),'Microsoft');
+ assert.equal(primarySourceAttributionLabel('https://devblogs.microsoft.com/visualstudio/announcement'),'Microsoft');
+});
+
+test('unsupported publishers and URL lookalikes never receive an attribution label',()=>{
+ for(const url of [null,{},'https://www.techpowerup.com/announcement','https://arstechnica.com/announcement','https://openai.com.evil.example/announcement','https://openai.com:443/announcement','https://user@openai.com/announcement','https://github.com/unknown/lemonade/releases/tag/v1','https://github.com/lemonade-sdk/lemonade/issues/1','https://github.com/lemonade-sdk/lemonade%2funknown/releases/tag/v1','https://huggingface.co/blog/community/announcement','https://devblogs.microsoft.com/unknown/announcement']){
+  assert.equal(isApprovedPrimarySourceUrl(url),false);assert.equal(primarySourceAttributionLabel(url),undefined,String(url));
+ }
 });

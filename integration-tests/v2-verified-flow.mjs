@@ -1,3 +1,4 @@
+// Current V3 runtime acceptance; historical V1/V2 archive compatibility is tested separately.
 // Full real-contract composition. Fabricated source/model only, never a sender.
 // Optional independent PostgreSQL backend must be exclusively disposable loopback.
 import {PGlite} from '@electric-sql/pglite';import {Client} from 'pg';
@@ -7,6 +8,7 @@ import {runVerificationInvocation} from '../supabase/functions/news-agent/verifi
 import {newPagedShadowRun} from '../supabase/functions/news-agent/paged-runtime.mjs';
 import {requestProfileForModel} from '../supabase/functions/news-agent/model-profiles.mjs';
 import {createReviewPacket} from '../supabase/functions/_shared/curation.mjs';
+import {primarySourceAttributionLabel} from '../supabase/functions/news-agent/primary-source-policy.mjs';
 import {preview} from '../supabase/functions/_shared/publishing.mjs';
 import {prepareTransport} from '../supabase/functions/_shared/transport.mjs';
 globalThis.crypto??=webcrypto;
@@ -20,7 +22,7 @@ const account='did:plc:pfq2p7n2oiiy2k4pv6xnsgdk',model='openai/gpt-oss-120b',run
 const snapshot=s=>scalar('select public.warpcore_curator_snapshot($1) value',[s]);
 const history=()=>scalar('select public.warpcore_agent_history() value');
 const queueCount=()=>scalar("select count(*)::int value from (select story_key from public.warpcore_curator_inbox where state in ('pending','leased') union select story_key from public.warpcore_publications where state in ('prepared','sending','uncertain','manual_review'))x");
-const sourceUrl='https://ir.amd.com/fixture-release';
+const sourceUrl='https://ir.amd.com/fixture-release/';
 const attest={factsVerified:true,meaningfulChange:true,scopeApproved:true};
 const editorial=s=>({summary:'A new verified capability is available.',whyItMatters:'The release improves practical access.',change:'New capability in the official release.',political:false,evidenceIds:[s.evidence[0].id],verification:{checkedAt:new Date().toISOString(),sourceUrls:[s.evidence[0].url],reason:'Fabricated acceptance evidence with exact quote binding.'}});
 try{
@@ -59,16 +61,17 @@ assert.equal(await scalar('select public.warpcore_verification_claim() value'),n
  let modelCalls=0,sourceCalls=0,material,jobId,invalidDate=false;
  const rpc=async(name,args)=>{const names=methods[name];assert.ok(names);if(name==='warpcore_agent_issue_receipt')material=args.p_material;const result=await scalar('select public.'+name+'('+names.map((_,i)=>'$'+(i+1)).join(',')+') value',names.map(k=>args[k]));if(name==='warpcore_verification_claim'&&result)jobId=result.jobId;return result;};
  const date=new Date().toISOString().slice(0,10),change='A new optimized runtime backend is available.';
- const skeleton={storyKey:key(1),verified:true,approved:true,summary:'S',whyItMatters:'W',links:[sourceUrl]};
+ const attributionPrefix=primarySourceAttributionLabel(sourceUrl)+' reports: ';
+ const skeleton={storyKey:key(1),verified:true,approved:true,summary:attributionPrefix+'S',whyItMatters:'W',links:[sourceUrl]};
  const remaining=300-preview(skeleton).graphemes,summary='S'+'s'.repeat(Math.floor(remaining/2)),why='W'+'w'.repeat(remaining-Math.floor(remaining/2));
 
- const sourceBody=`Official release ${date}. ${summary} ${why} ${change}`;
+ const sourceBody=`Official release ${date}. ${summary} ${why} ${change} `+'Public technical context. '.repeat(200);
 
  const invoke=()=>runVerificationInvocation({config:runtimeConfig,rpc,evidenceFetcher:async(target,options)=>{sourceCalls++;assert.equal(target,sourceUrl);assert.equal(options.headers.Authorization,undefined);return new Response(sourceBody,{headers:{'content-type':'text/plain'}});},modelFetcher:async(target,options)=>{
   modelCalls++;assert.equal(target,'https://openrouter.ai/api/v1/chat/completions');const requestHash=hash(options.body);
   const attempt=await admin(()=>q('select a.status,a.request_hash from shadow_agent.attempts a join shadow_agent.verification_jobs j on j.child_run_id=a.run_id where j.id=$1',[jobId]));assert.equal(attempt[0].status,'dispatched');assert.equal(attempt[0].request_hash,requestHash);
-  const input=JSON.parse(JSON.parse(options.body).messages[1].content),source=input.sources[0];assert.equal(source.url,sourceUrl);assert.equal(input.history.items.length,4);assert.equal(options.body.includes(runtimeConfig.apiKey),false);
-  const result={action:'approve',editorial:{political:false,summary,whyItMatters:why,change,evidenceIds:[source.evidenceId]},publicationDate:invalidDate?date+'T12:00:00Z':date,scopeReason:'Direct engineering relevance.',changeReason:'Official new backend.',dedupReason:'Distinct from all four pending events.',supports:Object.fromEntries(Object.entries({summary,whyItMatters:why,change,publicationDate:date}).map(([k,quote])=>[k,{evidenceId:source.evidenceId,quote}]))};
+  const input=JSON.parse(JSON.parse(options.body).messages[1].content),source=input.sources[0];assert.equal(source.url,sourceUrl);assert.equal(Object.hasOwn(source,'body'),false);assert.equal(source.bodyChunks.map(c=>c.text).join(''),sourceBody);assert.ok(source.bodyChunks.length>1);assert.ok(source.bodyChunks.every(c=>c.text.length<=2500));assert.equal(source.attributionPrefix,attributionPrefix);assert.equal(input.history.items.length,4);assert.equal(options.body.includes(runtimeConfig.apiKey),false);
+  const result={action:'approve',editorial:{political:false,summary,whyItMatters:why,change,evidenceIds:[source.evidenceId]},publicationDate:invalidDate?date+'T12:00:00Z':date,scopeReason:'Direct engineering relevance.',changeReason:'Official new backend.',dedupReason:'Distinct from all four pending events.',supports:Object.fromEntries(['summary','whyItMatters','change','publicationDate'].map(k=>[k,source.bodyChunks[0].id]))};
 
   return Response.json({id:'synthetic-native-verification',model,provider:'Cerebras',usage:{prompt_tokens:10,completion_tokens:5,total_tokens:15,cost:.02},choices:[{finish_reason:'stop',message:{content:JSON.stringify({result})}}]});
  }});
@@ -78,15 +81,15 @@ assert.equal(await scalar('select public.warpcore_verification_claim() value'),n
  await db.exec('rollback');invalidDate=false;modelCalls=0;sourceCalls=0;
  const outcome=await invoke();
  assert.equal(outcome.status,'submitted',JSON.stringify(outcome));assert.equal(modelCalls,1);assert.equal(sourceCalls,1);const inbox=outcome.inboxId,receipt=outcome.receiptId;
- assert.equal(await queueCount(),5);assert.equal(material.requestProfileVersion,'2026-11-17.verify.2');assert.equal(material.editorial.summary,summary);assert.equal(material.judgment.claims.length,4);assert.ok(material.judgment.claims.every(c=>c.url===sourceUrl&&c.contentSha256===hash(sourceBody)));
+ assert.equal(await queueCount(),5);assert.equal(material.requestProfileVersion,'2026-11-17.verify.3');assert.equal(material.editorial.summary,attributionPrefix+summary);assert.equal(material.judgment.claims.length,4);assert.ok(material.judgment.claims.every(c=>c.quote.length<=2500&&sourceBody.includes(c.quote)));assert.ok(material.judgment.claims.every(c=>c.url===sourceUrl&&c.contentSha256===hash(sourceBody)));
  const rows=await q('select * from public.warpcore_curator_claim(5)'),agent=rows.find(r=>r.id===inbox),dot=rows.find(r=>r.actor_kind==='dot');assert.equal(agent.agent_id,material.agentId);assert.equal(agent.dot_id,null);assert.equal(dot.dot_id,'real-dot');
  const finalize=async row=>{const packet=await createReviewPacket({storyKey:row.story_key,evidence:row.evidence,editorial:row.editorial});const transport={...await prepareTransport({...packet.recordDraft,verified:true,approved:true},account,new Date(row.created_at).toISOString()),storyKey:row.story_key};assert.equal(await scalar('select public.warpcore_curator_finalize($1,$2,$3,$4) value',[row.id,row.lease_token,packet,transport]),true);return transport;};
  const approved=await finalize(agent);assert.equal(await queueCount(),5,'Transfer does not double count at capacity');
  const publication=(await q('select * from public.warpcore_publications where story_key=$1',[key(1)]))[0];assert.equal(publication.state,'prepared');assert.deepEqual(publication.record_payload,approved.record);assert.equal(publication.record_key,approved.recordKey);assert.equal(publication.content_hash,approved.contentHash);assert.ok(publication.approved_at);assert.equal(publication.remote_uri,null);assert.equal(publication.record_payload.$type,'app.bsky.feed.post');assert.equal([...new Intl.Segmenter('en',{granularity:'grapheme'}).segment(publication.record_payload.text)].length,300,'Exact 300-grapheme post survives real curator finalization');
  await finalize(dot);assert.equal(await queueCount(),5,'Old Dot path preserves global cap');
  await assert.rejects(()=>scalar('select public.warpcore_prepare_publication($1,$2,$3,$4,$5) value',[account,key(6),hash('sixth'),{$type:'app.bsky.feed.post',text:'No admission'},'3m3e4a2b22222']),/Combined pending limit/);
- await admin(async()=>{const budget=(await q('select * from shadow_agent.budgets'))[0];assert.equal(Number(budget.spent_credits),.03);assert.equal(Number(budget.held_credits),0);const ledger=(await q('select j.*,a.request_hash,a.status attempt_status from shadow_agent.verification_jobs j join shadow_agent.attempts a on a.run_id=j.child_run_id'))[0];assert.equal(ledger.status,'verified');assert.equal(ledger.request_hash,material.requestSha256);assert.equal(ledger.receipt_id,receipt);assert.equal(ledger.attempt_status,'settled');assert.equal((await q('select count(*)::int n from public.warpcore_publication_slots'))[0].n,0,'No sending attempt');});
+ await admin(async()=>{const budget=(await q('select * from shadow_agent.budgets'))[0];assert.equal(Number(budget.spent_credits),.03);assert.equal(Number(budget.held_credits),0);const ledger=(await q('select j.*,a.request_hash,a.status attempt_status from shadow_agent.verification_jobs j join shadow_agent.attempts a on a.run_id=j.child_run_id'))[0];assert.equal(ledger.status,'verified');assert.equal(ledger.request_hash,material.requestSha256);assert.equal(ledger.receipt_id,receipt);assert.equal(ledger.attempt_status,'settled');const retained=(await q("select audit from shadow_agent.verification_audit where status='settled'"))[0].audit.result;assert.ok(Object.values(retained.supports).every(id=>/^source-1-chunk-[0-9]{4}$/.test(id)));assert.equal(retained.claims,undefined);assert.equal((await q('select count(*)::int n from public.warpcore_publication_slots'))[0].n,0,'No sending attempt');});
  for(const table of ['verification_settings','verification_jobs','verification_audit','budgets'])await assert.rejects(()=>q('select * from shadow_agent.'+table),/permission/);
  for(const role of ['anon','authenticated']){await db.exec('set role '+role);for(const expression of ['warpcore_verification_claim()'])await assert.rejects(()=>scalar('select public.'+expression+' value'),/permission/);await db.exec('reset role');}
- console.log('PASS: V2 named source supports + actual runtime + ranked paid ledger + exact date/hash/quote receipt + curator 300-grapheme post; five global slots with Dot coexistence and zero sends');
+ console.log('PASS: V3 raw chunk-ID supports + actual runtime + ranked paid ledger + exact date/hash/quote receipt + curator 300-grapheme post; five global slots with Dot coexistence and zero sends');
 }finally{await db.close();}

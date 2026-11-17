@@ -98,7 +98,7 @@ begin
  perform shadow_agent.verification_lock();
  if not coalesce((select enabled from shadow_agent.verification_settings where singleton),false) then raise exception 'Verification disabled';end if;
  if p_metadata is null or jsonb_typeof(p_metadata) is distinct from 'object' or (p_metadata-'model'-'profileVersion'-'expectedProvider')<>'{}'::jsonb
- or not coalesce(p_metadata->>'profileVersion' in ('2026-11-16.verify.1','2026-11-17.verify.2'),false)
+ or not coalesce(p_metadata->>'profileVersion' in ('2026-11-16.verify.1','2026-11-17.verify.2','2026-11-17.verify.3'),false)
  or not coalesce((p_metadata->>'model'='openai/gpt-oss-120b' and p_metadata->>'expectedProvider'='Groq' and p_max=0.058983)
  or (p_metadata->>'model'='openai/gpt-oss-120b' and p_metadata->>'expectedProvider'='Cerebras' and p_max=0.076596)
  or (p_metadata->>'model'='nvidia/nemotron-3.5-super-vl' and p_metadata->>'expectedProvider' in ('DeepInfra','Together') and p_max=0.157287)
@@ -176,10 +176,16 @@ begin
      if not ((result->'supports') ? 'summary' and (result->'supports') ? 'whyItMatters') then raise exception 'Invalid verification result';end if;
     end if;
     if not ((result->'supports') ? 'change' and (result->'supports') ? 'publicationDate') then raise exception 'Invalid verification result';end if;
+    if (select count(distinct jsonb_typeof(value)) from jsonb_each(result->'supports'))<>1 then raise exception 'Invalid verification result';end if;
     for item in select value from jsonb_each(result->'supports') loop
-     if jsonb_typeof(item) is distinct from 'object' or (item-'evidenceId'-'quote')<>'{}'::jsonb
-     or jsonb_typeof(item->'evidenceId') is distinct from 'string' or length(item->>'evidenceId')>2048
-     or jsonb_typeof(item->'quote') is distinct from 'string' or length(item->>'quote')>3000 then raise exception 'Invalid verification result';end if;
+     if jsonb_typeof(item)='string' then
+      if length(item#>>'{}')>128 or item#>>'{}' !~ '^source-[1-9][0-9]*-(chunk-[0-9]{4}|original-text|created-at)$'
+      or item#>>'{}' ~ U&'[\0001-\001F\007F-\009F]' then raise exception 'Invalid verification result';end if;
+     elsif jsonb_typeof(item)='object' then
+      if (item-'evidenceId'-'quote')<>'{}'::jsonb
+      or jsonb_typeof(item->'evidenceId') is distinct from 'string' or length(item->>'evidenceId')>2048
+      or jsonb_typeof(item->'quote') is distinct from 'string' or length(item->>'quote')>3000 then raise exception 'Invalid verification result';end if;
+     else raise exception 'Invalid verification result';end if;
     end loop;
    end if;
   else raise exception 'Invalid verification result';end if;

@@ -37,3 +37,27 @@ export function isApprovedPrimarySourceUrl(raw){
  if(url.hostname==='devblogs.microsoft.com')return /^\/(dotnet|visualstudio)(\/|$)/.test(url.pathname);
  return ORIGINS.has(url.hostname);
 }
+
+// Friendly publisher identity for approved provenance only. This label does not
+// assert independent confirmation; callers retain the exact source-bound proof.
+const PUBLISHERS=Object.freeze({
+ 'ir.amd.com':'AMD','rocm.blogs.amd.com':'AMD','blogs.nvidia.com':'NVIDIA',
+ 'openai.com':'OpenAI','www.anthropic.com':'Anthropic','blog.google':'Google',
+ 'deepmind.google':'Google','research.google':'Google','mistral.ai':'Mistral',
+ 'supabase.com':'Supabase','firebase.blog':'Firebase','www.apple.com':'Apple',
+ 'newsroom.arm.com':'Arm','www.intc.com':'Intel','pytorch.org':'PyTorch',
+ 'github.blog':'GitHub','www.perplexity.ai':'Perplexity','omarchy.org':'Omarchy',
+ 'milfordtownship.org':'Milford Township','buckslib.org':'Bucks County Free Library',
+ 'huggingface.co':'Hugging Face','devblogs.microsoft.com':'Microsoft',
+});
+const PROJECT_PUBLISHERS=Object.freeze({
+ 'lemonade-sdk/lemonade':'Lemonade','ROCm/TheRock':'AMD',
+ 'ggml-org/llama.cpp':'llama.cpp','vllm-project/vllm':'vLLM',
+ 'ollama/ollama':'Ollama','ml-explore/mlx':'MLX','anthropics/claude-code':'Anthropic',
+});
+export function primarySourceAttributionLabel(raw){
+ if(!isApprovedPrimarySourceUrl(raw))return undefined;
+ const url=new URL(raw);
+ if(url.hostname==='github.com')return PROJECT_PUBLISHERS[url.pathname.split('/').slice(1,3).join('/')];
+ return PUBLISHERS[url.hostname];
+}

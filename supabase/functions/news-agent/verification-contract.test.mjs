@@ -47,6 +47,10 @@ test('native original approves only exact native repost with actual post date an
  const nativeFormat=buildVerificationRequest(input,{model:'openai/gpt-oss-120b',maxOutputTokens:4096}).response_format;
  const branch=nativeFormat.json_schema.schema.properties.result.anyOf.find(b=>b.properties.action.enum[0]==='approve');assert.deepEqual(branch.properties.supports.required,['change','publicationDate']);assert.deepEqual(branch.properties.editorial.properties.mode.enum,['repost']);
  const wire={...result,supports:{change:{evidenceId:evidence.id,quote:original.posts[0].record.text},publicationDate:{evidenceId:evidence.id,quote:date}}};delete wire.claims;assert.deepEqual((await validateVerificationResult(wire,input)).judgment.claims,out.judgment.claims);
+ const v3payload=JSON.parse(buildVerificationRequest(input,{model:'openai/gpt-oss-120b',maxOutputTokens:4096}).messages[1].content),refs=v3payload.sources[0].quoteReferences;
+ const v3wire={...result,supports:{change:refs[0].id,publicationDate:refs[1].id}};delete v3wire.claims;const v3validated=await validateVerificationResult(v3wire,input);assert.deepEqual(v3validated.judgment.claims[0],out.judgment.claims[0]);assert.equal(v3validated.judgment.claims[1].originalQuote,original.posts[0].record.createdAt);assert.equal(v3validated.judgment.publicationDate,date);
+ for(const [field,reference] of [['change',v3payload.sources[0].bodyChunks[0].id],['publicationDate',refs[0].id]]){const bad=structuredClone(v3wire);bad.supports[field]=reference;await assert.rejects(validateVerificationResult(bad,input));}
+
  for(const mutate of [x=>x.editorial.summary='Invented commentary',x=>{delete x.editorial.mode;x.editorial.summary='A summary';x.editorial.whyItMatters='A reason';},x=>x.claims[0].quote=original.posts[0].author.description,x=>x.publicationDate='2000-01-01']){
   const bad=structuredClone(result);mutate(bad);await assert.rejects(()=>validateVerificationResult(bad,input));
  }
@@ -72,9 +76,36 @@ test('private audit omits PostgreSQL-invalid strings while preserving newlines a
 });
 test('V2 source-aware wire requires named date support and cannot repost RSS or use ISO timestamps',async()=>{
  const {buildVerificationResponseFormat,normalizeVerificationResult}=await import('./verification-contract.mjs');assert.equal(typeof buildVerificationResponseFormat,'function');
- const {input,result}=await fixture(),format=buildVerificationResponseFormat(input),branches=format.json_schema.schema.properties.result.anyOf;
+ const {input,result}=await fixture(),format=buildVerificationResponseFormat(input,{version:'2026-11-17.verify.2'}),branches=format.json_schema.schema.properties.result.anyOf;
  const approve=branches.find(b=>b.properties.action.enum[0]==='approve');assert.equal(approve.properties.editorial.properties.mode,undefined);assert.deepEqual(approve.properties.supports.required,['summary','whyItMatters','change','publicationDate']);assert.equal(approve.properties.publicationDate.pattern,'^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
  const wire={...result,supports:Object.fromEntries(['summary','whyItMatters','change','publicationDate'].map((field,i)=>[field,{evidenceId:'e1',quote:result.claims[i].quote}]))};delete wire.claims;
  const normalized=normalizeVerificationResult(wire,input);assert.deepEqual(normalized,result);assert.equal((await validateVerificationResult(wire,input)).action,'approve');
  for(const mutate of [r=>delete r.supports.publicationDate,r=>r.supports.summary.evidenceId='unknown',r=>r.claims=[],r=>r.publicationDate+='T00:00:00Z']){const bad=structuredClone(wire);mutate(bad);await assert.rejects(validateVerificationResult(bad,input));}
+});
+test('V3 lossless source chunks use trusted quote references rather than copied model text',async()=>{
+ const {projectVerificationInput,reconstructVerificationInput,normalizeVerificationResult}=await import('./verification-contract.mjs');assert.equal(typeof projectVerificationInput,'function');
+ const {input,result}=await fixture();input.evidence[0].url='https://ir.amd.com/fixture-release';input.sources[0].url=input.evidence[0].url;
+ input.sources[0].body='x'.repeat(2499)+'🦀\n'+body;input.sources[0].contentSha256=await digest(input.sources[0].body);
+ const projected=projectVerificationInput(input),source=projected.sources[0];assert.equal(source.body,undefined);assert.equal(source.bodyChunks.map(c=>c.text).join(''),input.sources[0].body);assert.ok(source.bodyChunks.every(c=>c.text.length<=2500&&!/[\uD800-\uDFFF]/u.test(c.text)));assert.deepEqual(reconstructVerificationInput(projected),input);
+ const reference=source.bodyChunks.at(-1).id,wire={...result,supports:Object.fromEntries(['summary','whyItMatters','change','publicationDate'].map(k=>[k,reference]))};delete wire.claims;
+ const normalized=normalizeVerificationResult(wire,input);assert.equal(normalized.editorial.summary,'AMD reports: '+result.editorial.summary);assert.equal(normalized.claims[0].quote,source.bodyChunks.at(-1).text);assert.equal((await validateVerificationResult(wire,input)).action,'approve');
+ for(const id of ['invented quote','source-2-chunk-0001']){const bad=structuredClone(wire);bad.supports.summary=id;await assert.rejects(validateVerificationResult(bad,input));}
+ const forged=structuredClone(projected);forged.sources[0].bodyChunks[0].id='forged';assert.throws(()=>reconstructVerificationInput(forged));
+});
+test('V3 quote IDs preserve real narrow spaces and slash dates without model quote reconstruction',async()=>{
+ const {projectVerificationInput}=await import('./verification-contract.mjs');const {input,result}=await fixture();input.evidence[0].url='https://rocm.blogs.amd.com/artificial-intelligence/fixture/README.html';input.sources[0].url=input.evidence[0].url;input.sources[0].body='<time>2026/11/11</time> AMD reports 7.16\u202f× for this specific cached workload.\nExact raw HTML remains.';input.sources[0].contentSha256=await digest(input.sources[0].body);
+ const reference=projectVerificationInput(input).sources[0].bodyChunks[0].id,wire={...result,publicationDate:'2026-11-11',supports:Object.fromEntries(['summary','whyItMatters','change','publicationDate'].map(k=>[k,reference]))};delete wire.claims;
+ const validated=await validateVerificationResult(wire,input);assert.equal(validated.judgment.claims[0].quote,input.sources[0].body);assert.equal(validated.judgment.claims[0].quoteEnd,Array.from(input.sources[0].body).length);assert.equal(validated.editorial.summary.startsWith('AMD reports: '),true);
+ wire.supports.summary=input.sources[0].body.replace('\u202f',' ').replace('2026/11/11','2026-11-11');await assert.rejects(validateVerificationResult(wire,input));
+});
+test('V3 raw NUL/lone-surrogate sources are rejected before a request can be built',async()=>{
+ const {input}=await fixture();for(const bad of ['bad\u0000body','bad\ud800body']){const raw=structuredClone(input);raw.sources[0].body=bad;assert.throws(()=>buildVerificationRequest(raw,{model:'openai/gpt-oss-120b',maxOutputTokens:4096}));}
+});
+test('V3 prompt has one reference-only support protocol while V2 copied-quote wording remains historical',async()=>{
+ const {input}=await fixture();input.evidence[0].url='https://ir.amd.com/fixture-release';input.sources[0].url=input.evidence[0].url;
+ const options={model:'openai/gpt-oss-120b',maxOutputTokens:4096};const fresh=buildVerificationRequest(input,options),old=buildVerificationRequest(input,{...options,version:'2026-11-17.verify.2'});
+ assert.equal(fresh.messages[0].content.includes('Each support is exactly {evidenceId,quote}'),false);assert.equal(old.messages[0].content.includes('Each support is exactly {evidenceId,quote}'),true);assert.match(fresh.messages[0].content,/never copied or normalized quote text/);assert.match(fresh.messages[0].content,/cache\/prefix or concurrency qualifications/);assert.equal(JSON.parse(fresh.messages[1].content).sources[0].body,undefined);assert.equal(JSON.parse(old.messages[1].content).sources[0].body,input.sources[0].body);
+});
+test('semantic approval text remains valid for normal newlines and astral emoji',async()=>{
+ const {input,result}=await fixture();result.scopeReason='Direct engineering relevance.\n🦀 Local inference.';result.changeReason='A supported capability.\n🧪';const approved=await validateVerificationResult(result,input);assert.equal(approved.action,'approve');assert.equal(approved.judgment.scopeReason,result.scopeReason);assert.equal(approved.judgment.changeReason,result.changeReason);
 });

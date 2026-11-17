@@ -1,10 +1,11 @@
 import {approvedRuntimeModel} from './approved-runtime-models.mjs';
 import {OpenRouterAttemptError,classifyOpenRouterHttpError,openRouterResponseDiagnostics} from './openrouter.mjs';
-import {VERIFICATION_RESPONSE_FORMAT,buildVerificationRequest,matchesVerificationSchema} from './verification-contract.mjs';
+import {VERIFICATION_RESPONSE_FORMAT,buildVerificationRequest,matchesVerificationSchema,reconstructVerificationInput} from './verification-contract.mjs';
 import {requestProfileForModel} from './model-profiles.mjs';
 // A separate response contract; discovery versions and paid history stay intact.
 export const LEGACY_VERIFICATION_REQUEST_PROFILE_VERSION='2026-11-16.verify.1';
-export const VERIFICATION_REQUEST_PROFILE_VERSION='2026-11-17.verify.2';
+export const V2_VERIFICATION_REQUEST_PROFILE_VERSION='2026-11-17.verify.2';
+export const VERIFICATION_REQUEST_PROFILE_VERSION='2026-11-17.verify.3';
 const ENDPOINT='https://openrouter.ai/api/v1/chat/completions';
 const encoder=new TextEncoder();
 const plain=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
@@ -13,7 +14,7 @@ function equal(a,b){if(Array.isArray(b))return Array.isArray(a)&&a.length===b.le
 const integer=(n,max)=>Number.isSafeInteger(n)&&n>0&&n<=max;
 const validIdentity=(s,max)=>typeof s==='string'&&s.trim()===s&&s.length>0&&s.length<=max&&!/\p{Cc}/u.test(s);
 const fail=(code,outcome='not_started',usage,audit)=>{const e=new OpenRouterAttemptError(code,outcome,usage);if(audit)e.completionAudit=audit;throw e;};
-function validate(request,config,fetcher){
+async function validate(request,config,fetcher){
  if(config.enabled!==true)fail('disabled');
  const approved=approvedRuntimeModel(request?.model);if(!approved)fail('unsupported_request');
  if(typeof fetcher!=='function'||typeof config.apiKey!=='string'||!config.apiKey.trim()||/[\r\n]/.test(config.apiKey)||config.expectedProvider!==approved.provider||!Array.isArray(config.allowedModels)||!config.allowedModels.includes(approved.model))fail('invalid_transport_configuration');
@@ -23,7 +24,8 @@ function validate(request,config,fetcher){
  if(!Array.isArray(request.messages)||request.messages.length!==2||request.messages[0]?.role!=='system'||request.messages[1]?.role!=='user'||request.messages.some(m=>!keys(m,['role','content'])||typeof m.content!=='string'||!m.content))fail('invalid_messages');
  let input;try{input=JSON.parse(request.messages[1].content);}catch{fail('invalid_messages');}
  if(!keys(input,['storyKey','evidenceHash','evidence','sources','history','now']))fail('invalid_messages');
- let canonical;try{canonical=buildVerificationRequest(input,{model:approved.model,maxOutputTokens:request.max_tokens});}catch{fail('invalid_messages');}
+ const version=request.response_format?.json_schema?.name==='primary_evidence_verification_v2'?V2_VERIFICATION_REQUEST_PROFILE_VERSION:VERIFICATION_REQUEST_PROFILE_VERSION;
+ let canonical;try{const raw=version===VERIFICATION_REQUEST_PROFILE_VERSION?reconstructVerificationInput(input):input;for(const source of raw.sources){const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',encoder.encode(source.body))),b=>b.toString(16).padStart(2,'0')).join('');if(digest!==source.contentSha256)fail('invalid_messages');}canonical=buildVerificationRequest(raw,{model:approved.model,maxOutputTokens:request.max_tokens,version});}catch{fail('invalid_messages');}
  if(!equal(request.messages,canonical.messages)||!equal(request.response_format,canonical.response_format))fail('invalid_messages');
  const body=JSON.stringify({...request,stream:false});if(encoder.encode(body).length>750000)fail('request_too_large');
  return body;
@@ -49,7 +51,10 @@ function parse(data,reservation,schema,approved){
  return {generationId:data.id,model:data.model,provider:data.provider,usage,result:parsed.result};
 }
 export async function verifyWithOpenRouter(request,config={},fetcher){
- const body=validate(request,config,fetcher),timeoutMs=config.timeoutMs??10000,maxResponseBytes=config.maxResponseBytes??200000;
+ // Hash verification awaits crypto; pin all dispatch/financial controls first.
+ try{request=structuredClone(request);config={...config,allowedModels:Array.isArray(config.allowedModels)?[...config.allowedModels]:config.allowedModels,reservation:config.reservation?{...config.reservation}:config.reservation};}catch{fail('unsupported_request');}
+
+ const body=await validate(request,config,fetcher),timeoutMs=config.timeoutMs??10000,maxResponseBytes=config.maxResponseBytes??200000;
  if(!integer(timeoutMs,30000)||!integer(maxResponseBytes,200000))fail('invalid_limits');
  const approved=approvedRuntimeModel(request.model),key=config.apiKey,reservation={maxCostCredits:config.reservation.maxCostCredits},schema=structuredClone(request.response_format.json_schema.schema);
  const controller=new AbortController();let timer,httpDiagnostics={};

@@ -52,9 +52,9 @@ Root owns deployment, evidence and integration; `rank_sql` performs independent 
 
 - [x] Inspect the whole diff and resolve concrete reviewer findings.
 - [ ] Run the full applicable Node suite, Deno check and exact-head CI.
-- [ ] Commit the reviewed source; apply the guarded upgrade and deploy its complete dependency closure with JWT and explicit import map.
-- [ ] Evaluate a bounded fresh, unattempted ranked candidate through the ordinary authenticated entry point with automatic submission off.
-- [ ] Independently review complete text, quoted support, freshness, follow-ups and history; record pass or hold without replacing editorial acceptance with a receipt.
+- [x] Commit the reviewed source; apply the guarded upgrade and deploy its complete dependency closure with JWT and explicit import map.
+- [x] Evaluate a bounded fresh, unattempted ranked candidate through the ordinary authenticated entry point with automatic submission off.
+- [x] Independently review complete text, quoted support, freshness, follow-ups and history; record pass or hold without replacing editorial acceptance with a receipt.
 
 No additional provider tuning, output-cap increase, source expansion, broad parser framework or discovery cache is included. Owner go/no-go, actual public canary rendering/readback and the remaining issue #159 acceptance requirements remain separate gates.
 
@@ -62,4 +62,4 @@ No additional provider tuning, output-cap increase, source expansion, broad pars
 
 - [x] Add a combined word target and directly supported second-fact guidance in V7 while preserving exact V6 requests and all existing quote-role proofs.
 - [x] Permit the complete 108006-byte MLPerf article within a 120000-byte Cerebras bound, with 120001-byte prepay rejection and unchanged API ceiling. Earlier actual Cerebras processing of this article is recorded separately from editorial acceptance.
-- [ ] If testing that previously deferred article, allocate one explicitly logged operator diagnostic from an existing completed run's unattempted verify decision, using existing locks, exact state assertions and the normal claim/inference/receipt pipeline. Do not rewrite its closed current-run job, rankings, cutoff, timestamps, attempts or finances; do not report operator selection as autonomous-ranking acceptance.
+- [x] If testing that previously deferred article, allocate one explicitly logged operator diagnostic from an existing completed run's unattempted verify decision, using existing locks, exact state assertions and the normal claim/inference/receipt pipeline. Do not rewrite its closed current-run job, rankings, cutoff, timestamps, attempts or finances; do not report operator selection as autonomous-ranking acceptance.

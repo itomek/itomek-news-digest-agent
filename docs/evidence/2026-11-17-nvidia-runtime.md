@@ -1,0 +1,115 @@
+# NVIDIA runtime validation checkpoint — 2026-11-17
+
+This is an intermediate checkpoint, not production acceptance.
+
+The discovery-stage `news-agent` v4 bundle was deployed from commit `f1b5f84`, with platform JWT verification enabled. Its sorted source manifest SHA-256 is `d5ca844ced2334b96216f170e82b73aa8806de95c1e1ae35ce0d198583e874ff`; the deployment reports bundle SHA-256 `4b640bff7f2a46b7b6a60fd96245b01182e7c685916182a5d730bc1c6fcf7d28`. This entrypoint excludes verification and publishing. Producer, verification and submission were disabled at deployment.
+
+The reviewed NVIDIA Nemotron 3.5 Super VL / DeepInfra profile `2026-11-17.4` uses coded keyed decisions, explicit provider routing, no fallback, ZDR, reasoning disabled and bounded prices. Its conservative per-attempt reservation is 0.157287 OpenRouter credits. The eight-case development challenge completed in 3.219 seconds for 0.0007039 credits, matching seven provisional labels. These labels are not a held-out set or owner quality approval. Full-feed validation and source verification remain pending.
+
+The previous GPT-oss run reviewed 128 of 649 captured candidates before an upstream HTTP 429 without usage details. The operator quarantined that workflow at revision 27. Its 0.058983-credit reservation remains held, its paid request history remains immutable, and it cannot resume. This is not a zero-charge determination or a replay of the failed request. Its settled cost remains 0.01642485 credits.
+
+The owner-only quarantine and authenticated bounded dashboard alert RPC are installed. The second migration's ledger insert collided with the preceding migration timestamp after its DDL succeeded; installed functions were checked, and a subsequent assertion-only migration recorded that state. Alert delivery remains disabled at this checkpoint.
+
+Validation: 280 targeted Node tests, embedded SQL suite, Deno checks of both entrypoints, and 481 web tests plus build/lint passed locally. Independent profile review passed 50 focused tests and JS/SQL registry parity. Current-head CI remains a separate release gate.
+
+NVIDIA's official model card identifies the permissive OpenMDW-1.1 license. The precise description is an open-weight model; this does not establish public availability of every training artifact.
+
+## Hosted full-feed attempt
+
+After the targeted registry upgrade, the operator selected NVIDIA in the private runtime setting and created a new audited validation run. Discovery captured all 651 eligible candidates. The first 16-candidate, 4,096-output-token request received upstream DeepInfra HTTP 429; no assessments were committed. OpenRouter's authenticated upstream-request view independently showed one failed DeepInfra attempt in 62 ms. Its generation lookup returned 404, so no usage or zero-charge determination was inferred.
+
+The producer and minute continuation cron were paused. The new 0.157287-credit reservation remains held; combined unknown reservations are 0.21627 credits. Verification and submission stayed disabled. The full-feed attempt did not establish editorial acceptance. Further diagnostics compare local and hosted request sizes and preserve bounded upstream classifications without publishing raw error bodies or secrets.
+
+## Provider-capacity diagnosis
+
+A separate local comparison used disjoint captured candidates 16–31, the same reviewed profile and 4,096 output ceiling, a distinct request hash, and the unchanged private pilot ledger. Its single request also returned HTTP 429. The privately retained error classified `provider_error_code=engine_overloaded` and `limit_source=upstream_provider_shared_pool`, with provider DeepInfra. This identifies upstream shared-pool overload for that comparison; it does not establish a Supabase-specific restriction. Its unknown charge remains held in the private pilot ledger. No request was automatically replayed.
+
+Current official OpenRouter endpoint and ZDR APIs list Together for the same NVIDIA model, with structured outputs, response format and reasoning parameters; prompt/completion prices are 0.15/0.50 credits per million tokens. Context/output caps match the existing conservative reservation. A separately versioned, explicitly pinned Together route is being prepared without changing historical billed request profiles or permitting automatic fallback. API uptime figures are vendor metadata, not independent runtime acceptance.
+
+## Reviewed successor and curator readiness
+
+The reviewed Together profile `2026-11-17.5` was deployed in discovery-stage `news-agent` v5 from `d447cf3`. Sorted source manifest SHA-256: `8c832893c8b286b99ba5687ebcf883977ddad8c726502444b90ffa664adf27de`; reported deployment bundle SHA-256: `359b8c5a7c92a2a5f313220c4d737899939a54e5dbcdd6437e0a8a96ef890d5f`. Five targeted SQL functions were upgraded from matching committed source, preserving settings, budgets and historical provider bindings. Fresh private funding checks passed; the local pilot ledger was not reset or reused while uncertain.
+
+`news-curate` v6 was deployed from `f7bce85`, preserving the existing enabled state, legacy Dot identity, account environment, token and JWT requirement. Its receipt-aware handler/service upgrade does not bypass the independent submission gate. Sorted source manifest SHA-256: `63d4675ac8822e0a22576e1ba5e498ad7444160938ac3ad01c7a0bf3371ae030`; reported deployment bundle SHA-256: `fd427e1ace291315003eef90146c5df6e244b85e10495453bd9f5ae999197564`. An authenticated empty-queue invocation returned HTTP 200 with zero processed decisions. This verifies runtime configuration, not an agent handoff or publication.
+
+## Complete live-feed discovery
+
+The Together run completed at 2026-11-17 06:17:07 UTC: 650 captured and assessed candidates, 184 investigation-eligible assessments, five globally ranked proposals, finalized revision 91. All 41 paid batches settled for 0.06916930 credits; the run has no held credits. Existing earlier unknown reservations remain untouched. The producer and continuation cron were paused after completion while nonpublishing verification was prepared. These are investigation proposals, not five verified or publishable stories.
+
+## Initial nonpublishing verification and diagnostic correction
+
+The full runtime was deployed as `news-agent` v6 from `d447cf3` (source manifest SHA-256 `2b3fdd36a6a2450eca04e6eab18fb772cabb4ed0abba9737afe285d6bebf7b09`, deployment bundle SHA-256 `7b31fe95d7edd256a309fcf172460d2efee750bda387563bb71d83038d2f656f`). Verification was enabled with a 0.5-credit job limit while submission stayed false. The completed shortlist was processed through the normal authenticated endpoint after the reviewed selector-precedence correction.
+
+All five jobs deferred, with zero receipts or inbox submissions. Three model calls settled 0.02189120 credits total; two stopped before inference. No new unknown hold arose. Historical code discarded semantic results and fixed final deferral reasons, so these three jobs cannot retrospectively be classified as intentional model rejection versus semantic validation failure. Later instrumentation must not fabricate those missing outcomes.
+
+Independent review identified a previously published EPYC event, a likely previously published Gemini launch, an older unreviewed Lemonade release candidate, and a Fable event whose primary announcement falls outside the seven-day window. AMD's World Labs acquisition has official November 16 primary support. These source/history findings do not reconstruct the missing model decisions.
+
+The GitHub source failure was reproduced with actual Deno acquisition: repeated normal `Set-Cookie` response headers were rejected. Ignoring these unused headers now permits a bounded 193184-byte capture; framing, cookie nonpersistence, DNS/TLS and size checks remain enforced. The captured Ars original has matching URI/CID/author but empty record text; the current native proof contract deliberately rejects that card-only original. Neither exclusion authorized a post.
+
+The diagnostic correction optionally retains bounded structured model results only in private settlement audits. Archival omissions cannot prevent known-usage settlement; NUL/lone-surrogate cases are explicitly omitted for PostgreSQL JSONB compatibility. Public responses expose only fixed reason codes. This changes observation, not the model request or receipt approval rules.
+
+## Second complete cycle and model rejection
+
+The next real hourly discovery slot completed 651/651 assessments for 0.06925995 credits, with no discovery hold. The first instrumented NVIDIA verification returned a structurally parsed but unsupported approval: native-repost mode for RSS evidence, no claims, a timestamp instead of a date, and URL-only duplicate reasoning. The guard deferred it; known cost 0.00679295 credits settled. The next verification timed out, leaving its 0.157287-credit reservation held and its result unknown. Producer and cron were paused; submission remained false. No receipt or public post was authorized.
+
+A reviewed GPT-oss-120B / Cerebras profile `2026-11-17.6` is prepared: Apache-2.0 open-weight model, pinned `cerebras/fp16`, ZDR, no fallback, low reasoning, 8192 output ceiling and 0.076596 conservative reservation. Historical Groq and NVIDIA profiles remain intact. This configuration is not yet a live model-quality result at this checkpoint.
+
+The separately reviewed owner-only verification quarantine preserves unknown status and all financial/audit records, fences the old workflow, and permits other work only after a different reviewed active model is selected. Its audit records the unreleased hold. Disabled-by-default fallthrough uses the existing frozen global ordering and durable jobs for unattempted candidates beyond the initial proposals; it does not rewrite the initial five or retry prior jobs. Five verified stories per run, combined pending capacity and spending guards remain enforced. Activation remains a separate recorded operator action.
+
+## V2 grounded output contract
+
+The first Cerebras V1 check settled 0.01797055 credits and was deferred: its parsed approval used a timestamp and lacked date support. These are concrete gaps in the permissive V1 wire schema, not permission to weaken receipt checks.
+
+Verification V2 (`2026-11-17.verify.2`) makes approval source-specific and requires named support for every editorial field and publication date. Trusted code derives claim text, URLs and hashes from captured inputs, then applies the existing exact quote/hash/date/native checks. Dates come from the permitted UTC-date enumeration. Ordinary-post limits derive from actual attribution links and the existing pure publishing preview; a separate preflight rejects unpublishable content before receipt creation. Historical V1 requests, audit shapes and receipt checks remain supported.
+
+A reviewed primary-source URL policy is intersected with configured network hosts before retrieval or paid work. It admits the roster's reviewed first-party origins and exact official release repositories, not arbitrary secondary coverage or lookalike namespaces. Unsupported sources are held; this is a deliberately bounded provenance policy, not a claim that every unsupported site lacks primary reporting. Native originals retain their separate exact-identity path.
+
+Validation: 494 unit/mock tests and the full embedded SQL suite pass. V2 ordinary and native flows preserve quote/hash/date proofs; the ordinary flow produces an actual 300-grapheme prepared record at combined five-story capacity with legacy Dot coexistence and zero sends. These remain test results, not public-display acceptance. The web fixture benchmark now isolates its synthetic auth boundary while keeping the one-second and 150-card assertions; controlled slow-auth reproduction and five fixture tests pass. Halo's one-shot helper now follows reviewed registry caps and refuses an under-reserved current-model plan.
+
+## Exact quote-reference contract
+
+The first live V2 primary-source attempt settled 0.01737345 credits but failed exact quotation binding: its copied passages contained rewritten wording/spacing and a guessed date representation. The guard deferred it with no receipt.
+
+Verification V3 (`2026-11-17.verify.3`) replaces model-copied quotations with IDs for trusted, lossless raw-body chunks. Every raw character remains represented; no HTML normalization alters source bytes. Native references expose only the original text and creation date. The adapter reconstructs and checks canonical chunks and actual hashes before HTTP; trusted code resolves selected IDs to the same existing raw quote/span/hash proof. Models cannot supply arbitrary quote text, source URLs or hashes. Trusted publisher attribution is added within the real post budget, and benchmark wording must retain material workload qualifications. Factual entailment remains explicitly a model judgment.
+
+All 505 unit/mock tests, the full embedded SQL suite, both RSS/native proof flows, Deno checks and independent review pass. V1/V2 compatibility is retained. NUL/lone-surrogate approval text defers after known usage settles, preventing an invalid JSONB receipt attempt. No source or receipt proof was weakened.
+
+## V3 deployment and provider compatibility failure
+
+Full `news-agent` v10 was deployed from `1bc79e8`, source manifest SHA-256 `a0c7a739b5d6bbc7ff381c1909c251b9830bfdc0e94c02cf82235cffeba14422`, deployment bundle SHA-256 `f117877919910c433fbbba3acefc050f8701f63ba3339c08c1f35dbdd014cf6b`. Exact-head GitHub lint/unit, PostgreSQL concurrency, web build/test and Cloudflare build checks pass.
+
+The first V3 paid attempt received Cerebras HTTP 400 `invalid_request_error` in 463 ms, independently visible in OpenRouter upstream requests. No usage record or receipt was returned. Its 0.076596-credit reservation remains held; the producer and continuation cron are paused and submission remains off. No retry was made. Cerebras's current [strict-schema documentation](https://inference-docs.cerebras.ai/capabilities/structured-outputs) explicitly excludes `pattern`, `minItems` and `maxItems`, present in the V3 schema. This establishes a request incompatibility, although the retained fixed error classification does not identify which unsupported keyword caused that particular response. A separately versioned compatible request is being prepared while retaining trusted validation.
+
+The current production daily ledger reports 0.22650930 settled credits and 0.450153 unknown held credits, including the V3 rejection. A fresh authenticated funding check confirmed headroom and a paid account; the rejected generation lookup returned 404, which does not establish a zero charge. An offline, freshly fetched public Lemonade 46.2 page generated 6,301 counted schema characters under V3, exceeding Cerebras's 5,000-character limit. The fresh dynamic page is not asserted byte-identical to the failed capture. Current coded discovery fits the same documented limits: 4,361 counted characters, 272 enum values, 49 object properties and nesting depth three.
+
+## Provider-compatible V4 preparation
+
+Verification V4 retains the exact V3 quote-ID wire values and full local V3 approval constraints, but uses shared local `$defs`/`$ref` enums and the provider's supported grammar subset. Unsupported string/array bounds move out of provider grammar while remaining mandatory after known-usage settlement. A bounded offline compatibility check runs before HTTP, including schema text, enum, property and depth limits. Historical V1–V3 builders and billed audit shapes remain available; incompatible historical requests are not a reason to send them again.
+
+The narrowly typed owner-only schema-rejection quarantine and V4 reserve-profile admission were installed with producer paused. Their source-matched upgrade artifacts have SHA-256 `0107c78c86420029ffe0fe10c72225f5722e49947d96fc75b1de8d9f56150126` and `bb32b1e252bdee0e316ac894db71358f790e909d0e8a856c31631ddf936cfe3c`. The new owner function accepts only the recorded V3 GPT-oss/Cerebras HTTP 400 invalid-request case with explicit reviewed V4 deployment provenance, preserves all unknown funds and immutable snapshots, and fences the old job. It cannot be called by application roles. Installation does not perform quarantine or resume work; exact deployed provenance must first be verified by the operator.
+
+Final V4 checks pass: 507 unit/mock tests, the full embedded SQL suite, Deno entrypoint checking and independent focused review. The V4 prompt includes trusted numerical editorial limits derived from the unchanged full V3 post-validation schema; provider grammar compaction does not hide the limits from the model. The adapter also refuses known-incompatible historical Cerebras schemas before HTTP. These checks precede deployment and do not establish a live preview or public post.
+
+Full `news-agent` v11 is deployed from `bcfe2bc` with JWT verification and explicit `deno.json`. Source manifest SHA-256 `352aa9192ed994edaa9683378cbc367afaa5787b52bbfc57c000069c6150d3a6`; deployment bundle SHA-256 `9f0298428504dca2e8f4e9c1ed2a7beb34715a9e635bce4b2a69a0348658b542`. The operator then used the narrow owner action to quarantine the exact rejected V3 job with that deployment attestation. Both unknown verification jobs remain uncertain/quarantined; total unknown holds remain 0.450153 credits. No historical request was replayed and no hold was released. Controlled nonpublishing V4 verification now walks the existing frozen ordering; cron and submission remain off.
+
+The first V4 primary-source attempt (MLPerf Training 6.1) returned structured output and settled 0.02040180 credits, but failed full local schema constraints. The adapter discarded that parsed result before the private archive, so the exact bad field cannot be reconstructed. A narrow ordering correction now checks wire structure in the adapter, then retains bounded private output and settles known usage before the existing full V3 semantic/proof validation. It changes no request bytes, schema, prompt, profile, SQL or receipt gate. Oversized-text/empty-ID regression proves archival, settled cost and no receipt. All 509 unit/mock tests, Deno and independent RSS/native SQL flows pass.
+
+## Larger-page rejection and bounded pilot mitigation
+
+The diagnostic ordering correction was deployed as full `news-agent` v12 from `15d5110`, source manifest SHA-256 `745509b7bc3620db63c6101e8d2e714763fe59e3b5cb122010fec96ceef5811c`, deployment bundle SHA-256 `648193945bff41b37ac855709b1dd5f6f8bb14c95dc0938e753d41c12a4a3810`. The next unattempted Lemonade 47.1 page received another Cerebras HTTP 400 invalid-request response, with 0.076596 credits held and no usage/receipt. Total held credits are 0.526749 and settled production credits 0.24691110. Producer and cron remain paused; submission remains false.
+
+A fresh offline comparison with official `o200k_harmony` tokenization counted approximately 89,524 message tokens plus 1,186 schema tokens and the 8,192 output allowance, below the advertised 131,072 context. This does not establish the historical request's exact tokens or the error cause. Cerebras documents separate free/paid context tiers; the upstream tier behind this OpenRouter route is unverified. No context-overflow claim is made from HTTP status alone.
+
+The bounded pilot mitigation lowers aggregate full source capture from 200,000 to 100,000 bytes, excluding the rejected roughly 187 KB GitHub pages before inference. It never truncates a source or weakens hashes/quotes, and may defer meaningful larger pages. It is a capacity mitigation, not proof of a universal provider fix. Explicit bounded provider error wording now maps only to existing fixed context/schema classifications; no raw message survives. No production tokenizer dependency, model route or request-profile change is introduced.
+
+A new owner-only rejected-request quarantine accepts only exact GPT-oss/Cerebras V3/V4 HTTP 400 invalid-request jobs, with full unknown holds, no outputs and a reviewed V4 deployment attestation. Both earlier owner functions remain unchanged. It permits other candidates after the explicit operator action, never replay of the old job or release of its funds. Source-matched upgrade SHA-256: `6b1fb338ace636f2673ac72b92a0ae6fac31d918cb0009de55d1e440b782c467`. Full embedded integration, 512 unit/mock tests, Deno checks and independent review pass.
+
+## First source-verified native previews
+
+Full `news-agent` v13 was deployed from `d2e8c99`; source manifest SHA-256 `180e8a34b9eed550da4508f6ccfc07ca5f3ed91f2c113907139d55b2ff18e152`, deployment bundle SHA-256 `79c72e60290778d6b3d88dafa5c9bd5ff61eb2faf256e814ba003189daf727fd`. The owner explicitly quarantined the exact larger-page V4 rejection under that manifest, preserving unknown funds/status and fencing the old workflow.
+
+The next controlled pass excluded an unapproved secondary source without inference, then issued the first source-verified native receipt for The Register's November 16 agent-security report. Cost 0.008079 credits; no handoff or publication. Independent public-original and primary-report review passed with the caveat that Google reports an attacker-operated agent, rather than operating it. Pure real production helpers yield the exact native URI/CID/author and no bot text; the original is 82 graphemes/82 UTF-8 bytes. See the [editorial review packet](2026-11-17-editorial-review.md).
+
+A second native receipt retained a quote ID as its internal change description. Although its public subject identity was valid, it is held for review. A minimal semantic guard now rejects quote-ID-shaped native change text after private archival and known settlement, before any future receipt. It changes no wire bytes, profile, SQL or valid-native proof. The old receipt is not rewritten; a new history row or expiry makes it stale before handoff. Independent tests confirm this history behavior.
+
+The native-description guard passes all 513 unit/mock tests, Deno checking and independent focused review. Automatic handoff remains disabled; only the first independently reviewed receipt is proposed for an explicit real-news canary. No later preview is silently approved by that proposal.

@@ -1,0 +1,385 @@
+{
+  "recordedAt": "2026-11-17T00:31:29.970Z",
+  "status": "gemma31_development_pilot_passed",
+  "selectedPilotModel": "google/gemma-4-31b-it",
+  "selectedProvider": "DeepInfra",
+  "recommendedDevelopmentBatchSize": 4,
+  "requestDeadlineMs": 30000,
+  "approvedCampaignUsd": 2,
+  "maximumCampaignAttempts": 24,
+  "dispatches": 9,
+  "actualCostUsd": 0.002945861,
+  "ledgerRoundedUpSpentUsd": 0.002948,
+  "heldReservationUsd": 0,
+  "gemma31EightCaseCostUsd": 0.0012284,
+  "gemma31EightCaseAgreedLabels": 8,
+  "helionScopeRegression": {
+    "action": "skip",
+    "reason": "Granular PyTorch kernel development focused on NVIDIA H100/B200; does not meet the threshold for material impact on AMD inference or general AI development as defined in scope.",
+    "costUsd": 0.0003996,
+    "source": "Original PyTorch blog context substituted for published-summary metadata; development regression, not a newly collected feed record"
+  },
+  "modelQualityProven": false,
+  "productionEnabled": false,
+  "publishingEnabled": false,
+  "creditPurchasePerformed": false,
+  "automaticRetries": 0,
+  "limitations": [
+    "Eight cases contain one owner label and seven provisional labels; not held out",
+    "Helion scope regression reuses the owner development text with original-source metadata",
+    "One success per four-case batch is not a sustained reliability benchmark",
+    "Gemma26 eight-case decisions were rejected; original decision failure detail was unavailable",
+    "Eight-case Gemma31 and a four-case Gemma26 request timed out; reported costs reconciled through generation metadata",
+    "Actual model controller ran locally; Strix Halo runtime evidence used fabricated inference",
+    "New Gemma profiles have not been activated or integrated into the SQL-backed producer"
+  ],
+  "attempts": [
+    {
+      "model": "anthropic/claude-haiku-5.5",
+      "batch": "all",
+      "cases": 8,
+      "requestHash": "6516bab424734d1b433403f089c363329d809cb091e6ed3ce5bbadc79ad170ba",
+      "dispatchedAt": "2026-11-17T00:04:02.162Z",
+      "status": "settled",
+      "outcome": "failure",
+      "result": "canary_failed",
+      "error": "http_failure",
+      "httpStatus": null,
+      "validationIssue": null,
+      "decisionIndex": null,
+      "provider": null,
+      "generationIdHash": null,
+      "usage": null,
+      "actualCostUsd": 0,
+      "reservationUsd": 1.32,
+      "elapsedMs": null,
+      "evaluation": null,
+      "decisions": null,
+      "reconciliationSource": "Owner-authenticated Activity plus key usage metadata"
+    },
+    {
+      "model": "openai/gpt-5.6-luna",
+      "batch": "all",
+      "cases": 8,
+      "requestHash": "bf4e8a58999f461529c69fbd18fde2635434205b00c75387c053dd2272c80976",
+      "dispatchedAt": "2026-11-17T00:11:04.501Z",
+      "status": "settled",
+      "outcome": "failure",
+      "result": "canary_failed",
+      "error": "http_failure",
+      "httpStatus": 404,
+      "validationIssue": null,
+      "decisionIndex": null,
+      "provider": null,
+      "generationIdHash": null,
+      "usage": null,
+      "actualCostUsd": 0,
+      "reservationUsd": 0.755401,
+      "elapsedMs": null,
+      "evaluation": null,
+      "decisions": null,
+      "reconciliationSource": "Owner-authenticated Activity plus key usage metadata"
+    },
+    {
+      "model": "google/gemma-4-26b-a4b-it",
+      "batch": "all",
+      "cases": 8,
+      "requestHash": "ab2838cef1cccedde0537d3a171ab655d1261b68439605b77f1c15f1a0e4423a",
+      "dispatchedAt": "2026-11-17T00:17:59.744Z",
+      "status": "settled",
+      "outcome": "failure",
+      "result": "canary_failed",
+      "error": "invalid_decisions",
+      "httpStatus": null,
+      "validationIssue": null,
+      "decisionIndex": null,
+      "provider": null,
+      "generationIdHash": null,
+      "usage": {
+        "promptTokens": 2895,
+        "completionTokens": 708,
+        "totalTokens": 3603,
+        "costCredits": 0.000210798
+      },
+      "actualCostUsd": 0.000210798,
+      "reservationUsd": 0.021627,
+      "elapsedMs": null,
+      "evaluation": null,
+      "decisions": null,
+      "reconciliationSource": null
+    },
+    {
+      "model": "google/gemma-4-31b-it",
+      "batch": "all",
+      "cases": 8,
+      "requestHash": "65c51e4479cbd80b4616dc3d5073de1529cf7103feff04a7837b04ed0753c691",
+      "dispatchedAt": "2026-11-17T00:20:29.221Z",
+      "status": "settled",
+      "outcome": "failure",
+      "result": "canary_failed",
+      "error": "timeout",
+      "httpStatus": null,
+      "validationIssue": null,
+      "decisionIndex": null,
+      "provider": "DeepInfra",
+      "generationIdHash": "d74d7df81dff39df75550bad87bee60a851b14858556c478aff65beb49354946",
+      "usage": null,
+      "actualCostUsd": 0.0008196,
+      "reservationUsd": 0.058983,
+      "elapsedMs": null,
+      "evaluation": null,
+      "decisions": null,
+      "reconciliationSource": "Owner Logs plus authenticated generation metadata API"
+    },
+    {
+      "model": "google/gemma-4-26b-a4b-it",
+      "batch": "first-half",
+      "cases": 4,
+      "requestHash": "3d8600147768db4dfb302ed1674ad17844db80bf172abd287defdbf405f11591",
+      "dispatchedAt": "2026-11-17T00:22:57.225Z",
+      "status": "settled",
+      "outcome": "success",
+      "result": "canary_passed",
+      "error": null,
+      "httpStatus": null,
+      "validationIssue": null,
+      "decisionIndex": null,
+      "provider": "PrimeIntellect",
+      "generationIdHash": "cca7f1748cf374797717bc287c52156675f44c79a7915ba8691eb9c19242589c",
+      "usage": {
+        "promptTokens": 2295,
+        "completionTokens": 368,
+        "totalTokens": 2663,
+        "costCredits": 0.000142674
+      },
+      "actualCostUsd": 0.000142674,
+      "reservationUsd": 0.021627,
+      "elapsedMs": 11083,
+      "evaluation": {
+        "policyVersion": "2026-11-14.1",
+        "total": 4,
+        "reviewed": 4,
+        "correct": 3,
+        "missing": [],
+        "falsePositives": [
+          "54ac9639ee0c2a73110e14ad1e7464fff98f032b49633106dceb0474b6ce119e"
+        ],
+        "missedCandidates": [],
+        "complete": true,
+        "modelQualityProven": false,
+        "publishingEnabled": false
+      },
+      "decisions": [
+        {
+          "id": "7900b4c0e230f23a6afc852d87a6214d0abf758e2236a04e9f0c59fb72b16b68",
+          "action": "skip",
+          "reason": "Granular llama.cpp release containing minor template rendering overhead reduction; lacks material performance/capability change per scope."
+        },
+        {
+          "id": "bbaa8cf12115d9417dac9f08f865c0e5043cdd883407341dfcb2e2f63d18e3c7",
+          "action": "skip",
+          "reason": "Granular llama.cpp release involving code pruning; lacks material impact on inference capabilities."
+        },
+        {
+          "id": "54ac9639ee0c2a73110e14ad1e7464fff98f032b49633106dceb0474b6ce119e",
+          "action": "verify",
+          "reason": "vLLM release candidate involving Transformers backend migration for Gemma and StableLM; requires verification of release date and significance for inference tools."
+        },
+        {
+          "id": "84ad6675e124e06413af818b1f01330b2fe9263f2fae5f7daf9b4d54e116c075",
+          "action": "verify",
+          "reason": "Anthropic model announcement; requires verification of model capabilities and official release status to ensure it is not a speculative/leaked report."
+        }
+      ],
+      "reconciliationSource": null
+    },
+    {
+      "model": "google/gemma-4-26b-a4b-it",
+      "batch": "second-half",
+      "cases": 4,
+      "requestHash": "2ffb421766e4c7324b4fd4dd6461baabff24e11cbfd5690c874fa11703746d39",
+      "dispatchedAt": "2026-11-17T00:23:27.946Z",
+      "status": "settled",
+      "outcome": "failure",
+      "result": "canary_failed",
+      "error": "timeout",
+      "httpStatus": null,
+      "validationIssue": null,
+      "decisionIndex": null,
+      "provider": "PrimeIntellect",
+      "generationIdHash": "25b13456133bcc9a3b29c58530dc1b5050d2ecb6407d5e4e57c458c3051cf8db",
+      "usage": null,
+      "actualCostUsd": 0.000144789,
+      "reservationUsd": 0.021627,
+      "elapsedMs": null,
+      "evaluation": null,
+      "decisions": null,
+      "reconciliationSource": "Owner Logs plus authenticated generation metadata API"
+    },
+    {
+      "model": "google/gemma-4-31b-it",
+      "batch": "first-half",
+      "cases": 4,
+      "requestHash": "fe2eac65dae543b241dfbbb17b41135af48430ccc25b2988d44bc63c2d8d8db1",
+      "dispatchedAt": "2026-11-17T00:26:48.714Z",
+      "status": "settled",
+      "outcome": "success",
+      "result": "canary_passed",
+      "error": null,
+      "httpStatus": null,
+      "validationIssue": null,
+      "decisionIndex": null,
+      "provider": "DeepInfra",
+      "generationIdHash": "c996f3538dc6b8d49ae348b15ddd5a2f2bb538b2744c1462c93d85fdae17a3bf",
+      "usage": {
+        "promptTokens": 2194,
+        "completionTokens": 434,
+        "totalTokens": 2628,
+        "costCredits": 0.0006124
+      },
+      "actualCostUsd": 0.0006124,
+      "reservationUsd": 0.058983,
+      "elapsedMs": 19404,
+      "evaluation": {
+        "policyVersion": "2026-11-14.1",
+        "total": 4,
+        "reviewed": 4,
+        "correct": 4,
+        "missing": [],
+        "falsePositives": [],
+        "missedCandidates": [],
+        "complete": true,
+        "modelQualityProven": false,
+        "publishingEnabled": false
+      },
+      "decisions": [
+        {
+          "id": "7900b4c0e230f23a6afc852d87a6214d0abf758e2236a04e9f0c59fb72b16b68",
+          "action": "skip",
+          "reason": "Routine granular change to jinja template rendering; does not constitute a material capability or performance change for llama.cpp."
+        },
+        {
+          "id": "bbaa8cf12115d9417dac9f08f865c0e5043cdd883407341dfcb2e2f63d18e3c7",
+          "action": "skip",
+          "reason": "Routine granular change (pruning); lacks evidence of material impact on inference capabilities or performance."
+        },
+        {
+          "id": "54ac9639ee0c2a73110e14ad1e7464fff98f032b49633106dceb0474b6ce119e",
+          "action": "skip",
+          "reason": "Release candidate for backend migration of existing models; incremental maintenance rather than a high-level capability change."
+        },
+        {
+          "id": "84ad6675e124e06413af818b1f01330b2fe9263f2fae5f7daf9b4d54e116c075",
+          "action": "verify",
+          "reason": "Major model release from frontier provider (Anthropic); requires verification of specific capabilities and resource requirements."
+        }
+      ],
+      "reconciliationSource": null
+    },
+    {
+      "model": "google/gemma-4-31b-it",
+      "batch": "second-half",
+      "cases": 4,
+      "requestHash": "e3556a61553a65f18461269b270a54b29d652b2379989e7d4d8df24796965360",
+      "dispatchedAt": "2026-11-17T00:27:21.488Z",
+      "status": "settled",
+      "outcome": "success",
+      "result": "canary_passed",
+      "error": null,
+      "httpStatus": null,
+      "validationIssue": null,
+      "decisionIndex": null,
+      "provider": "DeepInfra",
+      "generationIdHash": "401d3ec031a307f59f04827d875920c90ea1206043bc63b251eee6c856a4d8c8",
+      "usage": {
+        "promptTokens": 2210,
+        "completionTokens": 435,
+        "totalTokens": 2645,
+        "costCredits": 0.000616
+      },
+      "actualCostUsd": 0.000616,
+      "reservationUsd": 0.058983,
+      "elapsedMs": 15582,
+      "evaluation": {
+        "policyVersion": "2026-11-14.1",
+        "total": 4,
+        "reviewed": 4,
+        "correct": 4,
+        "missing": [],
+        "falsePositives": [],
+        "missedCandidates": [],
+        "complete": true,
+        "modelQualityProven": false,
+        "publishingEnabled": false
+      },
+      "decisions": [
+        {
+          "id": "f0b3b3d296c95a2e62c13f2fcb6de891219de850c8d30c308d8dbba5ec7998e4",
+          "action": "verify",
+          "reason": "Major version release (v1.0.0) of llama.cpp; requires verification of material capability or performance changes per policy."
+        },
+        {
+          "id": "f82752566b67707cc4b188938a4efe42aec3510002e1d085a2c889606dd75b68",
+          "action": "skip",
+          "reason": "Routine incremental release containing a security fix and UI polish; does not meet the threshold for meaningful developer-platform news."
+        },
+        {
+          "id": "176242b0d420d0336e3c6e7bb822330fb473d9c9250eea1ee1f91bac0426bcd8",
+          "action": "verify",
+          "reason": "Meaningful feature release from OpenAI involving agentic capabilities (payments), fitting the scope of frontier model company news."
+        },
+        {
+          "id": "83e57d0f3721603cff907d1d365f5c55f5a08371eb90a176360ab850e4f1ebfa",
+          "action": "skip",
+          "reason": "Semantic deduplication: already a published Warp Core summary."
+        }
+      ],
+      "reconciliationSource": null
+    },
+    {
+      "model": "google/gemma-4-31b-it",
+      "batch": "helion-scope",
+      "cases": 1,
+      "requestHash": "f0be9f46aab3f0681f0a0b204bfce74a7bc9f6d0e10b109cfa6a4eae044a591d",
+      "dispatchedAt": "2026-11-17T00:29:39.453Z",
+      "status": "settled",
+      "outcome": "success",
+      "result": "canary_passed",
+      "error": null,
+      "httpStatus": null,
+      "validationIssue": null,
+      "decisionIndex": null,
+      "provider": "DeepInfra",
+      "generationIdHash": "348f420a24d3e8fa8a60458d27ae5e1b0f6e1514cc1ce14191b25a22dedba724",
+      "usage": {
+        "promptTokens": 1760,
+        "completionTokens": 119,
+        "totalTokens": 1879,
+        "costCredits": 0.0003996
+      },
+      "actualCostUsd": 0.0003996,
+      "reservationUsd": 0.058983,
+      "elapsedMs": 4202,
+      "evaluation": {
+        "policyVersion": "2026-11-14.1",
+        "total": 1,
+        "reviewed": 1,
+        "correct": 1,
+        "missing": [],
+        "falsePositives": [],
+        "missedCandidates": [],
+        "complete": true,
+        "modelQualityProven": false,
+        "publishingEnabled": false
+      },
+      "decisions": [
+        {
+          "id": "83e57d0f3721603cff907d1d365f5c55f5a08371eb90a176360ab850e4f1ebfa",
+          "action": "skip",
+          "reason": "Granular PyTorch kernel development focused on NVIDIA H100/B200; does not meet the threshold for material impact on AMD inference or general AI development as defined in scope."
+        }
+      ],
+      "reconciliationSource": null
+    }
+  ]
+}

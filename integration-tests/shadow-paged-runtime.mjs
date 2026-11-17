@@ -33,13 +33,16 @@ try{
  let scans=0;
  const fetchPage=async({cursor,scanStartedAt})=>{assert.equal(scanStartedAt,stamp);scans++;return all.filter(c=>cursor===null||c.id>cursor).slice(0,100);};
  for(let i=0;i<6;i++){
-  const out=await runPagedShadowInvocation({runId,config:cfg,query,fetcher,fetchPage});
+  const out=await runPagedShadowInvocation({runId,config:cfg,query,fetcher,fetchPage},{reviewBatchSize:100});
   assert.equal(out.status,'advanced');assert.equal(requests,0,'Terminal empty page precedes review');
   assert.ok(Buffer.byteLength(JSON.stringify(out.state))<20000,'Compact checkpoint never hydrates backlog');
   assert.equal(out.state.candidateCount,Math.min((i+1)*100,405));
   await expire(runId);
  }
  assert.equal(scans,6);
+ // Batch policy is immutable across scan/review invocations, even before HTTP.
+ await assert.rejects(()=>runPagedShadowInvocation({runId,config:cfg,query,fetcher,fetchPage},{reviewBatchSize:25}));
+ assert.equal(requests,0);await expire(runId);
  let completed=false;
  for(let i=0;i<100;i++){
   const out=await runPagedShadowInvocation({runId,config:cfg,query,fetcher,fetchPage:async()=>{throw Error('scan finished');}},{reviewBatchSize:100});

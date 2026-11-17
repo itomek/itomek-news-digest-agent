@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import assert from 'node:assert/strict';
 import {newPagedShadowRun} from '../supabase/functions/news-agent/paged-runtime.mjs';
+import {requestProfileForModel} from '../supabase/functions/news-agent/model-profiles.mjs';
 import {newShadowRun} from '../supabase/functions/news-agent/workflow.mjs';
 
 const connection = process.env.WARPCORE_TEST_DATABASE_URL;
@@ -203,6 +204,7 @@ try {
   await query(a,'commit');const committed=await commitRace;assert.ifError(committed.error);assert.equal(committed.value,null);
   assert.equal(await scalar(observer,'select count(*)::int as value from shadow_agent.decisions where run_id=$1',[paged]),1);
   assert.equal((await scalar(a,'select shadow_agent.paged_begin($1,$2,$3,$4) as value',[paged,pagedLease,4,25])).state.phase,'complete');
+  await query(observer,await fs.readFile(new URL('../supabase/functions/news-agent/sql/shadow-ranking.sql',import.meta.url),'utf8'));
   await query(observer,await fs.readFile(new URL('../supabase/functions/news-agent/sql/shadow-producer.sql',import.meta.url),'utf8'));
   await query(observer,'update shadow_agent.producer_settings set enabled=true,run_limit_credits=1,policy_version=$1',[cfg.policyVersion]);
   await query(a,'begin');
@@ -211,6 +213,19 @@ try {
   await query(a,'commit');const selectedAgain=await selectorRace;assert.ifError(selectedAgain.error);assert.equal(selectedAgain.value,selected);
   assert.equal(await scalar(observer,'select count(*)::int as value from shadow_agent.producer_slots'),1);
   const selectedClaims=await Promise.all([claim(a,selected),claim(b,selected)]);assert.equal(selectedClaims.filter(Boolean).length,1);
+  // A finalizer races on the same run-row lock and cannot persist twice.
+  const ranked=randomUUID();
+  await query(observer,'insert into shadow_agent.runs(id,state,limit_credits) values($1,$2,1)',[ranked,newPagedShadowRun({runId:ranked,scanStartedAt:new Date().toISOString()})]);
+  const rankedLease=await claim(a,ranked);
+  const rankedConfig={...cfg,model:'openai/gpt-oss-120b',requestProfile:requestProfileForModel('openai/gpt-oss-120b','2026-11-16.4'),expectedProvider:'Groq'};
+  assert.equal(await scalar(a,'select shadow_agent.paged_bind_config($1,$2,$3) as value',[ranked,rankedLease,rankedConfig]),true);
+  await scalar(a,'select shadow_agent.paged_append($1,$2,0,$3) as value',[ranked,rankedLease,'[]']);
+  const finalize=client=>scalar(client,'select shadow_agent.paged_begin($1,$2,1,25) as value',[ranked,rankedLease]);
+  await query(a,'begin');assert.equal((await finalize(a)).state.phase,'complete');
+  const finalRace=outcome(finalize(b));assert.equal(await waitsOnLock(bPid),true);
+  await query(a,'commit');const finalResult=await finalRace;assert.ifError(finalResult.error);assert.equal(finalResult.value,null);
+  const summary=await scalar(a,'select public.warpcore_shadow_selection($1) as value',[ranked]);
+  assert.equal(summary.finalizedRevision,2);assert.deepEqual(summary.items,[]);
   console.log('PASS: real PostgreSQL concurrent lease, CAS, shared daily budget, one-time dispatch, idempotent settlement and lease fencing; no external calls');
 } finally {
   await Promise.all(clients.map(client => query(client, 'rollback').catch(() => {})));

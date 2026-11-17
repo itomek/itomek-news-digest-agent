@@ -3,6 +3,7 @@ import {PGlite} from '@electric-sql/pglite';
 import fs from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
+import {requestProfileForModel} from '../supabase/functions/news-agent/model-profiles.mjs';
 import {newPagedShadowRun} from '../supabase/functions/news-agent/paged-runtime.mjs';
 const db=new PGlite(), q=async(sql,args=[])=>(await db.query(sql,args)).rows;
 const scalar=async(sql,args=[])=>(await q(sql,args))[0].value;
@@ -28,7 +29,68 @@ try{
  await db.exec('create role anon;create role authenticated;create role service_role;');
  for(const file of ['shadow-state.sql','shadow-paged.sql','shadow-audit.sql'])await db.exec(await fs.readFile(new URL(`../supabase/functions/news-agent/sql/${file}`,import.meta.url),'utf8'));
  await db.exec('set role service_role');
+ // Bind the exact researched code-owned Gemma profiles, not a hand-written
+ // approximation that might miss a newly required routing/privacy field.
+ for(const [model,maxCostCredits] of [['google/gemma-4-26b-a4b-it',0.021627],['google/gemma-4-31b-it',0.058983]]){
+  const profile=requestProfileForModel(model);
+  assert.equal(profile.version,'2026-11-16.1');assert.equal(profile.provider.zdr,true);
+  const gemmaConfig={...config,model,maxOutputTokens:2048,timeoutMs:30000,maxCostCredits,requestProfile:profile,reviewBatchSize:4,expectedProvider:model.includes('26b')?'PrimeIntellect':'DeepInfra'};
+  const gemma=await fixture(1,gemmaConfig);
+  for(const expectedProvider of ['',null,42,' padded','padded ','\u00a0padded','bad\nprovider','bad\u0085provider','x'.repeat(129)])await assert.rejects(()=>gemma.bind({...gemmaConfig,expectedProvider}),/Invalid/);
+  for(const reviewBatchSize of [null,0,101,1.5,'4',true])await assert.rejects(()=>gemma.bind({...gemmaConfig,reviewBatchSize}),/Invalid/);
+  assert.deepEqual((await admin(()=>q('select config from shadow_agent.run_config where run_id=$1',[gemma.run])))[0].config,gemmaConfig);
+  const withoutZdr=structuredClone(profile);delete withoutZdr.provider.zdr;
+  const withoutReasoning={...profile};delete withoutReasoning.reasoning;
+  await assert.rejects(()=>gemma.bind({...gemmaConfig,requestProfile:withoutReasoning}),/Invalid/);
+  await assert.rejects(()=>gemma.bind({...gemmaConfig,requestProfile:{...profile,reasoning:{effort:'low'}}}),/Invalid/);
+  for(const value of [false,null,0,1,'true',{},[]])await assert.rejects(()=>gemma.bind({...gemmaConfig,requestProfile:{...profile,provider:{...profile.provider,zdr:value}}}),/Invalid/);
+  await assert.rejects(()=>gemma.bind({...gemmaConfig,requestProfile:withoutZdr}),/Invalid/);
+  await assert.rejects(()=>gemma.bind({...gemmaConfig,requestProfile:{...profile,provider:{...profile.provider,privacy_override:true}}}),/Invalid/);
+  await admin(()=>q("update shadow_agent.runs set lease_until=clock_timestamp()-interval '1 second' where id=$1",[gemma.run]));
+  const nextLease=await scalar('select shadow_agent.claim($1,60) as value',[gemma.run]);
+  const rebind=c=>scalar('select shadow_agent.paged_bind_config($1,$2,$3) as value',[gemma.run,nextLease,c]);
+  assert.equal(await rebind(gemmaConfig),true);
+  await assert.rejects(()=>rebind({...gemmaConfig,expectedProvider:'Other Provider'}),/Immutable/);
+  await assert.rejects(()=>rebind({...gemmaConfig,reviewBatchSize:5}),/Immutable/);
+  const withoutControls={...gemmaConfig};delete withoutControls.expectedProvider;delete withoutControls.reviewBatchSize;
+  await assert.rejects(()=>rebind(withoutControls),/Immutable/);
+  await assert.rejects(()=>rebind({...gemmaConfig,requestProfile:{...profile,provider:{...profile.provider,only:['other/provider'],order:['other/provider']}}}),/Immutable/);
+  await assert.rejects(()=>rebind({...gemmaConfig,requestProfile:{...profile,provider:{...profile.provider,max_price:{...profile.provider.max_price,prompt:profile.provider.max_price.prompt+0.01}}}}),/Immutable/);
+  await assert.rejects(()=>rebind({...gemmaConfig,requestProfile:{...withoutZdr,version:'2026-11-15.2'}}),/Immutable/);
+  await assert.rejects(()=>rebind({...gemmaConfig,requestProfile:{...profile,version:'2026-11-15.2'}}),/Invalid/);
+ }
+ const ossModel='openai/gpt-oss-120b',ossProfile=requestProfileForModel(ossModel,'2026-11-16.2');
+ assert.equal(ossProfile?.version,'2026-11-16.2');assert.deepEqual(ossProfile.reasoning,{effort:'low'});
+ const ossConfig={...config,model:ossModel,requestProfile:ossProfile,expectedProvider:'Groq',reviewBatchSize:4};
+ const oss=await fixture(1,ossConfig);
+ assert.equal(await oss.bind(ossConfig),true);
+ const missingReasoning={...ossProfile};delete missingReasoning.reasoning;
+ const missingZdr=structuredClone(ossProfile);delete missingZdr.provider.zdr;
+ await assert.rejects(()=>oss.bind({...ossConfig,requestProfile:missingReasoning}),/Invalid/);
+ await assert.rejects(()=>oss.bind({...ossConfig,requestProfile:missingZdr}),/Invalid/);
+ for(const reasoning of [{effort:'none'},{effort:'medium'},{effort:'low',exclude:true},null])await assert.rejects(()=>oss.bind({...ossConfig,requestProfile:{...ossProfile,reasoning}}),/Invalid/);
+ for(const version of ['2026-11-16.1','2026-11-15.2','fixture-version'])await assert.rejects(()=>oss.bind({...ossConfig,requestProfile:{...ossProfile,version}}),/Invalid/);
+ await admin(()=>q("update shadow_agent.runs set lease_until=clock_timestamp()-interval '1 second' where id=$1",[oss.run]));
+ const ossResume=await scalar('select shadow_agent.claim($1,60) as value',[oss.run]);
+ assert.equal(await scalar('select shadow_agent.paged_bind_config($1,$2,$3) as value',[oss.run,ossResume,ossConfig]),true);
+ await assert.rejects(()=>scalar('select shadow_agent.paged_bind_config($1,$2,$3) as value',[oss.run,ossResume,{...ossConfig,requestProfile:{...requestProfileForModel('google/gemma-4-31b-it')}}]),/Immutable/);
+ for(const model of ['anthropic/claude-haiku-5.5','openai/gpt-5.6-luna']){
+  const profile=requestProfileForModel(model),legacyConfig={...config,model,requestProfile:profile};
+  assert.equal(profile.version,'2026-11-15.2');assert.equal(Object.hasOwn(profile.provider,'zdr'),false);
+  const legacy=await fixture(1,legacyConfig);
+  assert.equal(await legacy.bind(legacyConfig),true);
+  await assert.rejects(()=>legacy.bind({...legacyConfig,requestProfile:{...profile,provider:{...profile.provider,zdr:true}}}),/Invalid/);
+ }
  const requestProfile={version:'discovery-spike-v1',provider:{only:['fixture/provider'],order:['fixture/provider'],allow_fallbacks:false,require_parameters:true,max_price:{prompt:0.5,completion:1.5,request:0}},responseFormat:'discovery-json-schema-v1'};
+ const reasonedProfile={...requestProfile,version:'discovery-spike-v1.2',reasoning:{effort:'none'}};
+ const reasoned=await fixture(1,{...config,requestProfile:reasonedProfile});
+ assert.equal(await reasoned.bind({...config,requestProfile:reasonedProfile}),true);
+ for(const reasoning of [null,[],{},'none',{effort:'low'},{effort:'none',exclude:true},{effort:'none',max_tokens:100},{exclude:true},{max_tokens:0}])
+  await assert.rejects(()=>reasoned.bind({...config,requestProfile:{...reasonedProfile,reasoning}}),/Invalid/);
+ await admin(()=>q("update shadow_agent.runs set lease_until=clock_timestamp()-interval '1 second' where id=$1",[reasoned.run]));
+ const reasonedResume=await scalar('select shadow_agent.claim($1,60) as value',[reasoned.run]);
+ assert.equal(await scalar('select shadow_agent.paged_bind_config($1,$2,$3) as value',[reasoned.run,reasonedResume,{...config,requestProfile:reasonedProfile}]),true);
+ await assert.rejects(()=>scalar('select shadow_agent.paged_bind_config($1,$2,$3) as value',[reasoned.run,reasonedResume,{...config,requestProfile:{...requestProfile,version:reasonedProfile.version}}]),/Immutable/);
  const profiled=await fixture(1,{...config,requestProfile});
  assert.equal(await profiled.bind({...config,requestProfile:structuredClone(requestProfile)}),true);
  await assert.rejects(()=>profiled.bind(config),/Immutable/);
@@ -101,6 +163,29 @@ try{
  await scalar('select shadow_agent.dispatch($1,$2) as value',[b.attemptId,bypass.lease]);
  await scalar("select shadow_agent.settle($1,$2,'settled',0.04) as value",[b.attemptId,bypass.lease]);
  await assert.rejects(()=>scalar('select shadow_agent.paged_commit($1,$2,3,$3) as value',[bypass.run,bypass.lease,decision]),/audit/i);
+ // Generic effective controls and returned provider identity remain bound;
+ // no model-specific timeout/token/batch limits are installed in SQL.
+ const boundConfig={...config,expectedProvider:'Offline Fixture Provider',reviewBatchSize:4};
+ const bound=await fixture(1,boundConfig),boundAttempt=(await bound.reserve()).attemptId;
+ await scalar('select shadow_agent.dispatch($1,$2) as value',[boundAttempt,bound.lease]);
+ const providerAudit={model:config.model,generationId:'provider-fixture',usage,provider:'Offline Fixture Provider'};
+ for(const provider of [undefined,'Other Provider',' padded','bad\nname','bad\u0085name','x'.repeat(129),null]){
+  const invalid={...providerAudit,provider};
+  await assert.rejects(()=>bound.settle(boundAttempt,'settled',0.04,invalid),/Invalid/);
+ }
+ const missingProvider={...providerAudit};delete missingProvider.provider;
+ await assert.rejects(()=>bound.settle(boundAttempt,'settled',0.04,missingProvider),/Invalid/);
+ assert.equal(await bound.settle(boundAttempt,'settled',0.04,providerAudit),true);
+ assert.equal(await bound.settle(boundAttempt,'settled',0.04,providerAudit),true);
+ assert.equal((await admin(()=>q("select audit->>'provider' as provider from shadow_agent.attempt_audit where attempt_id=$1 and status='settled'",[boundAttempt])))[0].provider,'Offline Fixture Provider');
+ await assert.rejects(()=>scalar("select shadow_agent.valid_provider_name('Private helper') as value"),/permission denied/);
+ const diagnosticFixture=await fixture(),diagnosticAttempt=(await diagnosticFixture.reserve()).attemptId;await scalar('select shadow_agent.dispatch($1,$2) value',[diagnosticAttempt,diagnosticFixture.lease]);
+ const bounded429={httpStatus:429,providerErrorCode:'rate_limited',providerErrorType:'rate_limit_error',errorProvider:'DeepInfra',limitSource:'upstream_provider_shared_pool',retryAfterSeconds:60,requestId:'req-diagnostic_42',cloudflareRay:'0123456789abcdef-ORD'};
+ for(const bad of [{...bounded429,message:'raw body'},{...bounded429,prompt:'private prompt'},{...bounded429,providerErrorCode:'private secret error'},{...bounded429,providerErrorCode:418},{...bounded429,providerErrorType:'private upstream detail'},{...bounded429,errorProvider:'unreviewed provider'},{...bounded429,limitSource:'private limit detail'},{...bounded429,retryAfterSeconds:86401},{...bounded429,retryAfterSeconds:-1},{...bounded429,retryAfterSeconds:1.5},{...bounded429,requestId:'secret header text'},{...bounded429,requestId:'req-'+ 'x'.repeat(125)},{...bounded429,cloudflareRay:'raw header text'},{...bounded429,requestId:'req-valid\n'},{...bounded429,cloudflareRay:'0123456789abcdef-ORD\n'},{...bounded429,providerErrorCode:'429'}])await assert.rejects(()=>diagnosticFixture.settle(diagnosticAttempt,'uncertain',null,{errorCode:'http_failure',diagnostic:bad}),/Invalid/);
+ for(const diagnostic of [{...bounded429,providerErrorCode:'engine_overloaded'},{...bounded429,errorProvider:'Together'},{...bounded429,errorProvider:'Cerebras'},{...bounded429,providerErrorCode:'RESOURCE_EXHAUSTED',providerErrorType:'provider_unavailable',errorProvider:'Google AI Studio',limitSource:'openrouter_credits',retryAfterSeconds:0,requestId:'gen-diagnostic_42'},{...bounded429,retryAfterSeconds:86400,requestId:'req_diagnostic_42'}]){await db.exec('begin');assert.equal(await diagnosticFixture.settle(diagnosticAttempt,'uncertain',null,{errorCode:'http_failure',diagnostic}),true);await db.exec('rollback');}
+ assert.equal(await diagnosticFixture.settle(diagnosticAttempt,'uncertain',null,{errorCode:'http_failure',diagnostic:bounded429}),true);
+ assert.deepEqual((await admin(()=>q("select audit->'diagnostic' diagnostic from shadow_agent.attempt_audit where attempt_id=$1 and status='uncertain'",[diagnosticAttempt])))[0].diagnostic,bounded429);
+ assert.equal((await admin(()=>q('select held_credits::float8 held from shadow_agent.runs where id=$1',[diagnosticFixture.run])))[0].held,.1);
  for(const table of ['run_config','attempt_audit','deferrals'])await assert.rejects(()=>q(`select * from shadow_agent.${table}`),/permission denied/);
  console.log('PASS: immutable sanitized config/audit, safe budget-only deferral, no attempted checkpoint retry, atomic settlement and unknown-cost holds');
 }finally{await db.close();}

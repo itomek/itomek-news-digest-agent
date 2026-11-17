@@ -1,0 +1,73 @@
+{
+  "campaign": "halo-dropped-settlement-v1",
+  "startedAt": "2026-11-16T23:17:36.183Z",
+  "publishingEnabled": false,
+  "events": [
+    {
+      "type": "fault_run_seeded",
+      "at": "2026-11-16T23:17:36.198Z",
+      "runId": "17c65355-3e7a-40f3-9058-9aafd7769a3b",
+      "candidateCount": 1,
+      "publishingEnabled": false
+    },
+    {
+      "type": "uncertain_hold_verified",
+      "at": "2026-11-16T23:17:36.272Z",
+      "phase": "uncertain",
+      "revision": 2,
+      "reviewedCount": 0,
+      "candidateCount": 1,
+      "attemptStatus": "dispatched",
+      "reservedCredits": 0.01,
+      "heldCredits": 0.01,
+      "actualCredits": null,
+      "audits": 0,
+      "decisions": 0
+    },
+    {
+      "type": "repeat_held_idle",
+      "at": "2026-11-16T23:17:36.278Z",
+      "repeat": 1,
+      "naturalExpiryWait": false
+    },
+    {
+      "type": "repeat_held_idle",
+      "at": "2026-11-16T23:17:47.296Z",
+      "repeat": 2,
+      "naturalExpiryWait": true
+    },
+    {
+      "type": "repeat_held_idle",
+      "at": "2026-11-16T23:17:47.301Z",
+      "repeat": 3,
+      "naturalExpiryWait": false
+    }
+  ],
+  "runId": "17c65355-3e7a-40f3-9058-9aafd7769a3b",
+  "failureCheckpoint": {
+    "phase": "uncertain",
+    "revision": 2,
+    "reviewedCount": 0,
+    "candidateCount": 1,
+    "attemptStatus": "dispatched",
+    "reservedCredits": 0.01,
+    "heldCredits": 0.01,
+    "actualCredits": null,
+    "audits": 0,
+    "decisions": 0
+  },
+  "status": "passed",
+  "completedAt": "2026-11-16T23:17:47.302Z",
+  "elapsedMs": 11119,
+  "counts": {
+    "attempts": 18,
+    "audits": 17,
+    "decisions": 405,
+    "inbox": 0,
+    "publications": 0
+  },
+  "historyPreserved": true,
+  "repeatedRequests": 3,
+  "naturalLeaseExpiryOnly": true,
+  "reconciliationPerformed": false
+}

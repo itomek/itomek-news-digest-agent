@@ -1,203 +1,55 @@
 # News Digest Agent
 
-A [GAIA](https://github.com/amd/gaia)-based agent that produces personalized news digests by scraping curated sources, summarizing them with a local LLM, and publishing to Supabase — plus a mobile-first web app for reading and listening to the digests.
+This repository contains Warp Core's news collection and guarded Bluesky publishing pipeline, a digest reader with text-to-speech, and the earlier GAIA/Lemonade digest implementation.
 
-Runs fully self-hosted on AMD hardware (Strix Halo) using [Lemonade Server](https://github.com/amd/lemonade) for local inference — no cloud LLM costs.
+Warp Core runs on the existing Supabase News Digest project. Its collector, Dot curator and publisher remain active. The replacement autonomous producer uses OpenRouter with a private spending ledger; it is paused during discovery-contract validation and has not taken over publishing.
 
-## How It Works
+See [Warp Core architecture and operational status](docs/warpcore-architecture.md) for the central current reference, deployment checkpoint, activation checks and rollback steps. Historical design and test reports are linked there with their limits.
 
-The system has three moving parts: a **trigger** (today a manual CLI run, soon a scheduler), the **agent pipeline** that produces a digest, and the **web app** that consumes it.
+## Components
 
-### Triggering a run
+| Component | Purpose | Current role |
+|---|---|---|
+| Supabase Edge Functions and PostgreSQL | Collect public news, retain evidence, curate and publish guarded records | Active Warp Core pipeline |
+| Autonomous `news-agent` | Review every eligible candidate, rank globally, verify evidence and prepare guarded submissions | Staged replacement; discovery validation paused, verification and submission disabled at the recorded checkpoint |
+| Web reader | Read stored digests, browse history and play text-to-speech | Separate existing application; unaffected by the producer transition |
+| Python GAIA/Lemonade pipeline | Generate personalized digests using local inference | Earlier implementation and development path; not the current Warp Core production runtime |
+| Strix Halo | Run disposable SQL, HTTP and model integration checks | Test infrastructure; not a required production news service |
 
-Today, runs are triggered manually:
-
-```bash
-python -m news_digest "Generate the AI model releases digest for today"
-```
-
-In production (Epic 4, in progress), an **APScheduler daemon** replaces the manual trigger. It registers two cron jobs — a daily slot and a weekly slot, with times configured via `.env` (`SCHEDULE_DAILY_HOUR`, `SCHEDULE_WEEKLY_DAY`, etc., all UTC). When a job fires, the scheduler queries the `digest_topics` table in Supabase, checks each enabled topic's cadence against its last successful run, and invokes the agent once per due topic. The daemon itself runs unattended under systemd (`systemd/news-digest.service`) on the Strix Halo box.
-
-### The agent pipeline
-
-Each run, `NewsDigestAgent` (a GAIA `Agent` with `DatabaseMixin`) executes this flow:
-
-1. **Read topic config** — the agent calls `fetch_topic_config` to load the topic's sources, cadence, and prompt hints from Supabase (`digest_topics` table). Nothing is hardcoded.
-2. **Scrape sources** — the agent calls the scraping tools (`fetch_rss`, `fetch_html`, `parse_article`) to gather articles, with polite per-domain rate limiting.
-3. **Summarize** — the local LLM (via GAIA's `LemonadeClient`) *is* the summarizer. The agent's own reasoning condenses the scraped material into a structured digest; there is no separate summarizer module. The model returns the finished digest as a JSON final answer.
-4. **Publish** — Python parses the model's final answer and persists it deterministically via `push_to_supabase` into the `digests` table. (Local models don't reliably emit a final publish tool call, so the publish step is driven from Python rather than left to the LLM.)
-5. **Log** — every run is recorded through the structured logging envelope to Supabase `system_logs`, with a local SQLite fallback if Supabase is unreachable.
-
-### Reading the digests
-
-The [web app](web/) is a mobile-first reading app (Vite + TypeScript + Supabase, deployed to Cloudflare Pages). It authenticates with email + password + TOTP MFA, lists digests with history navigation, and reads them aloud via text-to-speech with media-style playback controls. See [web/README.md](web/README.md) for setup and details.
-
-## Features & Roadmap
-
-Work is organized into epics, tracked as GitHub issues.
-
-| Epic | Scope | Status |
-|------|-------|--------|
-| 0–1 Infrastructure | GAIA/Lemonade validation, Supabase schema, config loader, logging envelope, CI | Done |
-| 2 First digest | Scraping tools, prompts, publishing, end-to-end manual run of the first topic | Done |
-| 3 Web app | Supabase-hosted reader with MFA auth, digest history, TTS playback, global voice/speed settings, media controls | Done (neural TTS pending, see below) |
-| 4 Scheduling | APScheduler daemon ([#13](https://github.com/itomek/itomek-news-digest-agent/issues/13)), systemd service ([#14](https://github.com/itomek/itomek-news-digest-agent/issues/14)), run logging & error recovery ([#15](https://github.com/itomek/itomek-news-digest-agent/issues/15)), publish-retry hardening ([#44](https://github.com/itomek/itomek-news-digest-agent/issues/44)), log view UI ([#27](https://github.com/itomek/itomek-news-digest-agent/issues/27)) | In progress |
-| 5 Multi-topic | Replicate the pipeline to the remaining topics, incl. world news with sentiment ([#19](https://github.com/itomek/itomek-news-digest-agent/issues/19)) | Planned |
-| 6 Observability | Log analytics and source health monitoring ([#20](https://github.com/itomek/itomek-news-digest-agent/issues/20)) | Planned |
-| 7 Social signal | Reddit via PRAW as a supplementary source ([#21](https://github.com/itomek/itomek-news-digest-agent/issues/21)) | Planned |
-| 8 Feedback | Per-digest feedback and quality tracking ([#22](https://github.com/itomek/itomek-news-digest-agent/issues/22)) | Planned |
-
-How each piece runs:
-
-- **Agent pipeline** — `python -m news_digest "<query>"` for manual runs; the Epic 4 scheduler daemon for production.
-- **Web app** — `npm run dev` locally; deployed to Cloudflare Pages.
-- **Scheduler & systemd** — `python -m news_digest.scheduler` as a long-lived daemon, managed by `systemd/news-digest.service`. Not functional yet — `scheduler.py` is currently a design stub; the implementation lands with Epic 4.
-
-### Up next: self-hosted neural TTS ([#63](https://github.com/itomek/itomek-news-digest-agent/issues/63))
-
-The web app currently uses the browser **Web Speech API** for playback, and the system voices sound dry and choppy. Issue #63 specs the replacement: a **self-hosted neural TTS engine** (Kokoro or Piper are the candidates) running on the same Strix Halo box as Lemonade, exposed over HTTP. Cloud TTS providers were considered and rejected — self-hosting keeps everything local with no per-use cost, consistent with the project's self-hosted-LLM posture.
-
-The plan, in phases:
-
-- **Phase A** — introduce a `TtsBackend` interface in `web/src/lib/tts.ts` and refactor the current Web Speech path behind it (`WebSpeechBackend`), so the player's queue/skip/pause machinery becomes backend-agnostic. This lands independently with no infrastructure.
-- **Phase B** — stand up the TTS service on Strix Halo (`POST /tts {text, voice, rate} → audio`), deployed like the other services.
-- **Phase C** — add a `NeuralHttpBackend` that fetches synthesized audio and plays it via `HTMLAudioElement`, with caching per digest and **real seek** (instead of today's word-count estimate). Web Speech remains the zero-dependency fallback whenever the neural endpoint is unset or unreachable, and voice selection surfaces in the global settings menu.
-
-The endpoint URL will come from env (`VITE_TTS_NEURAL_URL`, to be added to `web/.env.example` when Phase B lands) and is absent by default; no secrets are committed.
-
-## Prerequisites
-
-- Python 3.12+
-- [GAIA](https://github.com/amd/gaia) installed (`pip install amd-gaia`)
-- [Lemonade Server](https://github.com/amd/lemonade) running locally
-- A Supabase project with the required tables (see [Setup](#setup))
-- Node 20+ (web app only)
-
-## Setup
-
-```bash
-# Clone
-git clone https://github.com/itomek/itomek-news-digest-agent.git
-cd itomek-news-digest-agent
-
-# Create virtual environment and install
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-
-# Configure
-cp .env.example .env
-# Edit .env with your Supabase project URL, service role key, and Lemonade Server URL
-```
-
-### Supabase Tables
-
-Create a dedicated Supabase project (not shared with other projects), then apply the migrations in `supabase/migrations/` to create the `digest_topics`, `digests`, and `system_logs` tables with their RLS policies.
-
-### Lemonade Server
-
-Ensure Lemonade Server is running and accessible, and pull the models named in `.env`:
-
-```bash
-lemonade-server serve
-# Verify (snap installs default to port 13305; native installs use 8000):
-curl http://localhost:13305/api/v1/models
-```
-
-## Usage
-
-```bash
-# Manual single run (for testing)
-python -m news_digest "Generate the AI model releases digest for today"
-
-# Web app (from web/)
-npm install && npm run dev   # http://localhost:5173
-```
-
-```bash
-# Start the scheduler daemon (foreground, for testing)
-python -m news_digest.scheduler
-```
-
-## Service management
-
-The scheduler runs unattended under systemd on the Strix Halo box. The unit file is at `systemd/news-digest.service`.
-
-### Install and enable
-
-```bash
-sudo cp systemd/news-digest.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now news-digest
-```
-
-### Day-to-day commands
-
-```bash
-# Status
-systemctl status news-digest
-
-# Start / stop / restart
-sudo systemctl start news-digest
-sudo systemctl stop news-digest     # waits up to 10 min for any in-flight LLM run
-sudo systemctl restart news-digest
-
-# Verify boot persistence
-systemctl is-enabled news-digest    # should print "enabled"
-
-# Tail live logs
-journalctl -u news-digest -f
-
-# Last 100 lines
-journalctl -u news-digest -n 100
-
-# Logs since a specific time
-journalctl -u news-digest --since "2026-06-11 21:00:00"
-```
-
-### Kill switch (disable a topic without stopping the service)
-
-Set `enabled = false` on the topic row in the `digest_topics` table in Supabase. The scheduler checks this flag on every 15-minute tick and skips disabled topics immediately — no service restart needed.
-
-## Digest Topics
-
-| Topic | Cadence | Description |
-|-------|---------|-------------|
-| AI Model Releases | Daily | New model announcements from HuggingFace, company blogs, GitHub |
-| Local News | Weekly | Township, town, county government and media |
-| AI Company Updates | Daily | Product launches, partnerships, funding from major AI companies |
-| Sports team | Weekly | Team news, trades, analysis (non-score content) |
-| US/other-country World News | TBD | Major news with sentiment analysis, English and other-language sources |
-
-Topic definitions (sources, cadence, prompt hints) live in the `digest_topics` table in Supabase — adding or tuning a topic is a config change, not a code change.
+The active source roster is described in the [source directory](docs/warpcore-sources.md). Collection is discovery, not approval to publish. Original summaries require verified public evidence; Bluesky originals use native reposts with their author and subject preserved.
 
 ## Development
 
-```bash
-# Install pre-commit hooks (one-time)
-pre-commit install
+Use Node 22 for the news pipeline tests:
 
-# Run tests (unit only)
-pytest -m "not integration" -xvs
-
-# Run all tests including integration (requires Supabase + Lemonade)
-pytest -xvs
-
-# Lint and format
-ruff check src tests
-ruff format src tests
+```sh
+node --test supabase/functions/news-agent/*.test.mjs
+node --test supabase/functions/news-curate/*.test.mjs
+node --test supabase/functions/_shared/*.test.mjs
+cd integration-tests
+npm ci
+npm test
 ```
 
-Web app tests and lint run from `web/` — see [web/README.md](web/README.md).
+The embedded integration suite uses disposable fixtures and fabricated model responses. It does not prove live editorial quality or public posting. Independent PostgreSQL/PostgREST tests and live acceptance have additional prerequisites documented in the [architecture reference](docs/warpcore-architecture.md).
 
-## Architecture
+For the reader, follow [web/README.md](web/README.md). It uses Vite, TypeScript and Supabase authentication. Never put a service-role key in browser configuration.
 
-See [`docs/architecture.md`](docs/architecture.md) for the full design spec — component map, data model, cross-cutting patterns, failure modes, and epic-to-component matrix.
+For the earlier local digest implementation:
+
+```sh
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env
+# Configure the existing project's local development settings privately.
+python -m news_digest "Generate the AI model releases digest for today"
+```
+
+That path requires Python, GAIA and a reachable Lemonade Server. Its [original architecture](docs/architecture.md) and systemd files describe the earlier local digest design; they are not instructions to activate or replace the current Supabase publishing pipeline.
+
+Credentials stay in private server configuration or Vault. Do not commit keys, reset paid ledgers, apply every historical migration indiscriminately, or replace the deployed collector's approved source roster with the tracked empty-roster safety entrypoint.
 
 ## License
 
 MIT
-
-## Warp Core news sources
-
-See the [source directory](docs/warpcore-sources.md) for direct RSS/Atom links, active versus planned coverage, and current limitations.

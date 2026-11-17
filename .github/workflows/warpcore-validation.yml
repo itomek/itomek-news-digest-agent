@@ -7,6 +7,8 @@ on:
       - 'timer_tests/**'
       - 'review_tests/**'
       - 'tools/prepare_review.mjs'
+      - 'tools/halo-shadow/**'
+      - 'tools/openrouter-pilot/**'
       - 'tools/supabase_timer.py'
       - '.github/workflows/warpcore-timer.yml'
       - 'docs/warpcore-*.sql'
@@ -51,9 +53,9 @@ jobs:
       - name: Install pinned feed parser
         run: npm ci --prefix supabase/functions --ignore-scripts --no-audit --no-fund
       - name: Unit and mock transport tests (no external API calls)
-        run: node --test supabase/functions/{_shared,news-collect,news-publish,news-operator,news-curate,bluesky-collect,news-agent}/*.test.mjs review_tests/*.test.mjs
+        run: node --test supabase/functions/{_shared,news-collect,news-publish,news-operator,news-curate,bluesky-collect,news-agent,news-agent-spike}/*.test.mjs review_tests/*.test.mjs tools/halo-shadow/*.test.mjs tools/openrouter-pilot/*.test.mjs
       - name: Check inactive Deno producer entrypoint
-        run: npx --yes --package=deno@2.5.6 deno check supabase/functions/news-agent/index.ts
+        run: npx --yes --package=deno@2.5.6 deno check supabase/functions/news-agent/index.ts supabase/functions/news-agent-spike/index.ts tools/halo-shadow/index.ts tools/halo-shadow/paid-smoke.ts
       - name: Credential-free timer tests
         run: python3 -m unittest discover -s timer_tests -v
       - name: Embedded SQL integration

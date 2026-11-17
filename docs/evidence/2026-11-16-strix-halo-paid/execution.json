@@ -1,0 +1,16 @@
+{
+  "sourceCommit": "4dfbbf2f57b1ecb84980e5048ebc7cfce5c55dc5",
+  "images": {
+    "postgres:17.6": "sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929",
+    "postgrest/postgrest:v12.2.3": "sha256:729bf65c733b73f5b52777f0e4b853f22ed73aa67a22d38269d289779b0a8401",
+    "denoland/deno:2.5.6": "sha256:3ea71953ff50e3ff15c377ead1a8521f624e2f43d27713675a8bed7b33f166aa",
+    "node:22.23.3-bookworm-slim": "sha256:3ed98443660ff48413b5af19ecefce3b9d50845a901a43420d47cc63a9fddbe9"
+  },
+  "artifacts": {
+    "result.json": "033dbe30ced89cac04f42bc8f9817798643b35b6fed37c46b9e8ba8618136ea0",
+    "endpoint.json": "ff91b5bc002765e7ea59d52e399df1a7da7a33ae3fba38fb7b7b59fb8da149c3",
+    "gemma-timeout.json": "856a236b98287cc8103555f675f787b85259fde992e352beccf583f5361d7865"
+  },
+  "globalBudgetEnforcer": "Parent persistent SQLite ledger, independently rebuilt request and reviewed reserved/dispatched proof. Child attempt UUID is correlation only.",
+  "remoteBudgetEnforcer": "Durable SQL run/day reservations bound to exact request/profile/provider; no selector or scheduler enabled."
+}

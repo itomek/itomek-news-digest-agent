@@ -14,7 +14,7 @@ try{
  create table public.warpcore_candidates(uri text primary key,story_key text,source_type text,source_created_at timestamptz,source_url text,text text,collected_at timestamptz);
  create table public.warpcore_curator_inbox(story_key text,state text);
  create table public.warpcore_publications(story_key text,state text);`);
- for(const file of ['shadow-state.sql','shadow-paged.sql','shadow-audit.sql','shadow-producer.sql'])await db.exec(await fs.readFile(new URL(`../supabase/functions/news-agent/sql/${file}`,import.meta.url),'utf8'));
+ for(const file of ['shadow-state.sql','shadow-paged.sql','shadow-audit.sql','shadow-ranking.sql','shadow-producer.sql'])await db.exec(await fs.readFile(new URL(`../supabase/functions/news-agent/sql/${file}`,import.meta.url),'utf8'));
  await db.exec('set role service_role');
  const select=()=>scalar('select public.warpcore_shadow_select_run() as value');
  assert.equal(await select(),null,'Disabled by default');
@@ -73,3 +73,69 @@ try{
  }
  console.log('PASS: disabled administrative selector, durable UTC-hour idempotency/resume/lease/uncertainty holds, guarded RPC wrappers and complete fixed-cutoff candidate pagination');
 }finally{await db.close();}
+
+// Real source tables; only verifier tables are minimal isolated shape stubs.
+// Administrative fixture setup disables the paid-decision insertion audit solely
+// to seed a completed selection without any model call or fabricated paid ledger.
+// Separate real-clock fixture: manually completed rankings have no scheduler slot.
+const precedence=new PGlite();
+try{
+ await precedence.exec('create role anon;create role authenticated;create role service_role;');
+ await precedence.exec(`create table public.warpcore_stories(story_key text primary key,status text,collected_at timestamptz);
+ create table public.warpcore_candidates(uri text primary key,story_key text,source_type text,source_created_at timestamptz,source_url text,text text,collected_at timestamptz);
+ create table public.warpcore_curator_inbox(story_key text,state text,verification_receipt_id uuid);
+ create table public.warpcore_publications(story_key text,state text);`);
+ for(const file of ['shadow-state.sql','shadow-paged.sql','shadow-audit.sql','shadow-ranking.sql','shadow-producer.sql'])await precedence.exec(await fs.readFile(new URL(`../supabase/functions/news-agent/sql/${file}`,import.meta.url),'utf8'));
+ const pq=async(s,a=[])=>(await precedence.query(s,a)).rows;
+ const pick=async()=> (await pq('select public.warpcore_shadow_select_run() v'))[0].v;
+ await precedence.exec(`update shadow_agent.producer_settings set enabled=true,run_limit_credits=1,policy_version='2026-11-14.1';
+ create table shadow_agent.verification_settings(singleton boolean,enabled boolean,submit_enabled boolean,job_limit_credits numeric,backfill_enabled boolean default false);
+ insert into shadow_agent.verification_settings(singleton,enabled,submit_enabled,job_limit_credits) values(true,true,false,.157287);
+ create table shadow_agent.verification_jobs(id uuid default gen_random_uuid(),ranking_run_id uuid,story_key text,child_run_id uuid,status text,receipt_id uuid,handoff_status text,quarantined boolean default false);
+ insert into shadow_agent.runs(id,state,limit_credits) values('00000000-0000-4000-8000-000000000001','{"phase":"complete","storageKind":"paged-v1"}',1);
+ insert into shadow_agent.candidates(run_id,ordinal,candidate_id,candidate) values('00000000-0000-4000-8000-000000000001',0,repeat('a',64),'{}');
+ alter table shadow_agent.decisions disable trigger paged_require_audit;
+ insert into shadow_agent.decisions(run_id,ordinal,decision) values('00000000-0000-4000-8000-000000000001',0,'{}');
+ alter table shadow_agent.decisions enable trigger paged_require_audit;
+ insert into shadow_agent.ranking_runs values('00000000-0000-4000-8000-000000000001','2026-11-16.1','importance-relevance-id-v1',1,1,1,0,clock_timestamp());
+ insert into shadow_agent.selection_items(run_id,rank,ordinal) values('00000000-0000-4000-8000-000000000001',1,0);`);
+ const helperSource=await fs.readFile(new URL('../supabase/functions/news-agent/sql/verification-jobs.sql',import.meta.url),'utf8');
+ await precedence.exec(helperSource.match(/create function shadow_agent\.next_verification_candidate\(\)[\s\S]*?\$\$;/)[0]);
+ assert.equal(await pick(),null,'Manual completed real-clock shortlist precedes a fresh hourly slot');
+ assert.equal((await pq('select count(*)::int n from shadow_agent.producer_slots'))[0].n,0,'No fabricated scheduler slot');
+ await precedence.exec('begin;update shadow_agent.verification_settings set enabled=false');
+ assert.ok(await pick(),'Disabled verifier permits hourly discovery');await precedence.exec('rollback');
+ await precedence.exec(`begin;insert into shadow_agent.runs(id,state,limit_credits) values(gen_random_uuid(),'{"phase":"scan","storageKind":"paged-v1","scanStartedAt":"2026-11-17T00:00:00Z"}',1)`);
+ assert.ok(await pick(),'Active discovery resumes before verification');await precedence.exec('rollback');
+ await precedence.exec(`insert into shadow_agent.runs(id,state,limit_credits) values('00000000-0000-4000-8000-000000000002','{"phase":"reviewing","storageKind":"verification-v1"}',1);
+ insert into shadow_agent.verification_jobs(ranking_run_id,story_key,child_run_id,status,handoff_status) values('00000000-0000-4000-8000-000000000001',repeat('a',64),'00000000-0000-4000-8000-000000000002','pending','pending');`);
+ assert.equal(await pick(),null,'Unattempted pending job precedes hourly discovery');
+ await precedence.exec("begin;update shadow_agent.runs set lease_until=clock_timestamp()+interval '1 minute' where id='00000000-0000-4000-8000-000000000002'");assert.ok(await pick(),'Leased pending job is not claimable');await precedence.exec('rollback');
+ await precedence.exec("begin;update shadow_agent.verification_jobs set status='uncertain'");assert.ok(await pick(),'Uncertain jobs cannot authorize verification replay');await precedence.exec('rollback');
+ await precedence.exec("begin;update shadow_agent.verification_jobs set status='verified',receipt_id=gen_random_uuid();update shadow_agent.verification_settings set submit_enabled=false");assert.ok(await pick(),'No handoff precedence while submit disabled');await precedence.exec('rollback');
+ await precedence.exec("begin;update shadow_agent.verification_jobs set status='verified',receipt_id=gen_random_uuid();update shadow_agent.verification_settings set submit_enabled=true");assert.equal(await pick(),null,'Enabled recoverable handoff precedes discovery');await precedence.exec('rollback');
+ await precedence.exec("begin;update shadow_agent.verification_jobs set status='verified',receipt_id=gen_random_uuid();update shadow_agent.verification_settings set submit_enabled=true;insert into public.warpcore_curator_inbox(verification_receipt_id) select receipt_id from shadow_agent.verification_jobs");assert.ok(await pick(),'Already submitted receipt is not recoverable work');await precedence.exec('rollback');
+ await precedence.exec("begin;update shadow_agent.verification_jobs set status='verified',receipt_id=gen_random_uuid(),handoff_status='deferred';update shadow_agent.verification_settings set submit_enabled=true");assert.ok(await pick(),'Terminal stale-receipt handoff does not starve discovery');await precedence.exec('rollback');
+ // Execute the real claim implementation against the fixture tables: stale
+ // reservations get one reconciliation turn, retaining their complete hold.
+ const verifierSql=await fs.readFile(new URL('../supabase/functions/news-agent/sql/verification-jobs.sql',import.meta.url),'utf8');
+ for(const name of ['shadow_agent.verification_lock','public.warpcore_verification_claim']){
+  const start=verifierSql.indexOf('create function '+name+'('),end=verifierSql.indexOf('end $$;',start)+'end $$;'.length;
+  await precedence.exec(verifierSql.slice(start,end));
+ }
+ await precedence.exec('begin');
+ await precedence.exec(`insert into shadow_agent.budgets values((clock_timestamp() at time zone 'utc')::date,1,0,0,false);
+ update shadow_agent.runs set state=state||jsonb_build_object('activeBatch',jsonb_build_array(repeat('a',64))) where id='00000000-0000-4000-8000-000000000002';`);
+ const child='00000000-0000-4000-8000-000000000002';
+ const token=(await pq('select shadow_agent.claim($1,120) v',[child]))[0].v;
+ await pq('select shadow_agent.reserve($1,$2,$3,.157287)',[child,token,'b'.repeat(64)]);
+ await pq("update shadow_agent.runs set lease_until=clock_timestamp()-interval '1 second' where id=$1",[child]);
+ assert.equal(await pick(),null,'Expired attempted pending work gets one reconciliation turn');
+ assert.equal((await pq('select public.warpcore_verification_claim() v'))[0].v,null);
+ assert.equal((await pq('select status from shadow_agent.verification_jobs'))[0].status,'uncertain','Actual claim classifies lost attempted work');
+ assert.equal(Number((await pq('select held_credits from shadow_agent.budgets'))[0].held_credits),.157287,'Reconciliation preserves full unknown hold');
+ assert.ok(await pick(),'After reconciliation uncertain work no longer starves discovery');
+ await precedence.exec('rollback');
+ await precedence.exec("update shadow_agent.verification_jobs set status='deferred'");assert.ok(await pick(),'All resolved jobs open the real current-hour slot');
+ console.log('PASS: real-clock manual shortlist verification precedence, disabled/leased/uncertain exclusions, active discovery continuity and resolved queue rollover');
+}finally{await precedence.close();}

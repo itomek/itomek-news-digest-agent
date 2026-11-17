@@ -17,3 +17,6 @@ verify_jwt = true
 
 [functions.news-agent]
 verify_jwt = true
+
+[functions.news-agent-spike]
+verify_jwt = true

@@ -17,7 +17,8 @@ defaults:
 
 jobs:
   build-test:
-    runs-on: ubuntu-latest
+    # Playwright 1.60.0 has no Chromium build/dependency map for Ubuntu 26.04.
+    runs-on: ubuntu-24.04
     env:
       VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://eedfyviypptfpghyffip.supabase.co' }}
       VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'sb_publishable_CCE4uRqvWCAonhnDis0BZQ_ixrd0jl2' }}

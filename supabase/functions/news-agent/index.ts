@@ -1,22 +1,34 @@
 import {handleAgent} from './handler.mjs';
 import {createAgentService} from './services.mjs';
-// Inactive artifact. Enabling requires reviewed model/pricing/budgets, database
-// installation, deployment provenance and explicit hosted-spike authorization.
+import {createHostedApplication} from './hosted-application.mjs';
+import {createVerificationService} from './verification-services.mjs';
+import {runOwnerFeedbackInvocation} from './owner-feedback.mjs';
+// Defaults off. Activation requires reviewed model/pricing/budgets, database
+// installation and deployment provenance.
 // Platform JWT verification is required in addition to this dedicated token.
+let hosted;
 Deno.serve((req:Request)=>{
+ // Existing env-based installations keep their explicit gate. New deployment
+ // uses protected database activation (default off) and private Vault bootstrap.
+ if(!Deno.env.get('WARPCORE_AGENT_CRON_TOKEN')){
+  hosted??=createHostedApplication({projectUrl:Deno.env.get('SUPABASE_URL'),serviceKey:Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')},{createVerifierService:createVerificationService,runOwnerFeedbackInvocation});
+  return hosted(req);
+ }
  let service:ReturnType<typeof createAgentService>;
  const getService=()=>service??=createAgentService({
   projectUrl:Deno.env.get('SUPABASE_URL'),
   serviceKey:Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),
-  runtimeConfig:{enabled:true,requireModelProfile:true,
+  // Server-owned bounded settings; request data cannot override them.
+  invocationOptions:{pageSteps:1,reviewBatchSize:4},
+  runtimeConfig:{enabled:true,requireModelProfile:true,timeoutMs:30000,leaseSeconds:120,
    model:Deno.env.get('WARPCORE_AGENT_MODEL'),
    allowedModels:[Deno.env.get('WARPCORE_AGENT_MODEL')],
-   maxOutputTokens:Number(Deno.env.get('WARPCORE_AGENT_MAX_OUTPUT_TOKENS')),
+   maxOutputTokens:Number(Deno.env.get('WARPCORE_AGENT_MAX_OUTPUT_TOKENS')??'2048'),
    maxCostCredits:Number(Deno.env.get('WARPCORE_AGENT_MAX_COST_CREDITS')),
    apiKey:Deno.env.get('OPENROUTER_API_KEY'),
   },
  });
- return handleAgent(req,{enabled:false,producerToken:Deno.env.get('WARPCORE_AGENT_CRON_TOKEN')},{
+ return handleAgent(req,{enabled:Deno.env.get('WARPCORE_AGENT_ENABLED')==='true',producerToken:Deno.env.get('WARPCORE_AGENT_CRON_TOKEN')},{
   selectRun:()=>getService().selectRun(),
   runInvocation:(runId:string)=>getService().runInvocation(runId),
  });

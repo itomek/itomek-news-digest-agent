@@ -1,0 +1,27 @@
+{
+  "date": "2026-11-15",
+  "approvedScope": {
+    "organization": "piarenlzteswrwwlhnew",
+    "projectName": "warpcore-agent-shadow",
+    "region": "us-east-2",
+    "projectMonthlyQuotedCost": 0,
+    "paidUpgradeAuthorized": false,
+    "modelSpendCeilingUsd": 2,
+    "maximumPaidCalls": 24,
+    "productionChangesAuthorized": false
+  },
+  "creationAttempt": {
+    "created": false,
+    "error": "Account at maximum of two active free projects; pause/delete/upgrade required",
+    "existingProjectsChanged": false
+  },
+  "credentialPreflight": {
+    "environmentOpenRouterKeyPresent": false,
+    "knownWorkspaceEnvKeyEntryFound": false,
+    "secretValuesPrinted": false
+  },
+  "actualSpendUsd": 0,
+  "paidCallsMade": 0,
+  "deploymentsMade": 0,
+  "pendingDecision": "Permission to pause cyberai-staging-bridge or wait for a free slot"
+}

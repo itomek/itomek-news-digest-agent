@@ -44,3 +44,8 @@ test('slow request stream is bounded and cancelled without invoking service',asy
  const response=await h.handleAgent(req(body,{duplex:'half'}),config,forbidden);
  assert.equal(response.status,400);assert.equal(cancelled,true);
 });
+test('verification summary exposes only fixed runtime reason codes and never model text or result',async()=>{
+ for(const [status,reason,want] of [['deferred','model_deferred','model_deferred'],['uncertain','paid_outcome_unknown','paid_outcome_unknown'],['deferred','private model reason',undefined],['submitted','model_deferred',undefined]]){
+ const response=await h.handleAgent(req(),config,{selectRun:async()=>null,runInvocation:async()=>assert.fail(),verifyInvocation:async()=>({status,reason,result:{reason:'private model text'}})});const data=await response.json();assert.equal(data.reason,want);assert.equal(JSON.stringify(data).includes('private'),false);assert.equal(data.result,undefined);
+ }
+});

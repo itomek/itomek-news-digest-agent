@@ -153,3 +153,99 @@ Reasoning controls, native billed-token reservation proof, actual returned
 provider identity and hosted acceptance still require follow-up before paid use.
 The two-credit pilot remains proposed, not authorized by the general request to
 fix the issue. No deployment or paid request occurred.
+
+## November 15 owner approval
+
+The owner approved creating/deploying the isolated free spike and the researched
+pilot capped at 2 USD-equivalent credits and 24 paid calls, with no paid project
+upgrade or account topup. This supersedes the earlier pending-approval labels;
+research recommendations still do not prove actual model performance. The new
+project attempt was refused by the free-project quota. No call or charge has
+occurred; see docs/warpcore-hosted-spike.md for the execution checkpoint.
+
+
+## November 16 open-model preference
+
+The owner selected inexpensive American-company open models, specifically Gemma,
+superseding the earlier Haiku/Luna shortlist. Google DeepMind's [Gemma 4 model
+card](https://ai.google.dev/gemma/docs/core/model_card_4) lists Apache 2.0 and
+native system prompts/configurable thinking. The pilot now permits only
+`google/gemma-4-26b-a4b-it` via `primeintellect/bf16` and
+`google/gemma-4-31b-it` via `deepinfra/fp8`. This identifies the model author;
+it is not a claim that inference is geographically restricted to the US.
+
+Specific endpoint and ZDR metadata is frozen in
+[evidence](evidence/2026-11-16-openrouter-canary/open-model-endpoints.json).
+Both routes advertise structured outputs, reasoning controls and max output
+limits; the pilot requests strict JSON Schema and validates locally. They appear in the public ZDR feed with Safety Retention false.
+The controller rechecks exact ZDR membership and sends `provider.zdr:true`,
+without changing account privacy settings. Paid and free endpoints are distinct;
+free routes were not substituted because the required schema/privacy contract
+must be verified for the exact endpoint.
+
+Routing price ceilings are USD per million input/output tokens: 0.06/0.18 for
+26B and 0.20/0.40 for 31B. Full advertised context plus full completion limits,
+at the greater of routing ceilings and published token-class rates, yield
+conservative reservations of 0.021627 and 0.058983 USD. These are reservations,
+not measured per-batch costs or unconditional provider-billing guarantees.
+The existing shared 2 USD/24-attempt approval remains unchanged. No purchases,
+account policy relaxation, production activation or automatic retries are allowed.
+
+The new profile version is `2026-11-16.1`; historical profiles are unchanged.
+These profiles are available to the bounded local pilot only. Binding them into
+the inactive SQL-backed producer and deploying a paid runtime are separate
+integration gates, not implied by a local canary. The prior Strix Halo execution
+used fabricated inference; actual-model canaries use public development fixtures.
+
+
+The completed development pilot selects Gemma 31B/DeepInfra as its default after
+two four-case pages returned valid decisions agreeing with all eight development
+labels, followed by a separate Helion scope-negative check. The eight-case 31B
+request timed out; a four-case 26B request also timed out, so four-case success is
+not a sustained latency guarantee. Reported total spend was 0.002945861 USD across
+nine dispatches, with all uncertainty holds reconciled and no automatic retries.
+Sanitized costs, coverage, failures and limits are recorded in the
+[pilot result](evidence/2026-11-16-openrouter-canary/result.json). The pilot does
+not establish held-out quality or activate the producer.
+
+
+## November 16 model-independent follow-through
+
+The owner explicitly preferred switching candidates over substantial Gemma-specific
+work. The generic SQL/runtime integration now binds true-only ZDR, actual provider
+identity and effective batch settings. The inactive entrypoint supplies 30-second
+model timeouts, 120-second leases and four-candidate invocation batches. Historical
+request profiles remain unchanged; experimental runs with old bindings intentionally
+fail closed rather than receiving an implicit migration.
+
+The actual hosted Gemma call timed out. Its uncertain SQL checkpoint and full private
+state dump were preserved; refreshed authenticated Logs had no matching generation
+and key usage was unchanged, so the parent recorded zero reported charge without
+inventing native tokens. Public/authenticated metadata probes from the same container
+network succeeded. The timeout cause remains unconfirmed.
+
+The replacement development candidate is `openai/gpt-oss-120b` through OpenRouter,
+pinned to Groq with ZDR and low reasoning under profile `2026-11-16.2`.
+[OpenAI](https://openai.com/open-models/) publishes the model under Apache 2.0;
+[Groq](https://console.groq.com/docs/model/openai/gpt-oss-120b) documents low/medium/high
+reasoning. The specific route advertises structured outputs; requests use strict
+JSON Schema with local validation. Input/output routing ceilings are 0.15/0.60 USD
+per million tokens. Full context/completion limits yield a 0.058983 USD reservation.
+[Endpoint/ZDR evidence](evidence/2026-11-16-strix-halo-paid/endpoint.json) freezes the
+exact provider rather than assuming the cheapest catalog row is eligible.
+
+The three local development calls completed in 1.30, 1.28 and 0.60 seconds. Agreement
+was six of eight development labels (seven provisional), plus the separate Helion scope
+regression. The two disagreements remain recorded: backend-migration release-candidate
+significance and ChatGPT Wallet relevance. This is not held-out quality acceptance.
+
+A single actual Deno/PostgREST/PostgreSQL call on Strix Halo reviewed four prepared
+public candidates for 0.00049965 USD, with exact request hash, actual Groq identity,
+complete SQL cost audit and no outstanding hold. An overlapping invocation was busy;
+after natural lease expiry, completion used zero further model calls. All owned
+services, runtime secrets and volumes were removed and the machine lock released.
+Total reported campaign spend is 0.005004461 USD across 14 attempts, below the approved
+2 USD/24-attempt ceiling. The canonical ledger retains all failed attempts.
+[Sanitized hosted evidence](evidence/2026-11-16-strix-halo-paid/result.json) separates
+this shared-runtime CLI smoke from live-feed discovery, paid HTTP/scheduler gateway,
+Supabase cloud behavior, full-scan selection and production activation.

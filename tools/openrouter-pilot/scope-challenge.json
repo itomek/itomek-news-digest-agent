@@ -1,0 +1,118 @@
+[
+  {
+    "id": "scope-01",
+    "sourceUrl": "https://github.com/ggml-org/llama.cpp/releases/tag/b12422",
+    "sourceType": "rss",
+    "discoveryText": "b12422\njinja: add 4 missing features",
+    "sourceCreatedAt": "2026-11-15T18:33:06.000Z",
+    "expectedAction": "skip",
+    "labelStatus": "provisional-development-only",
+    "rationale": "Routine granular change; no demonstrated material new capability.",
+    "provenance": {
+      "rankingRunId": "132c10a9-404a-439f-89cc-ec1b02c98378",
+      "ordinal": 0,
+      "capturedCandidateId": "0036110339d67454672ff49cb5226ab34d746cc4ebd6c2a4fa074b01cd74d2a1"
+    }
+  },
+  {
+    "id": "scope-02",
+    "sourceUrl": "https://www.techpowerup.com/354657/amd-showcases-6th-gen-epyc-server-sp7-processors-based-on-the-new-zen-6-architecture",
+    "sourceType": "rss",
+    "discoveryText": "(PR) AMD Showcases 6th Gen EPYC Server SP7 Processors Based on the New Zen 6 Architecture\nAMD (NASDAQ: AMD) today announced the general availability of the 6th Gen AMD EPYC server SP7 processors, based on the new &quot;Zen 6&quot; architecture, extending its historical server CPU performance leadership as AI creates new demands across the data center. Systems powered by the new CPUs are shipping from all leading server vendors, and cloud instances from Microsoft Azure and OCI are coming soon. Across five generations, AMD EPYC processors have repeatedly raised the standard for server CPU performance, energy efficiency and platform choice, culminating in 5th Gen AMD EPYC processors becoming the fastest-ramping and highest-volume EPYC generation in AMD history. Now, 6th Gen AMD EPYC server CP",
+    "sourceCreatedAt": "2026-11-10T17:56:44.000Z",
+    "expectedAction": "verify",
+    "labelStatus": "provisional-development-only",
+    "rationale": "Existing policy category can qualify independently; investigate the stated change.",
+    "provenance": {
+      "rankingRunId": "132c10a9-404a-439f-89cc-ec1b02c98378",
+      "ordinal": 7,
+      "capturedCandidateId": "02245dc7ef60ac58896eef48fd8a1f1a1a67f24a336bba7f7d8f9ac0aa176ad6"
+    }
+  },
+  {
+    "id": "scope-03",
+    "sourceUrl": "https://www.theregister.com/ai-and-ml/2026/11/10/microsoft-is-giving-claude-the-keys-to-uk-copilot-tenants-by-default/5308693",
+    "sourceType": "bluesky",
+    "discoveryText": "Microsoft is giving Claude the keys to UK Copilot tenants by default\nMicrosoft is giving Claude the keys to UK Copilot tenants by default\nAdmins have until December 9 to review access settings as Anthropic processes data in the US",
+    "sourceCreatedAt": "2026-11-10T11:34:55.000Z",
+    "expectedAction": "verify",
+    "labelStatus": "provisional-development-only",
+    "rationale": "Existing policy category can qualify independently; investigate the stated change.",
+    "provenance": {
+      "rankingRunId": "132c10a9-404a-439f-89cc-ec1b02c98378",
+      "ordinal": 19,
+      "capturedCandidateId": "092a480f568a9f9264002ff2c31667b3d9d65b1a40f34665e92c036faac78a22"
+    }
+  },
+  {
+    "id": "scope-04",
+    "sourceUrl": "https://www.theverge.com/ai-artificial-intelligence/1032518/claude-duet-ai-agent-hands-on",
+    "sourceType": "rss",
+    "discoveryText": "Claude\u2019s Duet agent is a little neurotic and surprisingly helpful\nNormally, the products I test don't offer to help me write up my experience with them. Duet is different. Claude Duet is Anthropic's AI agent for consumers, the latest attempt by an AI company to try to convince us that agents can be useful for people who don't write code. It's been an interesting couple [&#8230;]",
+    "sourceCreatedAt": "2026-11-13T14:00:00.000Z",
+    "expectedAction": "verify",
+    "labelStatus": "provisional-development-only",
+    "rationale": "Existing policy category can qualify independently; investigate the stated change.",
+    "provenance": {
+      "rankingRunId": "132c10a9-404a-439f-89cc-ec1b02c98378",
+      "ordinal": 24,
+      "capturedCandidateId": "0acc674430dfd202ca5a420ecc9e95b9e298e0fae8a88be07e7fd89edd12f879"
+    }
+  },
+  {
+    "id": "scope-05",
+    "sourceUrl": "https://github.com/ggml-org/llama.cpp/releases/tag/b12424",
+    "sourceType": "rss",
+    "discoveryText": "b12424\nmtmd: add zonos3-mini TTS model ( #32020 ) zonos3 init add audio gen pipeline fix string_format add default voice as gguf metadata better ref support voice clone add delivery params optimize speed nits nits 2 add text normalization nits Website: https://llama.app Attestations: https://github.com/ggml-org/llama.cpp/attestations/67869503 macOS/iOS: macOS Apple Silicon (arm64) macOS Apple Silicon (arm64, KleidiAI enabled) DISABLED macOS Intel (x64) iOS XCFramework Linux: Ubuntu x64 (CPU) Ubuntu arm64 (CPU) Ubuntu 24.04 s390x (CPU) Ubuntu 26.04 s390x (CPU) Ubuntu 26.04 s390x (zDNN) Ubuntu x64 (Vulkan) Ubuntu arm64 (Vulkan) Ubuntu x64 (CUDA 12) - CUDA 12.8 libraries Ubuntu x64 (CUDA 13) - CUDA 13.5 libraries Ubuntu arm64 (CUDA 13) - CUDA 13.5 libraries Ubuntu x64 (ROCm 10.0) Ubuntu x64 (",
+    "sourceCreatedAt": "2026-11-15T20:11:50.000Z",
+    "expectedAction": "verify",
+    "labelStatus": "provisional-development-only",
+    "rationale": "Existing policy category can qualify independently; investigate the stated change.",
+    "provenance": {
+      "rankingRunId": "132c10a9-404a-439f-89cc-ec1b02c98378",
+      "ordinal": 27,
+      "capturedCandidateId": "0c6540c722ae53b1e1b3a1e443cc4e9203f322920f30b0ca9b9fa768dc145ceb"
+    }
+  },
+  {
+    "id": "scope-06",
+    "sourceUrl": "https://techcrunch.com/2026/11/16/apple-reveals-new-mac-security-controls-as-ai-agents-raise-privacy-risks/",
+    "sourceType": "bluesky",
+    "discoveryText": "Apple reveals new Mac security controls as AI agents raise privacy risks\nApple reveals new Mac security controls as AI agents raise privacy risks\nFollowing an October announcement, Apple has detailed new permission controls, warnings, and transparency features coming to macOS 27.3 to address risks posed by AI agents and other apps.",
+    "sourceCreatedAt": "2026-11-16T21:02:50.000Z",
+    "expectedAction": "verify",
+    "labelStatus": "provisional-development-only",
+    "rationale": "Existing policy category can qualify independently; investigate the stated change.",
+    "provenance": {
+      "rankingRunId": "132c10a9-404a-439f-89cc-ec1b02c98378",
+      "ordinal": 29,
+      "capturedCandidateId": "0cb0030db6d552ce7ad2caab60b75a8c3cc8f0647af6e3a256269d3210157438"
+    }
+  },
+  {
+    "id": "scope-07",
+    "sourceUrl": "https://github.com/ggml-org/llama.cpp/releases/tag/b12415",
+    "sourceType": "rss",
+    "discoveryText": "b12415\nserver : fix output_config.effort being dropped in /v1/messages ( #32321 )",
+    "sourceCreatedAt": "2026-11-15T10:09:46.000Z",
+    "expectedAction": "skip",
+    "labelStatus": "provisional-development-only",
+    "rationale": "Routine granular change; no demonstrated material new capability.",
+    "provenance": {
+      "rankingRunId": "132c10a9-404a-439f-89cc-ec1b02c98378",
+      "ordinal": 33,
+      "capturedCandidateId": "0e0c418dc1251a5fe35dbdff9e7f8a8910dfb438c1db09604a176b2691407118"
+    }
+  },
+  {
+    "id": "scope-08",
+    "sourceUrl": "https://pytorch.org/blog/fast-by-default-compile-time-heuristics-for-helion-kernels/",
+    "sourceType": "rss",
+    "sourceCreatedAt": "2026-11-12",
+    "discoveryText": "PyTorch\u2019s Helion now optimizes GPU kernels without costly autotuning. The new defaults ship enabled for NVIDIA H100 and B200 GPUs.",
+    "expectedAction": "skip",
+    "ownerRationale": "Owner explicitly rejected this as too PyTorch-specific; he does not use PyTorch directly. No demonstrated impact on his inference tools.",
+    "provenance": "Public getPostThread retrieved during development on 2026-11-14. URI at://did:plc:pfq2p7n2oiiy2k4pv6xnsgdk/app.bsky.feed.post/3n2a56hyffkyt; CID bafyreiek2fqtzjdtsierg6gkjc5btchx6yxmujynjdbtmqg3wn234nfqmm. Negative expectation supplied by owner Nov 14.",
+    "labelStatus": "owner-negative-development-only"
+  }
+]

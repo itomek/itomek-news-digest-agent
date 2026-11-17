@@ -18,6 +18,15 @@ revoke all on shadow_agent.candidates,shadow_agent.decisions from public,anon,au
 
 -- Helpers remain private. All public operations take the same run-row lock,
 -- so page rows, batch identity, revision and final lease check are atomic.
+create function shadow_agent.ranking_valid_decision(d jsonb) returns boolean
+language sql immutable set search_path='' as $$
+ select coalesce(jsonb_typeof(d)='object' and (d-'id'-'action'-'reason'-'importance'-'relevance')='{}'::jsonb
+ and jsonb_typeof(d->'importance')='number' and d->>'importance' ~ '^[0-4]$'
+ and jsonb_typeof(d->'relevance')='number' and d->>'relevance' ~ '^[0-4]$'
+ and ((d->>'action'='skip' and d->>'importance'='0' and d->>'relevance'='0')
+ or (d->>'action'='verify' and d->>'importance' ~ '^[1-4]$' and d->>'relevance' ~ '^[1-4]$')),false)
+$$;
+revoke all on function shadow_agent.ranking_valid_decision(jsonb) from public,anon,authenticated,service_role;
 create function shadow_agent.paged_lock(p_run uuid,p_lease uuid,p_revision bigint,p_phase text)
 returns shadow_agent.runs language plpgsql security definer set search_path='' as $$
 declare r shadow_agent.runs;
@@ -101,13 +110,19 @@ begin
  select coalesce(jsonb_agg(candidate order by ordinal),'[]'::jsonb),coalesce(jsonb_agg(to_jsonb(candidate_id) order by ordinal),'[]'::jsonb)
  into batch,ids from (select candidate,candidate_id,ordinal from shadow_agent.candidates where run_id=p_run and ordinal>=position order by ordinal limit p_size) page;
  if jsonb_array_length(batch)=0 and position<>(r.state->>'candidateCount')::bigint then raise exception 'Invalid paged coverage'; end if;
+ if jsonb_array_length(batch)=0 and to_regclass('shadow_agent.ranking_runs') is not null then
+  if exists(select 1 from shadow_agent.ranking_runs where run_id=p_run) then
+   next_state:=shadow_agent.ranking_finalize(p_run,p_lease,p_revision);
+   return jsonb_build_object('state',next_state,'batch',batch);
+  end if;
+ end if;
  next_state:=r.state||jsonb_build_object('revision',p_revision+1,'phase',case when jsonb_array_length(batch)=0 then 'complete' else 'reviewing' end,'activeBatch',case when jsonb_array_length(batch)=0 then 'null'::jsonb else ids end);
  perform shadow_agent.paged_write(p_run,p_lease,p_revision,next_state);
  return jsonb_build_object('state',next_state,'batch',batch);
 end $$;
 create function shadow_agent.paged_commit(p_run uuid,p_lease uuid,p_revision bigint,p_decisions jsonb)
 returns jsonb language plpgsql security definer set search_path='' as $$
-declare r shadow_agent.runs; d jsonb; i integer; n integer; position bigint; next_state jsonb;
+declare r shadow_agent.runs; d jsonb; i integer; n integer; position bigint; next_state jsonb; ranked boolean:=false;
 begin
  r:=shadow_agent.paged_lock(p_run,p_lease,p_revision,'reviewing');
  if r.id is null then return null; end if;
@@ -116,15 +131,17 @@ begin
  n:=jsonb_array_length(r.state->'activeBatch');position:=(r.state->>'reviewedCount')::bigint;
  if n<1 or n>100 or jsonb_array_length(p_decisions)<>n or position+n>(r.state->>'candidateCount')::bigint then raise exception 'Invalid batch decisions'; end if;
  if not exists(select 1 from shadow_agent.attempts where run_id=p_run and checkpoint_revision=p_revision and status='settled') then raise exception 'Batch requires settled attempt'; end if;
+ if to_regclass('shadow_agent.ranking_runs') is not null then select exists(select 1 from shadow_agent.ranking_runs where run_id=p_run) into ranked; end if;
  for i in 0..n-1 loop
   d:=p_decisions->i;
   if jsonb_typeof(d)<>'object' or d->'id' is distinct from r.state->'activeBatch'->i
   or d->>'action' is null or d->>'action' not in ('skip','verify')
   or jsonb_typeof(d->'reason') is distinct from 'string' or length(btrim(d->>'reason'))=0 or length(d->>'reason')>1000
-  or (d-'id'-'action'-'reason')<>'{}'::jsonb then raise exception 'Invalid batch decisions'; end if;
+  or (not ranked and (d-'id'-'action'-'reason')<>'{}'::jsonb) or (ranked and not shadow_agent.ranking_valid_decision(d)) then raise exception 'Invalid batch decisions'; end if;
   if not exists(select 1 from shadow_agent.candidates where run_id=p_run and ordinal=position+i and to_jsonb(candidate_id)=d->'id') then raise exception 'Invalid batch identity'; end if;
   insert into shadow_agent.decisions(run_id,ordinal,decision) values(p_run,position+i,d);
  end loop;
+ if ranked then update shadow_agent.ranking_runs set assessed_count=assessed_count+n where run_id=p_run and finalized_at is null; if not found then raise exception 'Immutable ranking'; end if; end if;
  next_state:=r.state||jsonb_build_object('revision',p_revision+1,'phase','review','reviewedCount',position+n,'activeBatch','null'::jsonb);
  return shadow_agent.paged_write(p_run,p_lease,p_revision,next_state);
 end $$;

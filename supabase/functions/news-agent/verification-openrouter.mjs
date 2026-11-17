@@ -66,7 +66,7 @@ export async function verifyWithOpenRouter(request,config={},fetcher){
  const operation=(async()=>{
   const response=await fetcher(ENDPOINT,{method:'POST',redirect:'error',headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/json'},body,signal:controller.signal});
   if(!(response instanceof Response))fail('http_failure','uncertain');
-  if(!response.ok||response.redirected){if(response.body)void response.body.cancel().catch(()=>{});fail('http_failure','uncertain');}
+  if(!response.ok||response.redirected){if(response.body)void response.body.cancel().catch(()=>{});throw Object.assign(new OpenRouterAttemptError('http_failure','uncertain'),{httpStatus:response.status});}
   if(controller.signal.aborted){if(response.body)void response.body.cancel().catch(()=>{});fail('timeout','uncertain');}
   return parse(await readBounded(response,maxResponseBytes,controller.signal),reservation,schema);
  })();

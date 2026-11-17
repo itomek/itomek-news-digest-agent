@@ -50,7 +50,12 @@ try{
  const fetchFail=await nextStory('e',2);await q("update shadow_agent.runs set lease_until=now()-interval '1 second' where id=(select child_run_id from shadow_agent.verification_jobs where id=$1)",[fetchFail.jobId]);const resumed=await claim();assert.equal(resumed.jobId,fetchFail.jobId);assert.notEqual(resumed.lease,fetchFail.lease);
  assert.equal(await value("select public.warpcore_verification_finish($1,$2,'deferred',null) v",[resumed.jobId,resumed.lease]),true,'Fetch failure needs no paid attempt');
  const billedBad=await nextStory('9',3);await value('select public.warpcore_verification_reserve($1,$2,$3,0.1,$4) v',[billedBad.jobId,billedBad.lease,'8'.repeat(64),meta]);await value('select public.warpcore_verification_dispatch($1,$2) v',[billedBad.jobId,billedBad.lease]);
- const badAudit={...audit,provider:'Other',validationError:'invalid_completion',usage:{...audit.usage,costCredits:0.11}};
+ for(const diagnostic of [{body:'forbidden'},{message:'forbidden'},{headers:{Authorization:'forbidden'}},{apiKey:'forbidden'},{generationId:'x'.repeat(257)},{model:'x'.repeat(129)},{provider:'bad\nprovider'},{provider:'bad\u0085provider'},{httpStatus:99},{httpStatus:600},{httpStatus:429.5},{validationIssue:'private error text'},{decisionIndex:-1},{decisionIndex:100},{decisionIndex:0.5},{}])await assert.rejects(()=>value("select public.warpcore_verification_settle($1,$2,'uncertain',null,$3) v",[billedBad.jobId,billedBad.lease,{errorCode:'http_failure',diagnostic}]),/diagnostic/);
+ await db.exec('begin');
+ const identityIncomplete={usage:audit.usage,errorCode:'invalid_completion',diagnostic:{generationId:'gen-valid-despite-invalid-provider',model:meta.model}};
+ assert.equal(await value("select public.warpcore_verification_settle($1,$2,'settled',.01,$3) v",[billedBad.jobId,billedBad.lease,identityIncomplete]),true,'Malformed provider cannot erase known billed cost');assert.equal(Number((await q('select spent_credits from shadow_agent.budgets'))[0].spent_credits),.03);
+ await assert.rejects(()=>value("select public.warpcore_verification_finish($1,$2,'verified',$3) v",[billedBad.jobId,billedBad.lease,good]),/paid validation blocked/);await db.exec('rollback');
+ const badAudit={...audit,provider:'Other',validationError:'invalid_completion',usage:{...audit.usage,costCredits:0.11},diagnostic:{generationId:'gen-fixture',model:meta.model,provider:'Other',httpStatus:200,validationIssue:'invalid_shape',decisionIndex:0}};
  assert.equal(await value("select public.warpcore_verification_settle($1,$2,'settled',0.11,$3) v",[billedBad.jobId,billedBad.lease,badAudit]),true,'Known billed invalid route still accounts actual cost');
  assert.equal((await q('select blocked from shadow_agent.budgets'))[0].blocked,true,'Reservation overrun blocks spending');
  await assert.rejects(()=>value("select public.warpcore_verification_finish($1,$2,'verified',$3) v",[billedBad.jobId,billedBad.lease,good]),/paid validation blocked/);
@@ -58,7 +63,8 @@ try{
  // Separate synthetic campaign fixture; administrative unblock only for unknown-hold test.
  await db.exec('update shadow_agent.budgets set blocked=false');
  const unknown=await nextStory('f',4);await value('select public.warpcore_verification_reserve($1,$2,$3,0.1,$4) v',[unknown.jobId,unknown.lease,'1'.repeat(64),meta]);await value('select public.warpcore_verification_dispatch($1,$2) v',[unknown.jobId,unknown.lease]);
- await value("select public.warpcore_verification_settle($1,$2,'uncertain',null,$3) v",[unknown.jobId,unknown.lease,{errorCode:'timeout'}]);
+ for(const httpStatus of [400,402,429,500,503]){await db.exec('begin');assert.equal(await value("select public.warpcore_verification_settle($1,$2,'uncertain',null,$3) v",[unknown.jobId,unknown.lease,{errorCode:'http_failure',diagnostic:{httpStatus}}]),true);assert.equal((await q('select held_credits::float8 n from shadow_agent.budgets'))[0].n,.1);await db.exec('rollback');}
+ await value("select public.warpcore_verification_settle($1,$2,'uncertain',null,$3) v",[unknown.jobId,unknown.lease,{errorCode:'http_failure',diagnostic:{httpStatus:429}}]);
  assert.equal((await q('select held_credits::float8 n from shadow_agent.budgets'))[0].n,0.1);assert.equal(await claim(),null);
  assert.equal(await value("select public.warpcore_verification_finish($1,$2,'deferred',null) v",[unknown.jobId,unknown.lease]),false,'Unknown outcome cannot become deferred');
  // Authoritatively stale recovered receipts stop handoff, preserving paid audit.

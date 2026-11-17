@@ -1,4 +1,4 @@
-import {isRankedDiscoveryFormat,matchesDiscoveryFormat,validateProviderPolicy,validateReasoningControl} from './review-contract.mjs';
+import {isKeyedRankedDiscoveryFormat,isRankedDiscoveryFormat,matchesDiscoveryFormat,validateProviderPolicy,validateReasoningControl} from './review-contract.mjs';
 // OpenRouter Chat Completions contract:
 // https://openrouter.ai/docs/api_reference/overview
 // This adapter owns one HTTP attempt, NOT spend authorization or a durable ledger.
@@ -36,7 +36,7 @@ function validate(request,config,fetcher){
  if(!config.reservation||typeof config.reservation.id!=='string'||!config.reservation.id.trim()||!Number.isFinite(config.reservation.maxCostCredits)||config.reservation.maxCostCredits<=0)fail('missing_cost_reservation');
  if(!request||Object.keys(request).some(k=>!['model','max_tokens','messages','response_format','provider','reasoning'].includes(k)))fail('unsupported_request');
  if(typeof request.model!=='string'||!Array.isArray(config.allowedModels)||!config.allowedModels.includes(request.model)||!boundedInteger(request.max_tokens,16384))fail('invalid_model_or_budget');
- if(!Array.isArray(request.messages)||request.messages.length!==2||request.messages[0]?.role!=='system'||request.messages[1]?.role!=='user'||request.messages.some(m=>typeof m.content!=='string'||!m.content||Object.keys(m).some(k=>!['role','content'].includes(k)))||!matchesDiscoveryFormat(request.response_format))fail('invalid_messages');
+ if(!Array.isArray(request.messages)||request.messages.length!==2||request.messages[0]?.role!=='system'||request.messages[1]?.role!=='user'||request.messages.some(m=>typeof m.content!=='string'||!m.content||Object.keys(m).some(k=>!['role','content'].includes(k))))fail('invalid_messages');
  if(Object.hasOwn(request,'provider'))validateReviewProvider(request.provider);
  if(Object.hasOwn(request,'reasoning')){try{validateReasoningControl(request.reasoning);}catch{fail('unsupported_request');}}
  let candidates;
@@ -44,6 +44,7 @@ function validate(request,config,fetcher){
  if(!Array.isArray(candidates)||!candidates.length)fail('invalid_candidates');
  const ids=new Set();
  for(const c of candidates){if(typeof c?.id!=='string'||!c.id||ids.has(c.id))fail('invalid_candidates');ids.add(c.id);}
+ if(!matchesDiscoveryFormat(request.response_format,[...ids]))fail('invalid_messages');
  return ids;
 }
 async function readBounded(response,maxBytes,signal){
@@ -81,11 +82,19 @@ function parseResult(data,request,ids,reservation){
  };
  let parsed;
  try{parsed=JSON.parse(data.choices[0].message.content);}catch{decisionFailure('invalid_decision_json');}
- if(!parsed||Object.keys(parsed).length!==1||!Array.isArray(parsed.decisions)||parsed.decisions.length!==ids.size)decisionFailure('incomplete_decisions');
- const ranked=isRankedDiscoveryFormat(request.response_format);
+ const keyed=isKeyedRankedDiscoveryFormat(request.response_format,[...ids]);
+ let decisions;
+ if(keyed){
+  if(!parsed||Array.isArray(parsed)||Object.keys(parsed).length!==1||!Object.hasOwn(parsed,'decisions')||!parsed.decisions||typeof parsed.decisions!=='object'||Array.isArray(parsed.decisions)||Object.keys(parsed.decisions).length!==ids.size||[...ids].some(id=>!Object.hasOwn(parsed.decisions,id)))decisionFailure('incomplete_decisions');
+  decisions=[...ids].map((id,index)=>{const d=parsed.decisions[id];if(!d||typeof d!=='object'||Array.isArray(d)||Object.keys(d).length!==4||['action','reason','importance','relevance'].some(k=>!Object.hasOwn(d,k)))decisionFailure('invalid_decisions','unexpected_fields',index);return {id,...d};});
+ }else{
+  if(!parsed||Object.keys(parsed).length!==1||!Array.isArray(parsed.decisions)||parsed.decisions.length!==ids.size)decisionFailure('incomplete_decisions');
+  decisions=parsed.decisions;
+ }
+ const ranked=keyed||isRankedDiscoveryFormat(request.response_format);
  const fields=ranked?['id','action','reason','importance','relevance']:['id','action','reason'];
  const seen=new Set();
- for(const [index,d] of parsed.decisions.entries()){
+ for(const [index,d] of decisions.entries()){
   let issue;
   if(!d||typeof d!=='object'||Array.isArray(d))issue='invalid_shape';
   else if(Object.keys(d).some(k=>!fields.includes(k)))issue='unexpected_fields';
@@ -97,7 +106,7 @@ function parseResult(data,request,ids,reservation){
   if(issue!==undefined)decisionFailure('invalid_decisions',issue,index);
   seen.add(d.id);
  }
- return {generationId:data.id,model:data.model,...(Object.hasOwn(data,'provider')?{provider:data.provider}:{}),usage,decisions:parsed.decisions};
+ return {generationId:data.id,model:data.model,...(Object.hasOwn(data,'provider')?{provider:data.provider}:{}),usage,decisions};
 }
 export function validateReviewProvider(provider){
  try{return validateProviderPolicy(provider);}catch{fail('unsupported_request');}

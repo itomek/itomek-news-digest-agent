@@ -51,3 +51,19 @@ suite. Real Halo PostgreSQL 17.6 exercised shared admission races and the comple
 RSS receipt/handoff/curator flow, including recovery after a lost finish response.
 Native repost composition uses actual SQL with fabricated AppView/model HTTP;
 no native live-source or public-display acceptance is claimed here.
+
+## First live discovery run
+
+Discovery-only version 2 was deployed from commit `7e9a2a0`, bundle SHA-256
+`93c3da769805637228bfdfc0f68a1254b8312569d66f587ec4c366b4969b95aa`.
+Its bundle excludes verification and publishing code. The real fixed-cutoff
+scan captured 650 eligible candidates and reached the terminal page before
+inference. Three 16-candidate batches committed 48 assessments. The fourth
+response failed complete coverage validation (`incomplete_decisions`).
+
+All four requests have known settled billing: 0.00762705 credits total and zero
+held credits. The failed request cost 0.0019665 credits with 2,021 completion
+tokens. The run stopped incomplete; no agent inbox item or publication was
+created. Producer and continuation cron were paused for a versioned response
+contract correction. Captures, decisions, profile, attempts and billing remain
+durable; this is not a completed ranking or quality acceptance.

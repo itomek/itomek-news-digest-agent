@@ -19,8 +19,10 @@ test('current GPT-oss smoke binds ranked profile and scores without gold labels'
  const plan=buildSmokePlan({runId,model:'openai/gpt-oss-120b',reservationUsd:0.058983,cases});
  const body=JSON.parse(plan.requestBody);
  assert.equal(plan.expectedProvider,'Groq');
- assert.ok(body.response_format.json_schema.schema.properties.decisions.items.required.includes('importance'));
- assert.ok(body.response_format.json_schema.schema.properties.decisions.items.required.includes('relevance'));
+ const decisions=body.response_format.json_schema.schema.properties.decisions;
+ assert.deepEqual(decisions.required,plan.candidates.map(c=>c.id));
+ assert.ok(decisions.properties[plan.candidates[0].id].required.includes('importance'));
+ assert.ok(decisions.properties[plan.candidates[0].id].required.includes('relevance'));
  assert.equal(plan.requestBody.includes('GOLD'),false);
 });
 const attempt='00000000-0000-4000-8000-000000000888';

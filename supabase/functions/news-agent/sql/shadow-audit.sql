@@ -19,7 +19,7 @@ language sql immutable set search_path='' as $$
  and p_name=btrim(p_name,U&'\0009\000A\000B\000C\000D\0020\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000\FEFF')
  and p_name !~ U&'[\0001-\001F\007F-\009F]'
 $$;
-create function shadow_agent.paged_bind_config(p_run uuid,p_lease uuid,p_config jsonb) returns boolean
+create or replace function shadow_agent.paged_bind_config(p_run uuid,p_lease uuid,p_config jsonb) returns boolean
 language plpgsql security definer set search_path='' as $$
 declare r shadow_agent.runs; existing jsonb; k text; profile jsonb; provider jsonb; prices jsonb;
 begin
@@ -53,12 +53,12 @@ begin
   or (profile-'version'-'provider'-'responseFormat'-'reasoning'-'rankingRubricVersion')<>'{}'::jsonb
   or jsonb_typeof(profile->'version') is distinct from 'string'
   or profile->>'version' !~ '^[A-Za-z0-9._-]{1,64}$'
-  or not coalesce((profile->>'responseFormat'='discovery-json-schema-v1' and profile->>'version'<>'2026-11-16.3' and not(profile ? 'rankingRubricVersion') or profile->>'responseFormat'='discovery-ranked-json-schema-v2' and profile->>'version'='2026-11-16.3' and profile->>'rankingRubricVersion'='2026-11-16.1'),false)
+  or not coalesce((profile->>'responseFormat'='discovery-json-schema-v1' and profile->>'version' not in ('2026-11-16.3','2026-11-16.4') and not(profile ? 'rankingRubricVersion') or profile->>'responseFormat'='discovery-ranked-json-schema-v2' and profile->>'version'='2026-11-16.3' and profile->>'rankingRubricVersion'='2026-11-16.1' or profile->>'responseFormat'='discovery-keyed-ranked-json-schema-v3' and profile->>'version'='2026-11-16.4' and profile->>'rankingRubricVersion'='2026-11-16.1'),false)
   or jsonb_typeof(profile->'provider') is distinct from 'object'
   then raise exception 'Invalid request profile'; end if;
-  if (profile->>'version' in ('2026-11-16.2','2026-11-16.3') and profile->'reasoning' is distinct from '{"effort":"low"}'::jsonb)
+  if (profile->>'version' in ('2026-11-16.2','2026-11-16.3','2026-11-16.4') and profile->'reasoning' is distinct from '{"effort":"low"}'::jsonb)
   or (profile->>'version'='2026-11-16.1' and profile->'reasoning' is distinct from '{"effort":"none"}'::jsonb)
-  or (profile->>'version' not in ('2026-11-16.1','2026-11-16.2','2026-11-16.3') and profile ? 'reasoning' and profile->'reasoning' is distinct from '{"effort":"none"}'::jsonb)
+  or (profile->>'version' not in ('2026-11-16.1','2026-11-16.2','2026-11-16.3','2026-11-16.4') and profile ? 'reasoning' and profile->'reasoning' is distinct from '{"effort":"none"}'::jsonb)
   then raise exception 'Invalid request profile reasoning'; end if;
   provider:=profile->'provider';
   if (provider-'only'-'order'-'allow_fallbacks'-'require_parameters'-'max_price'-'zdr')<>'{}'::jsonb
@@ -72,7 +72,7 @@ begin
   -- required in v16.1/v16.2 and forbidden in historical code-owned v15.2.
   -- Existing bound configuration remains immutable across lease/resume.
   if (provider ? 'zdr' and provider->'zdr' is distinct from 'true'::jsonb)
-  or (profile->>'version' in ('2026-11-16.1','2026-11-16.2','2026-11-16.3') and provider->'zdr' is distinct from 'true'::jsonb)
+  or (profile->>'version' in ('2026-11-16.1','2026-11-16.2','2026-11-16.3','2026-11-16.4') and provider->'zdr' is distinct from 'true'::jsonb)
   or (profile->>'version'='2026-11-15.2' and provider ? 'zdr')
   then raise exception 'Invalid request profile ZDR policy'; end if;
   if jsonb_array_length(provider->'only')<>1
@@ -86,7 +86,7 @@ begin
   or prices->'request' is distinct from '0'::jsonb then raise exception 'Invalid request profile'; end if;
   if (prices->>'prompt')::numeric<=0 or (prices->>'completion')::numeric<=0 then raise exception 'Invalid request profile'; end if;
  end if;
- if profile->>'responseFormat'='discovery-ranked-json-schema-v2' and to_regprocedure('shadow_agent.ranking_bind(uuid)') is null then raise exception 'Ranking contract required'; end if;
+ if profile->>'responseFormat' in ('discovery-ranked-json-schema-v2','discovery-keyed-ranked-json-schema-v3') and to_regprocedure('shadow_agent.ranking_bind(uuid)') is null then raise exception 'Ranking contract required'; end if;
  select config into existing from shadow_agent.run_config where run_id=p_run;
  if found then
   if existing is distinct from p_config then raise exception 'Immutable runtime config'; end if;
@@ -94,7 +94,7 @@ begin
  end if;
  if r.lease_until<=clock_timestamp() then return false; end if;
  insert into shadow_agent.run_config(run_id,config) values(p_run,p_config);
- if profile->>'responseFormat'='discovery-ranked-json-schema-v2' then perform shadow_agent.ranking_bind(p_run); end if;
+ if profile->>'responseFormat' in ('discovery-ranked-json-schema-v2','discovery-keyed-ranked-json-schema-v3') then perform shadow_agent.ranking_bind(p_run); end if;
  if r.lease_until<=clock_timestamp() then raise exception 'Lease lost during config binding'; end if;
  return true;
 end $$;
@@ -129,21 +129,36 @@ begin
  insert into shadow_agent.deferrals(run_id,checkpoint_revision,reason) values(p_run,p_revision,reason);
  return jsonb_build_object('status','deferred','state',next_state,'reason',reason);
 end $$;
-create function shadow_agent.paged_settle(p_attempt uuid,p_lease uuid,p_status text,p_cost numeric,p_audit jsonb) returns boolean
+create or replace function shadow_agent.paged_settle(p_attempt uuid,p_lease uuid,p_status text,p_cost numeric,p_audit jsonb) returns boolean
 language plpgsql security definer set search_path='' as $$
-declare a shadow_agent.attempts; cfg jsonb; u jsonb; k text; prior jsonb; ok boolean;
+declare a shadow_agent.attempts; cfg jsonb; u jsonb; k text; prior jsonb; ok boolean; d jsonb;
 begin
  select * into a from shadow_agent.attempts where id=p_attempt;
  if not found then return false; end if;
  select config into cfg from shadow_agent.run_config where run_id=a.run_id;
  if not found or p_audit is null or jsonb_typeof(p_audit)<>'object' or octet_length(p_audit::text)>4000
- or (p_audit-'model'-'generationId'-'usage'-'errorCode'-'provider')<>'{}'::jsonb
+ or (p_audit-'model'-'generationId'-'usage'-'errorCode'-'provider'-'diagnostic')<>'{}'::jsonb
  then raise exception 'Invalid settlement audit'; end if;
  if p_audit ? 'errorCode' then
   if jsonb_typeof(p_audit->'errorCode') is distinct from 'string' or p_audit->>'errorCode' not in
   ('disabled','invalid_transport_configuration','missing_cost_reservation','unsupported_request','invalid_model_or_budget','invalid_messages','invalid_candidates','empty_response','response_too_large','timeout','invalid_json','missing_or_invalid_usage','reservation_exceeded','invalid_completion','invalid_decision_json','incomplete_decisions','invalid_decisions','invalid_limits','http_failure','transport_failure','unknown_failure')
   or p_audit ? 'model' or p_audit ? 'generationId' or p_audit ? 'provider' then raise exception 'Invalid settlement audit'; end if;
+  if p_audit ? 'diagnostic' then
+   d:=p_audit->'diagnostic';
+   if jsonb_typeof(d) is distinct from 'object' or d='{}'::jsonb or octet_length(d::text)>2048
+   or (d-'generationId'-'model'-'provider'-'httpStatus'-'validationIssue'-'decisionIndex')<>'{}'::jsonb then raise exception 'Invalid error diagnostic';end if;
+   foreach k in array array['generationId','model','provider'] loop
+    if d ? k then
+     if jsonb_typeof(d->k) is distinct from 'string' or length(d->>k) not between 1 and (case when k='generationId' then 256 else 128 end)
+     or d->>k<>btrim(d->>k,U&'\0009\000A\000B\000C\000D\0020\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000\FEFF') or d->>k ~ U&'[\0001-\001F\007F-\009F]' then raise exception 'Invalid error diagnostic';end if;
+    end if;
+   end loop;
+   if d ? 'httpStatus' and (jsonb_typeof(d->'httpStatus') is distinct from 'number' or coalesce(d->>'httpStatus','') !~ '^[0-9]{3}$' or (d->>'httpStatus')::numeric not between 100 and 599) then raise exception 'Invalid error diagnostic';end if;
+   if d ? 'decisionIndex' and (jsonb_typeof(d->'decisionIndex') is distinct from 'number' or coalesce(d->>'decisionIndex','') !~ '^[0-9]{1,2}$' or (d->>'decisionIndex')::numeric not between 0 and 99) then raise exception 'Invalid error diagnostic';end if;
+   if d ? 'validationIssue' and (jsonb_typeof(d->'validationIssue') is distinct from 'string' or not coalesce(d->>'validationIssue' in ('invalid_shape','unexpected_fields','unknown_id','duplicate_id','invalid_action','invalid_reason','invalid_scores'),false)) then raise exception 'Invalid error diagnostic';end if;
+  end if;
  else
+  if p_audit ? 'diagnostic' then raise exception 'Error diagnostic requires errorCode';end if;
   if (p_audit ? 'provider' and (jsonb_typeof(p_audit->'provider') is distinct from 'string' or not shadow_agent.valid_provider_name(p_audit->>'provider')))
   or (cfg ? 'expectedProvider' and p_audit->'provider' is distinct from cfg->'expectedProvider')
   then raise exception 'Invalid settlement provider'; end if;

@@ -207,3 +207,22 @@ test('ranked decisions retain scores and reject bad scores with billed usage',as
  await assert.rejects(reviewWithOpenRouter(r,config(),async()=>answer([])),e=>e.code==='incomplete_decisions'&&e.usage.costCredits===0.001);
  assert.equal((await reviewWithOpenRouter(r,config(),async()=>answer([{...decision,action:'skip',importance:0,relevance:0}]))).decisions[0].importance,0);
 });
+test('keyed ranked completion normalizes candidate order and rejects missing, extra, inner IDs or scores with usage',async()=>{
+ const {buildKeyedRankedDiscoveryFormat}=await import('./review-contract.mjs');assert.equal(typeof buildKeyedRankedDiscoveryFormat,'function');
+ const r={...request(),messages:[request().messages[0],{role:'user',content:JSON.stringify({candidates:[{id:'a'},{id:'b'}]})}],response_format:buildKeyedRankedDiscoveryFormat(['a','b'])};
+ const a={action:'verify',reason:'Material capability.',importance:4,relevance:3},b={action:'skip',reason:'Routine.',importance:0,relevance:0};
+ const response=decisions=>{const p=payload();p.choices[0].message.content=JSON.stringify({decisions});return Response.json(p);};
+ const out=await reviewWithOpenRouter(r,config(),async()=>response({b,a}));assert.deepEqual(out.decisions,[{id:'a',...a},{id:'b',...b}]);
+ for(const d of [{a},{a,b,c:a},{a:{...a,id:'other'},b},{a:{...a,importance:5},b},{a:{...a,relevance:1.5},b},{a,b:{...b,importance:1}},{a:{action:'verify',reason:'Missing scores'},b}])await assert.rejects(reviewWithOpenRouter(r,config(),async()=>response(d)),e=>e.outcome==='uncertain'&&e.usage.costCredits===.001&&e.completionAudit.generationId==='gen-test');
+ for(const mutate of [x=>x.response_format.json_schema.schema.properties.decisions.required.pop(),x=>x.response_format.json_schema.schema.properties.decisions.properties.a.additionalProperties=true,x=>x.messages[1].content=JSON.stringify({candidates:[{id:'x'},{id:'b'}]})]){const bad=structuredClone(r);mutate(bad);let calls=0;await assert.rejects(reviewWithOpenRouter(bad,config(),async()=>{calls++;return response({a,b});}),e=>e.outcome==='not_started');assert.equal(calls,0);}
+});
+test('sixteen-candidate keyed schema requires the candidate omitted by the historical array completion',async()=>{
+ const {buildReviewRequest}=await import('./evaluation.mjs'),{requestProfileForModel}=await import('./model-profiles.mjs');
+ const model='openai/gpt-oss-120b',inputs=Array.from({length:16},(_,i)=>({id:(i+1).toString(16).padStart(64,'0'),sourceUrl:'https://example.com/release',discoveryText:'Synthetic capability.'}));
+ const r=buildReviewRequest(inputs,{model,allowedModels:[model],maxOutputTokens:4096,requestProfile:requestProfileForModel(model)});
+ assert.deepEqual(r.response_format.json_schema.schema.properties.decisions.required,inputs.map(c=>c.id));
+ const reply=n=>{const p=payload();p.model=model;p.provider='Groq';p.usage={prompt_tokens:1000,completion_tokens:2021,total_tokens:3021,cost:.0019665};p.choices[0].message.content=JSON.stringify({decisions:Object.fromEntries(inputs.slice(0,n).map(c=>[c.id,{action:'skip',reason:'Routine fixture.',importance:0,relevance:0}]))});return Response.json(p);};
+ const cfg={...config(),allowedModels:[model],expectedProvider:'Groq'};
+ await assert.rejects(reviewWithOpenRouter(r,cfg,async()=>reply(15)),e=>e.code==='incomplete_decisions'&&e.usage.costCredits===.0019665&&e.completionAudit.provider==='Groq');
+ assert.equal((await reviewWithOpenRouter(r,cfg,async()=>reply(16))).decisions.length,16);
+});

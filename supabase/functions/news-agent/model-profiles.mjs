@@ -16,10 +16,12 @@ const profiles=freeze({
  'openai/gpt-oss-120b':freeze({version:'2026-11-16.2',reasoning:{effort:'low'},responseFormat:'discovery-json-schema-v1',provider:{only:['groq'],order:['groq'],allow_fallbacks:false,require_parameters:true,max_price:{prompt:0.15,completion:0.60,request:0},zdr:true}}),
 });
 const rankedGptOss=freeze({...profiles['openai/gpt-oss-120b'],version:'2026-11-16.3',responseFormat:'discovery-ranked-json-schema-v2',rankingRubricVersion:RANKING_RUBRIC_VERSION});
+const keyedGptOss=freeze({...rankedGptOss,version:'2026-11-16.4',responseFormat:'discovery-keyed-ranked-json-schema-v3'});
 export function requestProfileForModel(model,version){
  if(typeof model!=='string'||!Object.hasOwn(profiles,model))return undefined;
- const current=model==='openai/gpt-oss-120b'?rankedGptOss:profiles[model];
+ const current=model==='openai/gpt-oss-120b'?keyedGptOss:profiles[model];
  if(version===undefined||version===current.version)return current;
+ if(model==='openai/gpt-oss-120b'&&version===rankedGptOss.version)return rankedGptOss;
  return version===profiles[model].version?profiles[model]:undefined;
 }
 

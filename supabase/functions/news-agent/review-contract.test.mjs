@@ -56,3 +56,11 @@ test('ranked profiles bind rubric, schema, privacy and low reasoning exactly',()
  for(const mutate of [p=>delete p.rankingRubricVersion,p=>p.rankingRubricVersion='future',p=>p.responseFormat='discovery-json-schema-v1',p=>p.reasoning.effort='none',p=>delete p.provider.zdr]){const bad=structuredClone(current);mutate(bad);assert.throws(()=>validateRequestProfile(bad));}
  const old=structuredClone(requestProfileForModel('openai/gpt-oss-120b','2026-11-16.2'));old.rankingRubricVersion='2026-11-16.1';assert.throws(()=>validateRequestProfile(old));
 });
+test('keyed ranked schema requires every exact input ID with strict values and no inner id',async()=>{
+ const {buildKeyedRankedDiscoveryFormat,isKeyedRankedDiscoveryFormat,matchesDiscoveryFormat}=await import('./review-contract.mjs');assert.equal(typeof buildKeyedRankedDiscoveryFormat,'function');
+ const f=buildKeyedRankedDiscoveryFormat(['a','b']),d=f.json_schema.schema.properties.decisions;
+ assert.equal(d.type,'object');assert.deepEqual(d.required,['a','b']);assert.equal(d.additionalProperties,false);assert.deepEqual(d.properties.a.required,['action','reason','importance','relevance']);assert.equal(d.properties.a.additionalProperties,false);assert.equal(Object.hasOwn(d.properties.a.properties,'id'),false);
+ assert.ok(isKeyedRankedDiscoveryFormat(f,['a','b']));assert.ok(matchesDiscoveryFormat(f,['a','b']));assert.equal(matchesDiscoveryFormat(f,['b','c']),false);assert.equal(matchesDiscoveryFormat(f),false);
+ const bad=structuredClone(f);bad.json_schema.schema.properties.decisions.required.pop();assert.equal(matchesDiscoveryFormat(bad,['a','b']),false);
+ for(const ids of [[],['a','a'],[''],[null]])assert.throws(()=>buildKeyedRankedDiscoveryFormat(ids));
+});

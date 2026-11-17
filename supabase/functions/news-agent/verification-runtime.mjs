@@ -1,3 +1,4 @@
+import {OpenRouterAttemptError} from './openrouter.mjs';
 import {buildVerificationRequest,validateVerificationResult} from './verification-contract.mjs';
 import {verifyWithOpenRouter,VERIFICATION_REQUEST_PROFILE_VERSION} from './verification-openrouter.mjs';
 import {fetchNativeEvidence} from './native-verification.mjs';
@@ -57,6 +58,15 @@ const unknownCodes=new Set(['timeout','http_failure','transport_failure','invali
 const billedCodes=new Set(['reservation_exceeded','invalid_completion','invalid_verification_json','invalid_verification_schema']);
 const validUsage=u=>plain(u)&&['promptTokens','completionTokens','totalTokens'].every(k=>Number.isSafeInteger(u[k])&&u[k]>=0)&&u.promptTokens+u.completionTokens===u.totalTokens&&Number.isFinite(u.costCredits)&&u.costCredits>=0;
 const auditIdentity=a=>plain(a)&&['generationId','model','provider'].every(k=>typeof a[k]==='string'&&a[k].trim()===a[k]&&a[k].length>0&&!/\p{Cc}/u.test(a[k]))&&a.generationId.length<=256&&a.model.length<=128&&a.provider.length<=128;
+const diagnosticIssues=new Set(['invalid_shape','unexpected_fields','unknown_id','duplicate_id','invalid_action','invalid_reason','invalid_scores']);
+function attemptDiagnostic(error,secret){
+ if(!(error instanceof OpenRouterAttemptError))return undefined;
+ const out={};for(const [field,max] of [['generationId',256],['model',128],['provider',128]]){const v=error.completionAudit?.[field];if(typeof v==='string'&&v.length>0&&v.length<=max&&v===v.trim()&&!/\p{Cc}/u.test(v)&&!(typeof secret==='string'&&secret&&v.includes(secret)))out[field]=v;}
+ if(Number.isInteger(error.httpStatus)&&error.httpStatus>=100&&error.httpStatus<=599)out.httpStatus=error.httpStatus;
+ if(diagnosticIssues.has(error.validationIssue))out.validationIssue=error.validationIssue;
+ if(Number.isInteger(error.decisionIndex)&&error.decisionIndex>=0&&error.decisionIndex<=99)out.decisionIndex=error.decisionIndex;
+ return Object.keys(out).length?out:undefined;
+}
 export async function runVerificationInvocation({config={},rpc,modelFetcher,evidenceFetcher,now=()=>new Date().toISOString()}={}){
  if(config.enabled!==true)return {status:'disabled',publishingEnabled:false};
  if(!configured(config)||typeof rpc!=='function'||typeof modelFetcher!=='function'||typeof evidenceFetcher!=='function')return {status:'deferred',reason:'invalid_configuration',publishingEnabled:false};
@@ -108,8 +118,10 @@ export async function runVerificationInvocation({config={},rpc,modelFetcher,evid
  let result;
  try{result=await verifyWithOpenRouter(request,{...config,reservation:{id:reservation,maxCostCredits:VERIFICATION_RESERVATION_CREDITS}},modelFetcher);}
  catch(error){
-  const billed=validUsage(error?.usage)&&auditIdentity(error?.completionAudit)&&billedCodes.has(error.code);
-  const audit=billed?{...error.completionAudit,usage:error.usage,validationError:error.code}:{errorCode:unknownCodes.has(error?.code)?error.code:'unknown_failure'};
+  const billed=error instanceof OpenRouterAttemptError&&validUsage(error?.usage)&&billedCodes.has(error.code);
+  const diagnostic=attemptDiagnostic(error,config.apiKey),usage=billed?project(error.usage,['promptTokens','completionTokens','totalTokens','costCredits']):undefined;
+  const identity=diagnostic&&auditIdentity(diagnostic)?project(diagnostic,['generationId','model','provider']):undefined;
+  const audit={...(billed?(identity?{...identity,usage,validationError:error.code}:{usage,errorCode:error.code}):{errorCode:unknownCodes.has(error?.code)?error.code:'unknown_failure'}),...(diagnostic?{diagnostic}:{})};
   try{if(await rpc('warpcore_verification_settle',{...ids,p_status:billed?'settled':'uncertain',p_cost:billed?error.usage.costCredits:null,p_audit:audit})!==true)throw Error();}
   catch{return {status:'uncertain',reason:'settlement_unconfirmed',...flags};}
   return billed?finishDeferred('billed_invalid_completion'):{status:'uncertain',reason:'paid_outcome_unknown',...flags};

@@ -5,6 +5,17 @@ import {reviewWithOpenRouter,serializeReviewBody,OpenRouterAttemptError} from '.
 const flags={publishingEnabled:false,modelQualityProven:false};
 const uuid=/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/;
 const errorCodes=new Set(['disabled','invalid_transport_configuration','missing_cost_reservation','unsupported_request','invalid_model_or_budget','invalid_messages','invalid_candidates','empty_response','response_too_large','timeout','invalid_json','missing_or_invalid_usage','reservation_exceeded','invalid_completion','invalid_decision_json','incomplete_decisions','invalid_decisions','request_too_large','invalid_limits','http_failure','transport_failure']);
+const diagnosticIssues=new Set(['invalid_shape','unexpected_fields','unknown_id','duplicate_id','invalid_action','invalid_reason','invalid_scores']);
+function attemptDiagnostic(error,secret){
+ if(!(error instanceof OpenRouterAttemptError))return undefined;
+ const out={},audit=error.completionAudit;
+ for(const [field,max] of [['generationId',256],['model',128],['provider',128]]){const v=audit?.[field];if(typeof v==='string'&&v.length>0&&v.length<=max&&v===v.trim()&&!/\p{Cc}/u.test(v)&&!(typeof secret==='string'&&secret&&v.includes(secret)))out[field]=v;}
+ if(Number.isInteger(error.httpStatus)&&error.httpStatus>=100&&error.httpStatus<=599)out.httpStatus=error.httpStatus;
+ if(diagnosticIssues.has(error.validationIssue))out.validationIssue=error.validationIssue;
+ if(Number.isInteger(error.decisionIndex)&&error.decisionIndex>=0&&error.decisionIndex<=99)out.decisionIndex=error.decisionIndex;
+ return Object.keys(out).length?out:undefined;
+}
+function safeUsage(u){return u&&['promptTokens','completionTokens','totalTokens'].every(k=>Number.isSafeInteger(u[k])&&u[k]>=0)&&u.promptTokens+u.completionTokens===u.totalTokens&&Number.isFinite(u.costCredits)&&u.costCredits>=0?{promptTokens:u.promptTokens,completionTokens:u.completionTokens,totalTokens:u.totalTokens,costCredits:u.costCredits}:undefined;}
 const key=/^[a-f0-9]{64}$/;
 const fields=['storageKind','runId','scanStartedAt','policyVersion','revision','phase','cursor','candidateCount','reviewedCount','activeBatch','publishingEnabled'];
 const integer=(n,min,max=Number.MAX_SAFE_INTEGER)=>Number.isSafeInteger(n)&&n>=min&&n<=max;
@@ -118,9 +129,9 @@ export async function runPagedShadowInvocation({runId,config={},query,fetcher,fe
      let result;
      try{result=await reviewWithOpenRouter(request,{...cfg,reservation:{id:attempt,maxCostCredits:cfg.maxCostCredits}},fetcher);}
      catch(error){
-      const usage=error instanceof OpenRouterAttemptError?error.usage:undefined,cost=usage?.costCredits;
+      const usage=error instanceof OpenRouterAttemptError?safeUsage(error.usage):undefined,cost=usage?.costCredits,diagnostic=attemptDiagnostic(error,cfg.apiKey);
       const errorCode=error instanceof OpenRouterAttemptError&&errorCodes.has(error.code)?error.code:'transport_failure';
-      await call('paged_settle',[attempt,lease,Number.isFinite(cost)?'settled':'uncertain',Number.isFinite(cost)?cost:null,Number.isFinite(cost)?{usage,errorCode}:{errorCode}]);
+      await call('paged_settle',[attempt,lease,Number.isFinite(cost)?'settled':'uncertain',Number.isFinite(cost)?cost:null,{...(Number.isFinite(cost)?{usage}:{}),errorCode,...(diagnostic?{diagnostic}:{})}]);
       throw Error('Model attempt unsuccessful');
      }
      if(await call('paged_settle',[attempt,lease,'settled',result.usage.costCredits,{model:result.model,generationId:result.generationId,...(result.provider===undefined?{}:{provider:result.provider}),usage:result.usage}])!==true)throw Error('Settlement unconfirmed');

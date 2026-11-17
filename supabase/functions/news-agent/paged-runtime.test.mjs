@@ -235,3 +235,11 @@ test('unknown release result preserves confirmed checkpoint without replaying in
  const f=fixture();await runPagedShadowInvocation({runId,config,...f},{pageSteps:2});const original=f.query;f.query=async(sql,args)=>{if(sql.includes('.release('))throw Error('unknown release response');return original(sql,args);};
  const out=await runPagedShadowInvocation({runId,config,...f},{releaseLeaseOnSuccess:true});assert.equal(out.status,'advanced');assert.equal(out.state.reviewedCount,3);assert.equal(f.events.filter(x=>x==='http').length,1);
 });
+test('paid decision failures retain bounded generation and validation coordinates without response text',async()=>{
+ const f=fixture({count:1});await runPagedShadowInvocation({runId,config,...f},{pageSteps:2});
+ const fetcher=async(...args)=>{const p=await(await f.fetcher(...args)).json();p.choices[0].message.content=JSON.stringify({decisions:[{id:candidate(1).id,action:'publish',reason:'private response text'}]});return Response.json(p);};
+ await assert.rejects(runPagedShadowInvocation({runId,config,...f,fetcher}));assert.deepEqual(f.audits[0].diagnostic,{generationId:'generation',model:'test/model',validationIssue:'invalid_action',decisionIndex:0});assert.equal(JSON.stringify(f.audits).includes('private response text'),false);assert.equal(f.audits[0].usage.costCredits,.01);
+});
+test('HTTP refusal status survives paged uncertainty without exposing response or retrying',async()=>{
+ for(const status of [400,402,429,500,503]){const f=fixture({count:1});await runPagedShadowInvocation({runId,config,...f},{pageSteps:2});let calls=0;await assert.rejects(runPagedShadowInvocation({runId,config,...f,fetcher:async()=>{calls++;return new Response('secret '+config.apiKey,{status});}}));assert.deepEqual(f.audits[0],{errorCode:'http_failure',diagnostic:{httpStatus:status}});assert.equal(calls,1);assert.equal(f.state.phase,'uncertain');await assert.rejects(runPagedShadowInvocation({runId,config,...f}));assert.equal(calls,1);}
+});

@@ -34,8 +34,8 @@ test('only added candidate is GPT-OSS120B with fixed Groq, low reasoning and new
  assert.equal(expectedProviderForModel(model),'Groq');assert.ok(Object.isFrozen(p.reasoning));assert.ok(Object.isFrozen(p.provider.max_price));assert.throws(()=>{p.reasoning.effort='high';});
  for(const gemma of ['google/gemma-4-26b-a4b-it','google/gemma-4-31b-it']){const old=requestProfileForModel(gemma);assert.equal(old.version,'2026-11-16.1');assert.deepEqual(old.reasoning,{effort:'none'});}
 });
-test('ranked default retains explicit immutable historical GPT-oss profile',()=>{
- const current=requestProfileForModel('openai/gpt-oss-120b');
+test('historical ranked array retains explicit immutable GPT-oss profile',()=>{
+ const current=requestProfileForModel('openai/gpt-oss-120b','2026-11-16.3');
  assert.equal(current.version,'2026-11-16.3');
  assert.equal(current.responseFormat,'discovery-ranked-json-schema-v2');
  assert.equal(current.rankingRubricVersion,'2026-11-16.1');
@@ -45,4 +45,9 @@ test('ranked default retains explicit immutable historical GPT-oss profile',()=>
  assert.deepEqual(current.provider,old.provider);
  assert.ok(Object.isFrozen(current.provider.max_price));
  assert.equal(requestProfileForModel('openai/gpt-oss-120b','unknown'),undefined);
+});
+test('keyed default versions only fresh GPT-oss calls and preserves historical ranked array profile',()=>{
+ const current=requestProfileForModel('openai/gpt-oss-120b');assert.equal(current.version,'2026-11-16.4');assert.equal(current.responseFormat,'discovery-keyed-ranked-json-schema-v3');
+ const old=requestProfileForModel('openai/gpt-oss-120b','2026-11-16.3');assert.equal(old.version,'2026-11-16.3');assert.equal(old.responseFormat,'discovery-ranked-json-schema-v2');assert.deepEqual(current.provider,old.provider);assert.deepEqual(current.reasoning,old.reasoning);assert.equal(current.rankingRubricVersion,old.rankingRubricVersion);
+ assert.ok(Object.isFrozen(current));assert.ok(Object.isFrozen(old));
 });

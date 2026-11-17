@@ -96,21 +96,38 @@ begin
 end $$;
 create function public.warpcore_verification_settle(p_job uuid,p_lease uuid,p_status text,p_cost numeric,p_audit jsonb) returns boolean
 language plpgsql security definer set search_path='' as $$
-declare j shadow_agent.verification_jobs;a uuid;u jsonb;k text;prior jsonb;
+declare j shadow_agent.verification_jobs;a uuid;u jsonb;k text;prior jsonb;d jsonb;
 begin
  perform shadow_agent.verification_lock();select * into j from shadow_agent.verification_jobs where id=p_job;
  if not found then return false;end if;
  select id into a from shadow_agent.attempts where run_id=j.child_run_id;if a is null then return false;end if;
  if j.metadata is null or p_audit is null or jsonb_typeof(p_audit)<>'object' or octet_length(p_audit::text)>4000 then raise exception 'Invalid verification audit';end if;
+ if p_audit ? 'diagnostic' then
+  d:=p_audit->'diagnostic';
+  if jsonb_typeof(d) is distinct from 'object' or d='{}'::jsonb or octet_length(d::text)>3000
+  or (d-'generationId'-'model'-'provider'-'httpStatus'-'validationIssue'-'decisionIndex')<>'{}'::jsonb then raise exception 'Invalid verification diagnostic';end if;
+  foreach k in array array['generationId','model','provider'] loop
+   if d ? k and (jsonb_typeof(d->k) is distinct from 'string' or length(d->>k) not between 1 and case when k='generationId' then 256 else 128 end
+   or d->>k<>btrim(d->>k) or d->>k ~ U&'[\0001-\001F\007F-\009F]') then raise exception 'Invalid verification diagnostic';end if;
+  end loop;
+  if d ? 'httpStatus' and (jsonb_typeof(d->'httpStatus') is distinct from 'number' or d->>'httpStatus' !~ '^[0-9]{3}$' or (d->>'httpStatus')::integer not between 100 and 599) then raise exception 'Invalid verification diagnostic';end if;
+  if d ? 'decisionIndex' and (jsonb_typeof(d->'decisionIndex') is distinct from 'number' or d->>'decisionIndex' !~ '^[0-9]{1,2}$' or (d->>'decisionIndex')::integer not between 0 and 99) then raise exception 'Invalid verification diagnostic';end if;
+  if d ? 'validationIssue' and not coalesce(d->>'validationIssue' in ('invalid_shape','unexpected_fields','unknown_id','duplicate_id','invalid_action','invalid_reason','invalid_scores'),false) then raise exception 'Invalid verification diagnostic';end if;
+ end if;
  if p_status='uncertain' then
-  if p_cost is not null or p_audit is distinct from jsonb_build_object('errorCode',p_audit->>'errorCode')
+  if p_cost is not null or (p_audit-'diagnostic') is distinct from jsonb_build_object('errorCode',p_audit->>'errorCode')
   or not coalesce(p_audit->>'errorCode' in ('timeout','http_failure','transport_failure','invalid_json','missing_or_invalid_usage','response_too_large','reservation_exceeded','invalid_completion','invalid_verification_json','invalid_verification_schema','unknown_failure'),false) then raise exception 'Invalid verification audit';end if;
  elsif p_status='settled' then
-  if (p_audit-'model'-'provider'-'generationId'-'usage'-'validationError')<>'{}'::jsonb
-  or jsonb_typeof(p_audit->'model') is distinct from 'string' or length(btrim(p_audit->>'model')) not between 1 and 128 or p_audit->>'model' ~ '[[:cntrl:]]'
-  or jsonb_typeof(p_audit->'provider') is distinct from 'string' or length(btrim(p_audit->>'provider')) not between 1 and 128 or p_audit->>'provider' ~ '[[:cntrl:]]'
-  or jsonb_typeof(p_audit->'generationId') is distinct from 'string' or length(btrim(p_audit->>'generationId')) not between 1 and 256
-  or p_audit->>'generationId' ~ '[[:cntrl:]]' then raise exception 'Invalid verification audit';end if;
+  if p_audit ? 'errorCode' then
+   if (p_audit-'usage'-'errorCode'-'diagnostic')<>'{}'::jsonb or not coalesce(p_audit->>'errorCode' in ('reservation_exceeded','invalid_completion','invalid_verification_json','invalid_verification_schema'),false) then raise exception 'Invalid verification audit';end if;
+  else
+   if (p_audit-'model'-'provider'-'generationId'-'usage'-'validationError'-'diagnostic')<>'{}'::jsonb
+   or jsonb_typeof(p_audit->'model') is distinct from 'string' or length(btrim(p_audit->>'model')) not between 1 and 128 or p_audit->>'model' ~ '[[:cntrl:]]'
+   or jsonb_typeof(p_audit->'provider') is distinct from 'string' or length(btrim(p_audit->>'provider')) not between 1 and 128 or p_audit->>'provider' ~ '[[:cntrl:]]'
+   or jsonb_typeof(p_audit->'generationId') is distinct from 'string' or length(btrim(p_audit->>'generationId')) not between 1 and 256
+   or p_audit->>'generationId' ~ '[[:cntrl:]]' then raise exception 'Invalid verification audit';end if;
+   if p_audit ? 'diagnostic' and not(p_audit ? 'validationError') then raise exception 'Invalid verification audit';end if;
+  end if;
   if p_audit ? 'validationError' and (jsonb_typeof(p_audit->'validationError') is distinct from 'string' or not coalesce(p_audit->>'validationError' in ('reservation_exceeded','invalid_completion','invalid_verification_json','invalid_verification_schema'),false)) then raise exception 'Invalid verification audit';end if;
   u:=p_audit->'usage';if jsonb_typeof(u) is distinct from 'object' or (u-'promptTokens'-'completionTokens'-'totalTokens'-'costCredits')<>'{}'::jsonb then raise exception 'Invalid verification audit';end if;
   foreach k in array array['promptTokens','completionTokens','totalTokens'] loop
@@ -142,7 +159,7 @@ begin
  if p_status='verified' then
   if a.id is null then raise exception 'Settled verification attempt required';end if;
   select audit into paid_audit from shadow_agent.verification_audit where job_id=p_job and status='settled';
-  if paid_audit->'model' is distinct from j.metadata->'model' or paid_audit->'provider' is distinct from j.metadata->'expectedProvider' or paid_audit ? 'validationError' or r.blocked
+  if paid_audit->'model' is distinct from j.metadata->'model' or paid_audit->'provider' is distinct from j.metadata->'expectedProvider' or paid_audit ? 'validationError' or paid_audit ? 'errorCode' or r.blocked
   or coalesce((select blocked from shadow_agent.budgets where day=a.day),true) then raise exception 'Verification paid validation blocked';end if;
   if not pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended('warpcore_shared_admission_v1',0)) then raise exception using errcode='55P03',message='Shared admission busy';end if;
   select material into m from agent_verification.receipts where id=p_receipt;

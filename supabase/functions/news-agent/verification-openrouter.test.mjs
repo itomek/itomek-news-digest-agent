@@ -29,3 +29,9 @@ test('wire limits and server-owned deadline configuration apply before and durin
  const stream=new ReadableStream({start(c){c.enqueue(new TextEncoder().encode('x'.repeat(200001)));c.close();}});await assert.rejects(verify(request(),config(),async()=>new Response(stream)),e=>e.code==='response_too_large'&&e.outcome==='uncertain');
  const r=request();r.messages[1].content+=' '.repeat(750001);await assert.rejects(verify(r,config(),()=>{throw Error('no call');}),e=>e.outcome==='not_started');
 });
+test('HTTP failures retain only observed bounded status, never provider body or credentials, and do not retry',async()=>{
+ const verify=await adapter();for(const status of [400,402,429,500,503]){let calls=0;await assert.rejects(verify(request(),config(),async()=>{calls++;return new Response('secret body '+config().apiKey,{status});}),e=>e.code==='http_failure'&&e.httpStatus===status&&!JSON.stringify(e).includes(config().apiKey)&&!e.message.includes('secret body'));assert.equal(calls,1);}
+});
+test('invalid billed identities cannot attach malformed provider text to completion audit',async()=>{
+ const verify=await adapter(),p=payload();p.provider='Groq\nsecret-header';await assert.rejects(verify(request(),config(),async()=>Response.json(p)),e=>e.usage.costCredits===.001&&e.completionAudit.generationId==='gen-verification'&&!JSON.stringify(e.completionAudit).includes('secret-header'));
+});

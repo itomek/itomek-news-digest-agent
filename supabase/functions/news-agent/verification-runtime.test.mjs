@@ -98,3 +98,12 @@ test('recovered verified receipt performs only durable handoff and never repeats
   assert.equal((await run(f)).status,inbox?'submitted':'deferred');assert.deepEqual(f.events.map(e=>e.name),['warpcore_verification_claim','warpcore_verification_handoff']);
  }
 });
+test('verification HTTP status is durably bounded while unknown costs keep hold/no replay',async()=>{
+ for(const status of [400,402,429,500,503]){const f=fixture();let calls=0;f.modelFetcher=async()=>{calls++;return new Response('private body '+cfg.apiKey,{status});};assert.equal((await run(f)).status,'uncertain');const audit=f.events.find(e=>e.name==='warpcore_verification_settle').args;assert.equal(audit.p_cost,null);assert.deepEqual(audit.p_audit,{errorCode:'http_failure',diagnostic:{httpStatus:status}});assert.equal(JSON.stringify(audit).includes(cfg.apiKey),false);assert.equal((await run(f)).status,'idle');assert.equal(calls,1);}
+});
+test('known invalid generation retains its ID while malformed provider text is omitted from paid audit',async()=>{
+ const f=fixture(),base=f.modelFetcher;f.modelFetcher=async(...args)=>{const p=await(await base(...args)).json();p.provider='Groq\nprivate-provider';return Response.json(p);};assert.equal((await run(f)).status,'deferred');const settled=f.events.find(e=>e.name==='warpcore_verification_settle').args;assert.equal(settled.p_cost,.01);assert.equal(settled.p_status,'settled');assert.equal(settled.p_audit.errorCode,'invalid_completion');assert.deepEqual(settled.p_audit.diagnostic,{generationId:'fixture-generation',model:cfg.model});assert.equal(JSON.stringify(settled).includes('private-provider'),false);
+});
+test('credentials echoed into otherwise bounded identity fields cannot enter known-error audit',async()=>{
+ for(const field of ['id','provider']){const f=fixture(),base=f.modelFetcher;f.modelFetcher=async(...args)=>{const p=await(await base(...args)).json();p[field]=cfg.apiKey;p.choices[0].message.content='{';return Response.json(p);};assert.equal((await run(f)).status,'deferred');const audit=f.events.find(e=>e.name==='warpcore_verification_settle').args;assert.equal(audit.p_cost,.01);assert.equal(JSON.stringify(audit).includes(cfg.apiKey),false);assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);}
+});

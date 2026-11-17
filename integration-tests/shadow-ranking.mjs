@@ -14,7 +14,7 @@ const key=n=>n.toString(16).padStart(64,'0');
 try{
  await db.exec('create role anon;create role authenticated;create role service_role;');
  for(const f of ['shadow-state.sql','shadow-paged.sql','shadow-audit.sql'])await db.exec(await fs.readFile(new URL(`../supabase/functions/news-agent/sql/${f}`,import.meta.url),'utf8'));
- const config={model:'openai/gpt-oss-120b',requestProfile:requestProfileForModel('openai/gpt-oss-120b'),expectedProvider:'Groq',maxOutputTokens:100,maxCostCredits:.1,timeoutMs:1000,maxResponseBytes:20000,policyVersion:newPagedShadowRun({runId:randomUUID(),scanStartedAt:'2026-11-14T20:00:00Z'}).policyVersion,routing:'openrouter-no-fallback'};
+ const config={model:'openai/gpt-oss-120b',requestProfile:requestProfileForModel('openai/gpt-oss-120b','2026-11-16.4'),expectedProvider:'Groq',maxOutputTokens:100,maxCostCredits:.1,timeoutMs:1000,maxResponseBytes:20000,policyVersion:newPagedShadowRun({runId:randomUUID(),scanStartedAt:'2026-11-14T20:00:00Z'}).policyVersion,routing:'openrouter-no-fallback'};
  await q("insert into shadow_agent.budgets(day,limit_credits) values ((now() at time zone 'utc')::date,100)");
  const run=randomUUID();let state=newPagedShadowRun({runId:run,scanStartedAt:'2026-11-14T20:00:00Z'});
  await q('insert into shadow_agent.runs(id,state,limit_credits) values($1,$2,50)',[run,state]);

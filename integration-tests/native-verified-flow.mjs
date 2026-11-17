@@ -40,9 +40,9 @@ assert.equal(await scalar('select public.warpcore_verification_claim() value'),n
   for(let n=2;n<=5;n++){const s=await snapshot(key(n));await scalar('select public.warpcore_curator_submit($1,$2,$3,$4,$5,$6) value',[key(n),s.evidence_hash,editorial(s),attest,'real-dot',randomUUID()]);}
  });
  assert.equal(await queueCount(),4);
- const runtimeConfig={enabled:true,model,maxCostCredits:.058983,maxOutputTokens:4096,apiKey:'synthetic-not-a-credential',allowedModels:[model],expectedProvider:'Groq',allowedSourceHosts:['example.com']};
+ const runtimeConfig={enabled:true,model,maxCostCredits:.076596,maxOutputTokens:8192,apiKey:'synthetic-not-a-credential',allowedModels:[model],expectedProvider:'Cerebras',allowedSourceHosts:['example.com']};
  const lease=await scalar('select shadow_agent.claim($1,120) value',[run]);let state=await scalar('select shadow_agent.load($1) value',[run]);
- const cfg={model,requestProfile:requestProfileForModel(model),expectedProvider:'Groq',maxOutputTokens:100,maxCostCredits:.1,timeoutMs:1000,maxResponseBytes:20000,policyVersion:state.policyVersion,routing:'openrouter-no-fallback'};
+ const cfg={model,requestProfile:requestProfileForModel(model,'2026-11-16.4'),expectedProvider:'Groq',maxOutputTokens:100,maxCostCredits:.1,timeoutMs:1000,maxResponseBytes:20000,policyVersion:state.policyVersion,routing:'openrouter-no-fallback'};
  await scalar('select shadow_agent.paged_bind_config($1,$2,$3) value',[run,lease,cfg]);
  state=await scalar('select shadow_agent.paged_append($1,$2,$3,$4) value',[run,lease,state.revision,[{id:key(1),sourceUrl:nativeUrl,discoveryText:'Synthetic candidate needing complete verification.'}]]);
  state=await scalar('select shadow_agent.paged_append($1,$2,$3,$4) value',[run,lease,state.revision,[]]);
@@ -63,7 +63,7 @@ assert.equal(await scalar('select public.warpcore_verification_claim() value'),n
   const attempt=await admin(()=>q('select a.status,a.request_hash from shadow_agent.attempts a join shadow_agent.verification_jobs j on j.child_run_id=a.run_id where j.id=$1',[jobId]));assert.equal(attempt[0].status,'dispatched');assert.equal(attempt[0].request_hash,requestHash);
   const input=JSON.parse(JSON.parse(options.body).messages[1].content),source=input.sources[0];assert.equal(source.nativeCid,nativeCid);assert.equal(input.history.items.length,4);assert.equal(options.body.includes(runtimeConfig.apiKey),false);
   const result={action:'approve',editorial:{mode:'repost',political:false,change:originalText,evidenceIds:[source.evidenceId]},publicationDate:date,scopeReason:'Direct engineering relevance.',changeReason:'Official new capability.',dedupReason:'New event compared with all four existing pending events.',claims:[{claim:originalText,quote:originalText},{claim:date,quote:date}].map(c=>({...c,evidenceId:source.evidenceId,url:source.url,contentSha256:source.contentSha256}))};
-  return Response.json({id:'synthetic-native-verification',model,provider:'Groq',usage:{prompt_tokens:10,completion_tokens:5,total_tokens:15,cost:.02},choices:[{finish_reason:'stop',message:{content:JSON.stringify({result})}}]});
+  return Response.json({id:'synthetic-native-verification',model,provider:'Cerebras',usage:{prompt_tokens:10,completion_tokens:5,total_tokens:15,cost:.02},choices:[{finish_reason:'stop',message:{content:JSON.stringify({result})}}]});
  }});
  assert.equal(outcome.status,'submitted');assert.equal(modelCalls,1);assert.equal(sourceCalls,1);const inbox=outcome.inboxId,receipt=outcome.receiptId;
  assert.equal(await queueCount(),5);assert.equal(material.editorial.mode,'repost');assert.equal(material.editorial.summary,undefined);

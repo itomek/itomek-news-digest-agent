@@ -36,37 +36,34 @@ begin
  -- Complete selected work before allocating another discovery hour. Optional
  -- verifier tables are installed later; dynamic SQL preserves that install order.
  if to_regclass('shadow_agent.verification_settings') is not null
- and to_regclass('shadow_agent.verification_jobs') is not null then
+ and to_regclass('shadow_agent.verification_jobs') is not null
+ and to_regprocedure('shadow_agent.next_verification_candidate()') is not null then
   execute $priority$
    with cfg as (select * from shadow_agent.verification_settings where singleton and enabled and job_limit_credits is not null),
    handoff as (
     select v.* from shadow_agent.verification_jobs v,cfg where cfg.submit_enabled
-    and v.status='verified' and v.handoff_status='pending'
+    and v.status='verified' and not v.quarantined and v.handoff_status='pending'
     and not exists(select 1 from public.warpcore_curator_inbox i where i.verification_receipt_id=v.receipt_id)
     order by v.id limit 1
-   ), pending as (select * from shadow_agent.verification_jobs where status='pending' order by id limit 1)
+   ), pending as (select * from shadow_agent.verification_jobs where status='pending' and not quarantined order by id limit 1)
    select exists(select 1 from cfg) and (
     exists(select 1 from handoff h join shadow_agent.runs r on r.id=h.child_run_id
      where r.lease_until is null or r.lease_until<=clock_timestamp())
     or (not exists(select 1 from handoff) and (
      -- Yield once for claim's authoritative lost-attempt classification.
      exists(select 1 from shadow_agent.verification_jobs v join shadow_agent.runs r on r.id=v.child_run_id
-      where v.status='pending' and r.lease_until<=clock_timestamp()
+      where v.status='pending' and not v.quarantined and r.lease_until<=clock_timestamp()
       and exists(select 1 from shadow_agent.attempts a where a.run_id=r.id))
-     or (not exists(select 1 from shadow_agent.verification_jobs where status='uncertain')
+     or (not exists(select 1 from shadow_agent.verification_jobs where status='uncertain' and not quarantined)
      -- Claim converts expired attempted pending jobs to uncertain before selection.
      and not exists(select 1 from shadow_agent.verification_jobs v join shadow_agent.runs r on r.id=v.child_run_id
-      where v.status='pending' and r.lease_until<=clock_timestamp()
+      where v.status='pending' and not v.quarantined and r.lease_until<=clock_timestamp()
       and exists(select 1 from shadow_agent.attempts a where a.run_id=r.id))
      and (exists(select 1 from pending p join shadow_agent.runs r on r.id=p.child_run_id
        where (r.lease_until is null or r.lease_until<=clock_timestamp())
        and not exists(select 1 from shadow_agent.attempts a where a.run_id=r.id))
       or (not exists(select 1 from pending) and exists(
-       select 1 from shadow_agent.selection_items s
-       join shadow_agent.ranking_runs k on k.run_id=s.run_id and k.finalized_at is not null
-       join shadow_agent.runs r on r.id=s.run_id and r.state->>'phase'='complete'
-       join shadow_agent.candidates c on c.run_id=s.run_id and c.ordinal=s.ordinal
-       where not exists(select 1 from shadow_agent.verification_jobs v where v.ranking_run_id=s.run_id and v.story_key=c.candidate_id)
+       select 1 from shadow_agent.next_verification_candidate()
       )))
     )))
    )

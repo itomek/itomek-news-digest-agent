@@ -89,9 +89,9 @@ try{
  const pq=async(s,a=[])=>(await precedence.query(s,a)).rows;
  const pick=async()=> (await pq('select public.warpcore_shadow_select_run() v'))[0].v;
  await precedence.exec(`update shadow_agent.producer_settings set enabled=true,run_limit_credits=1,policy_version='2026-11-14.1';
- create table shadow_agent.verification_settings(singleton boolean,enabled boolean,submit_enabled boolean,job_limit_credits numeric);
- insert into shadow_agent.verification_settings values(true,true,false,.157287);
- create table shadow_agent.verification_jobs(id uuid default gen_random_uuid(),ranking_run_id uuid,story_key text,child_run_id uuid,status text,receipt_id uuid,handoff_status text);
+ create table shadow_agent.verification_settings(singleton boolean,enabled boolean,submit_enabled boolean,job_limit_credits numeric,backfill_enabled boolean default false);
+ insert into shadow_agent.verification_settings(singleton,enabled,submit_enabled,job_limit_credits) values(true,true,false,.157287);
+ create table shadow_agent.verification_jobs(id uuid default gen_random_uuid(),ranking_run_id uuid,story_key text,child_run_id uuid,status text,receipt_id uuid,handoff_status text,quarantined boolean default false);
  insert into shadow_agent.runs(id,state,limit_credits) values('00000000-0000-4000-8000-000000000001','{"phase":"complete","storageKind":"paged-v1"}',1);
  insert into shadow_agent.candidates(run_id,ordinal,candidate_id,candidate) values('00000000-0000-4000-8000-000000000001',0,repeat('a',64),'{}');
  alter table shadow_agent.decisions disable trigger paged_require_audit;
@@ -99,6 +99,8 @@ try{
  alter table shadow_agent.decisions enable trigger paged_require_audit;
  insert into shadow_agent.ranking_runs values('00000000-0000-4000-8000-000000000001','2026-11-16.1','importance-relevance-id-v1',1,1,1,0,clock_timestamp());
  insert into shadow_agent.selection_items(run_id,rank,ordinal) values('00000000-0000-4000-8000-000000000001',1,0);`);
+ const helperSource=await fs.readFile(new URL('../supabase/functions/news-agent/sql/verification-jobs.sql',import.meta.url),'utf8');
+ await precedence.exec(helperSource.match(/create function shadow_agent\.next_verification_candidate\(\)[\s\S]*?\$\$;/)[0]);
  assert.equal(await pick(),null,'Manual completed real-clock shortlist precedes a fresh hourly slot');
  assert.equal((await pq('select count(*)::int n from shadow_agent.producer_slots'))[0].n,0,'No fabricated scheduler slot');
  await precedence.exec('begin;update shadow_agent.verification_settings set enabled=false');

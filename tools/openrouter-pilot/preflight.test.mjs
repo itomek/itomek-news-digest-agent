@@ -77,12 +77,8 @@ test('ZDR gate requires exact endpoint and catalog identities with explicit fals
 
 const ossModel='openai/gpt-oss-120b';
 const ossEndpoint={tag:'groq',provider_name:'Groq',model_id:ossModel,service_tier:null,context_length:131072,max_completion_tokens:65536,supported_parameters:['max_tokens','response_format','structured_outputs','reasoning'],pricing:{prompt:'0.00000015',completion:'0.00000060'}};
-test('GPT-oss candidate uses its exact Groq pin, full context reservation and existing ZDR gate',()=>{
- const envelope=reservationEnvelope(ossEndpoint,ossModel);assert.equal(envelope.expectedProvider,'Groq');assert.ok(envelope.reservationUsd>=0.058983&&envelope.reservationUsd<=0.058984);
- assert.equal(requireZdrEndpoint(ossEndpoint,ossModel,[{...ossEndpoint,safety_retention:false}]),true);
- assert.throws(()=>requireZdrEndpoint(ossEndpoint,ossModel,[{...ossEndpoint,safety_retention:true}]));
- for(const patch of [{tag:'other'},{provider_name:'OpenAI'},{model_id:'openai/gpt-oss-20b'},{pricing:{...ossEndpoint.pricing,prompt:'0.00000016'}},{pricing:{...ossEndpoint.pricing,completion:'0.00000061'}},{pricing:{...ossEndpoint.pricing,request:'0.01'}},{supported_parameters:['max_tokens','response_format','structured_outputs']}])assert.throws(()=>reservationEnvelope({...ossEndpoint,...patch},ossModel));
-});
+test('closed pilot rejects obsolete Groq metadata after the reviewed runtime moves to Cerebras',()=>{assert.throws(()=>reservationEnvelope(ossEndpoint,ossModel));assert.throws(()=>requireZdrEndpoint(ossEndpoint,ossModel,[{...ossEndpoint,safety_retention:false}]));});
+
 test('older NVIDIA envelope remains valid while obsolete local DeepInfra latest-Super route fails closed',()=>{
  for(const [model,tag,prompt,completion,maxout,expected] of [['nvidia/nemotron-3.5-super-vl','deepinfra/fp4',.15,.5,235929,.157287],['nvidia/nemotron-3-super-120b-a12b','deepinfra/bf16',.075,.4,16384,.026215]]){
  const e={model_id:model,tag,provider_name:'DeepInfra',service_tier:null,context_length:262144,max_completion_tokens:maxout,supported_parameters:['max_tokens','response_format','structured_outputs','reasoning'],pricing:{prompt:String(prompt/1e6),completion:String(completion/1e6)}};

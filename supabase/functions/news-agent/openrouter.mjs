@@ -18,7 +18,7 @@ const httpErrorCodes=new Set([400,401,402,403,404,408,409,413,422,429,500,502,50
 const providerErrorTypes=new Set(['invalid_request_error','authentication_error','permission_error','not_found_error','rate_limit_error','overloaded_error','api_error','server_error','insufficient_quota','context_length_exceeded']);
 const upstreamErrorCodes=new Set([...httpErrorCodes,'engine_overloaded','rate_limited','rate_limit_error','quota_exceeded','too_many_requests','RESOURCE_EXHAUSTED']);
 const typedErrors=new Set([...providerErrorTypes,'rate_limit_exceeded','provider_overloaded','provider_unavailable','timeout','server','authentication','permission_denied','payment_required','invalid_request','content_policy_violation','refusal','unmapped']);
-const errorProviders=new Set(['Together','DeepInfra','Groq','Anthropic','OpenAI','PrimeIntellect','Google AI Studio']);
+const errorProviders=new Set(['Cerebras','Together','DeepInfra','Groq','Anthropic','OpenAI','PrimeIntellect','Google AI Studio']);
 const limitSources=new Set(['upstream_provider_shared_pool','openrouter_in_flight_budget','openrouter_key_limit','openrouter_credits','openrouter_guardrail_budget','openrouter_workspace_budget']);
 // Shared adapter/runtime sanitizer: no arbitrary error text or header map survives.
 export function sanitizedHttpDiagnostics(value,secret){

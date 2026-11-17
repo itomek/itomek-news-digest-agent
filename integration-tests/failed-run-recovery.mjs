@@ -60,7 +60,7 @@ try{
  await admin(()=>q("update shadow_agent.producer_settings set enabled=true,policy_version='2026-11-14.1',run_limit_credits=.5"));
  assert.equal(await scalar('select public.warpcore_shadow_select_run() value'),fresh,'Normal selector resumes manual validation without a forged hourly slot');
  assert.equal((await admin(()=>q('select count(*)::int n from shadow_agent.producer_slots')))[0].n,0);
- const lease=await scalar('select shadow_agent.claim($1,300) value',[fresh]),v4=requestProfileForModel(model);
+ const lease=await scalar('select shadow_agent.claim($1,300) value',[fresh]),v4=requestProfileForModel(model,'2026-11-16.4');
  assert.equal(v4.version,'2026-11-16.4');assert.equal(await scalar('select shadow_agent.paged_bind_config($1,$2,$3) value',[fresh,lease,config(v4)]),true);
  assert.equal((await admin(()=>q('select assessed_count::int n from shadow_agent.ranking_runs where run_id=$1',[fresh])))[0].n,0);
  await admin(async()=>{await assert.rejects(()=>scalar('select shadow_agent.create_validation_run($1,.5) value',['Duplicate unfinished validation']),/unfinished/);});

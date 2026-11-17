@@ -23,7 +23,7 @@ test('scope challenge uses the same eight captured cases and never forwards prov
  const r=buildReviewRequest(cases,{model,allowedModels:[model],maxOutputTokens:2048,requestProfile:requestProfileForModel(model)});
  const data=JSON.parse(r.messages[1].content);assert.deepEqual(data.candidates.map(c=>c.id),cases.map(c=>c.id));assert.equal(r.max_tokens,2048);assert.match(r.messages[0].content,/AMD or Lemonade connection is not (?:a prerequisite|required)/);assert.equal(/expectedAction|rationale|ownerRationale|labelStatus|capturedCandidateId|rankingRunId/.test(r.messages[1].content),false);
  }
- const old=buildReviewRequest(cases,{model:'openai/gpt-oss-120b',allowedModels:['openai/gpt-oss-120b'],maxOutputTokens:2048,requestProfile:requestProfileForModel('openai/gpt-oss-120b')});assert.equal(old.messages[0].content.includes('POLICY CLARIFICATION:'),false);
+ const old=buildReviewRequest(cases,{model:'openai/gpt-oss-120b',allowedModels:['openai/gpt-oss-120b'],maxOutputTokens:2048,requestProfile:requestProfileForModel('openai/gpt-oss-120b','2026-11-16.4')});assert.equal(old.messages[0].content.includes('POLICY CLARIFICATION:'),false);
 });
 test('trial profile validation rejects reasoning, ZDR and schema downgrades',async()=>{
  const {validateRequestProfile}=await import('../../supabase/functions/news-agent/review-contract.mjs');
@@ -46,7 +46,7 @@ test('stage-aware current NVIDIA wrapper preserves historical billed bytes and l
  for(const phrase of ['trusted discovery query','Time eligibility','potential native repost','identity, dates, facts and deduplication','preview lacks','plausibly meaningful capability','Every named interest category','batch winners','absent from the excerpt'])assert.ok(system.includes(phrase),phrase);
  assert.equal(old.messages[0].content.includes('STAGE-AWARE DISCOVERY'),false);
  assert.equal(requestProfileForModel('nvidia/nemotron-3-super-120b-a12b').version,'2026-11-17.2');
- assert.equal(requestProfileForModel('openai/gpt-oss-120b').version,'2026-11-16.4');
+ assert.equal(requestProfileForModel('openai/gpt-oss-120b','2026-11-16.4').version,'2026-11-16.4');
 });
 
 test('billed 17.3 body remains exact after coded protocol upgrade',async()=>{const {createHash}=await import('node:crypto'),{buildReviewRequest}=await import('../../supabase/functions/news-agent/evaluation.mjs'),{requestProfileForModel}=await import('../../supabase/functions/news-agent/model-profiles.mjs');const model='nvidia/nemotron-3.5-super-vl',cases=selectDevelopmentBatch(Array(8).fill({id:'unused'}),'scope-challenge');const old=buildReviewRequest(cases,{model,allowedModels:[model],maxOutputTokens:2048,requestProfile:requestProfileForModel(model,'2026-11-17.3')});assert.equal(createHash('sha256').update(JSON.stringify(old)).digest('hex'),'544450a378b2f1f0cdc984cd4fb4872f6f5f0c5c1ee8f3eadabad06f30d7f245');assert.equal(requestProfileForModel(model,'2026-11-17.4').version,'2026-11-17.4');});

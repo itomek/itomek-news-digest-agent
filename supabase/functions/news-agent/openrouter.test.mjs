@@ -219,7 +219,7 @@ test('keyed ranked completion normalizes candidate order and rejects missing, ex
 test('sixteen-candidate keyed schema requires the candidate omitted by the historical array completion',async()=>{
  const {buildReviewRequest}=await import('./evaluation.mjs'),{requestProfileForModel}=await import('./model-profiles.mjs');
  const model='openai/gpt-oss-120b',inputs=Array.from({length:16},(_,i)=>({id:(i+1).toString(16).padStart(64,'0'),sourceUrl:'https://example.com/release',discoveryText:'Synthetic capability.'}));
- const r=buildReviewRequest(inputs,{model,allowedModels:[model],maxOutputTokens:4096,requestProfile:requestProfileForModel(model)});
+ const r=buildReviewRequest(inputs,{model,allowedModels:[model],maxOutputTokens:4096,requestProfile:requestProfileForModel(model,'2026-11-16.4')});
  assert.deepEqual(r.response_format.json_schema.schema.properties.decisions.required,inputs.map(c=>c.id));
  const reply=n=>{const p=payload();p.model=model;p.provider='Groq';p.usage={prompt_tokens:1000,completion_tokens:2021,total_tokens:3021,cost:.0019665};p.choices[0].message.content=JSON.stringify({decisions:Object.fromEntries(inputs.slice(0,n).map(c=>[c.id,{action:'skip',reason:'Routine fixture.',importance:0,relevance:0}]))});return Response.json(p);};
  const cfg={...config(),allowedModels:[model],expectedProvider:'Groq'};

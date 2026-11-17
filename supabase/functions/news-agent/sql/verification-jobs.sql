@@ -7,6 +7,7 @@ end $$;
 create table shadow_agent.verification_settings(
  singleton boolean primary key default true check(singleton),enabled boolean not null default false,
  submit_enabled boolean not null default false,
+ backfill_enabled boolean not null default false,
  job_limit_credits numeric check(job_limit_credits>0 and job_limit_credits<=1)
 );
 insert into shadow_agent.verification_settings(singleton) values(true);
@@ -14,6 +15,7 @@ create table shadow_agent.verification_jobs(
  id uuid primary key default gen_random_uuid(),ranking_run_id uuid not null references shadow_agent.runs(id),
  story_key text not null check(story_key ~ '^[a-f0-9]{64}$'),child_run_id uuid not null unique references shadow_agent.runs(id),
  status text not null default 'pending' check(status in ('pending','verified','deferred','uncertain')),
+ quarantined boolean not null default false,
  metadata jsonb,receipt_id uuid references agent_verification.receipts(id),
  handoff_status text not null default 'pending' check(handoff_status in ('pending','submitted','deferred')),
  handoff_reason text check(handoff_reason='stale_receipt'),handoff_inbox_id uuid unique references public.warpcore_curator_inbox(id),
@@ -33,6 +35,31 @@ begin
  if not pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended('warpcore_verification_jobs_v1',0)) then
   raise exception using errcode='55P03',message='Verification jobs busy';end if;
 end $$;
+-- One deterministic source of new work for claim and the discovery selector.
+-- Existing jobs preserve attempted candidates; original top-five proposals stay immutable.
+create function shadow_agent.next_verification_candidate()
+returns table(ranking_run_id uuid,story_key text,ordinal bigint)
+language sql stable security definer set search_path='' as $$
+ select k.run_id,c.candidate_id,c.ordinal
+ from shadow_agent.ranking_runs k
+ join shadow_agent.runs r on r.id=k.run_id and r.state->>'phase'='complete'
+ join shadow_agent.candidates c on c.run_id=k.run_id
+ left join shadow_agent.selection_items selected on selected.run_id=c.run_id and selected.ordinal=c.ordinal
+ left join shadow_agent.decisions d on d.run_id=c.run_id and d.ordinal=c.ordinal
+ cross join shadow_agent.verification_settings cfg
+ where cfg.singleton and cfg.enabled and k.finalized_at is not null
+ and (select count(distinct v.story_key) from shadow_agent.verification_jobs v where v.ranking_run_id=k.run_id and v.status='verified')<5
+ and not exists(select 1 from shadow_agent.verification_jobs v where v.ranking_run_id=c.run_id and v.story_key=c.candidate_id)
+ and (selected.ordinal is not null or (cfg.backfill_enabled
+  and d.decision->>'action'='verify'
+  and exists(select 1 from public.warpcore_stories s where s.story_key=c.candidate_id and s.status='unverified_review_required')
+  and not exists(select 1 from public.warpcore_curator_inbox i where i.story_key=c.candidate_id)
+  and not exists(select 1 from public.warpcore_publications p where p.story_key=c.candidate_id)))
+ order by k.finalized_at,k.run_id,(selected.ordinal is not null) desc,selected.rank,
+ (d.decision->>'importance')::integer desc,(d.decision->>'relevance')::integer desc,c.candidate_id
+ limit 1
+$$;
+revoke all on function shadow_agent.next_verification_candidate() from public,anon,authenticated,service_role;
 create function public.warpcore_verification_claim() returns jsonb language plpgsql security definer set search_path='' as $$
 declare cfg shadow_agent.verification_settings;j shadow_agent.verification_jobs;c record;child uuid;token uuid;
 begin
@@ -41,7 +68,7 @@ begin
  if not found or not cfg.enabled then return null;end if;
  if cfg.job_limit_credits is null then raise exception 'Invalid verification configuration';end if;
  -- Recover a completed verification's unsent receipt without paid replay.
- select * into j from shadow_agent.verification_jobs v where cfg.submit_enabled and v.status='verified' and v.handoff_status='pending'
+ select * into j from shadow_agent.verification_jobs v where cfg.submit_enabled and v.status='verified' and not v.quarantined and v.handoff_status='pending'
  and not exists(select 1 from public.warpcore_curator_inbox inbox where inbox.verification_receipt_id=v.receipt_id) order by v.id limit 1;
  if found then
   token:=shadow_agent.claim(j.child_run_id,120);if token is null then return null;end if;
@@ -49,17 +76,12 @@ begin
  end if;
  -- A lost response after reservation is never an authorization to dispatch again.
  update shadow_agent.verification_jobs existing_job set status='uncertain' from shadow_agent.runs r
- where existing_job.child_run_id=r.id and existing_job.status='pending' and r.lease_until<=clock_timestamp()
+ where existing_job.child_run_id=r.id and existing_job.status='pending' and not existing_job.quarantined and r.lease_until<=clock_timestamp()
  and exists(select 1 from shadow_agent.attempts a where a.run_id=r.id);
- if exists(select 1 from shadow_agent.verification_jobs where status='uncertain') then return null;end if;
- select * into j from shadow_agent.verification_jobs where status='pending' order by id limit 1;
+ if exists(select 1 from shadow_agent.verification_jobs where status='uncertain' and not quarantined) then return null;end if;
+ select * into j from shadow_agent.verification_jobs where status='pending' and not quarantined order by id limit 1;
  if not found then
-  select s.run_id,captured.candidate_id into c from shadow_agent.selection_items s
-  join shadow_agent.ranking_runs k on k.run_id=s.run_id and k.finalized_at is not null
-  join shadow_agent.runs r on r.id=s.run_id and r.state->>'phase'='complete'
-  join shadow_agent.candidates captured on captured.run_id=s.run_id and captured.ordinal=s.ordinal
-  where not exists(select 1 from shadow_agent.verification_jobs existing_job where existing_job.ranking_run_id=s.run_id and existing_job.story_key=captured.candidate_id)
-  order by k.finalized_at,s.run_id,s.rank limit 1;
+  select next.ranking_run_id as run_id,next.story_key as candidate_id into c from shadow_agent.next_verification_candidate() next;
   if not found then return null;end if;
   child:=gen_random_uuid();
   insert into shadow_agent.runs(id,state,limit_credits) values(child,jsonb_build_object('storageKind','verification-v1','runId',child,'phase','reviewing','revision',0,'activeBatch',jsonb_build_array(c.candidate_id),'publishingEnabled',false),cfg.job_limit_credits);
@@ -78,6 +100,7 @@ begin
  if p_metadata is null or jsonb_typeof(p_metadata) is distinct from 'object' or (p_metadata-'model'-'profileVersion'-'expectedProvider')<>'{}'::jsonb
  or p_metadata->>'profileVersion' is distinct from '2026-11-16.verify.1'
  or not coalesce((p_metadata->>'model'='openai/gpt-oss-120b' and p_metadata->>'expectedProvider'='Groq' and p_max=0.058983)
+ or (p_metadata->>'model'='openai/gpt-oss-120b' and p_metadata->>'expectedProvider'='Cerebras' and p_max=0.076596)
  or (p_metadata->>'model'='nvidia/nemotron-3.5-super-vl' and p_metadata->>'expectedProvider' in ('DeepInfra','Together') and p_max=0.157287)
  or (p_metadata->>'model'='nvidia/nemotron-3-super-120b-a12b' and p_metadata->>'expectedProvider'='DeepInfra' and p_max=0.026215),false) then raise exception 'Invalid verification metadata';end if;
  select * into j from shadow_agent.verification_jobs where id=p_job;
@@ -151,7 +174,7 @@ begin
   or (d-'generationId'-'model'-'provider'-'httpStatus'-'validationIssue'-'decisionIndex'-'providerErrorCode'-'providerErrorType'-'errorProvider'-'limitSource'-'retryAfterSeconds'-'requestId'-'cloudflareRay')<>'{}'::jsonb then raise exception 'Invalid verification diagnostic';end if;
   if d ? 'providerErrorCode' and not coalesce((jsonb_typeof(d->'providerErrorCode')='number' and d->>'providerErrorCode' in ('400','401','402','403','404','408','409','413','422','429','500','502','503','504','529')) or (jsonb_typeof(d->'providerErrorCode')='string' and d->>'providerErrorCode' in ('rate_limit_exceeded','insufficient_quota','invalid_request_error','authentication_error','permission_error','not_found_error','overloaded_error','api_error','context_length_exceeded','unsupported_parameter','rate_limited','rate_limit_error','quota_exceeded','too_many_requests','RESOURCE_EXHAUSTED','engine_overloaded')),false) then raise exception 'Invalid verification diagnostic';end if;
   if d ? 'providerErrorType' and (jsonb_typeof(d->'providerErrorType') is distinct from 'string' or not coalesce(d->>'providerErrorType' in ('invalid_request_error','authentication_error','permission_error','not_found_error','rate_limit_error','overloaded_error','api_error','server_error','insufficient_quota','context_length_exceeded','rate_limit_exceeded','provider_overloaded','provider_unavailable','timeout','server','authentication','permission_denied','payment_required','invalid_request','content_policy_violation','refusal','unmapped'),false)) then raise exception 'Invalid verification diagnostic';end if;
-  if d ? 'errorProvider' and (jsonb_typeof(d->'errorProvider') is distinct from 'string' or not coalesce(d->>'errorProvider' in ('DeepInfra','Together','Groq','Anthropic','OpenAI','PrimeIntellect','Google AI Studio'),false)) then raise exception 'Invalid verification diagnostic';end if;
+  if d ? 'errorProvider' and (jsonb_typeof(d->'errorProvider') is distinct from 'string' or not coalesce(d->>'errorProvider' in ('DeepInfra','Together','Cerebras','Groq','Anthropic','OpenAI','PrimeIntellect','Google AI Studio'),false)) then raise exception 'Invalid verification diagnostic';end if;
   if d ? 'limitSource' and (jsonb_typeof(d->'limitSource') is distinct from 'string' or not coalesce(d->>'limitSource' in ('upstream_provider_shared_pool','openrouter_in_flight_budget','openrouter_key_limit','openrouter_credits','openrouter_guardrail_budget','openrouter_workspace_budget'),false)) then raise exception 'Invalid verification diagnostic';end if;
   if d ? 'retryAfterSeconds' and (jsonb_typeof(d->'retryAfterSeconds') is distinct from 'number' or coalesce(d->>'retryAfterSeconds','') !~ '^[0-9]{1,5}$' or (d->>'retryAfterSeconds')::numeric not between 0 and 86400) then raise exception 'Invalid verification diagnostic';end if;
   if d ? 'requestId' and (jsonb_typeof(d->'requestId') is distinct from 'string' or length(d->>'requestId')>128 or d->>'requestId' !~ '^(req[-_]|gen-)[A-Za-z0-9_-]{1,124}$' or d->>'requestId' ~ U&'[\0001-\001F\007F-\009F]') then raise exception 'Invalid verification diagnostic';end if;
@@ -208,6 +231,7 @@ begin
  select * into a from shadow_agent.attempts where run_id=j.child_run_id;
  if found and (a.status<>'settled' or not exists(select 1 from shadow_agent.verification_audit where job_id=p_job and status='settled')) then raise exception 'Settled verification attempt required';end if;
  if p_status='verified' then
+  if (select count(distinct story_key) from shadow_agent.verification_jobs where ranking_run_id=j.ranking_run_id and status='verified')>=5 then raise exception 'Verification run qualified limit reached';end if;
   if a.id is null then raise exception 'Settled verification attempt required';end if;
   select audit into paid_audit from shadow_agent.verification_audit where job_id=p_job and status='settled';
   if paid_audit->'model' is distinct from j.metadata->'model' or paid_audit->'provider' is distinct from j.metadata->'expectedProvider' or paid_audit ? 'validationError' or paid_audit ? 'errorCode' or r.blocked

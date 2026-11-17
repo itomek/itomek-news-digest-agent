@@ -123,7 +123,7 @@ test('offline evaluation accepts complete ranked results and rejects malformed o
 });
 test('fresh keyed ranked request requires every ID without label leakage or conflicting array instructions',async()=>{
  const {requestProfileForModel}=await import('./model-profiles.mjs');const {buildKeyedRankedDiscoveryFormat}=await import('./review-contract.mjs');
- const model='openai/gpt-oss-120b',r=buildReviewRequest(cases,{model,allowedModels:[model],maxOutputTokens:4096,requestProfile:requestProfileForModel(model)});
+ const model='openai/gpt-oss-120b',r=buildReviewRequest(cases,{model,allowedModels:[model],maxOutputTokens:4096,requestProfile:requestProfileForModel(model,'2026-11-16.4')});
  assert.deepEqual(r.response_format,buildKeyedRankedDiscoveryFormat(cases.map(c=>c.id)));assert.match(r.messages[0].content,/required key/);assert.match(r.messages[0].content,/never include an inner id field/);assert.doesNotMatch(r.messages[0].content,/decisions: \[/);assert.doesNotMatch(r.messages[0].content,/Each decision must have exactly id/);assert.equal(JSON.stringify(r).includes('expectedAction'),false);assert.equal(JSON.stringify(r).includes('ownerRationale'),false);
 });
 test('historical ranked-array request body instructions remain byte-for-byte unchanged',async()=>{

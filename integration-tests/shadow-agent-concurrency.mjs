@@ -217,7 +217,7 @@ try {
   const ranked=randomUUID();
   await query(observer,'insert into shadow_agent.runs(id,state,limit_credits) values($1,$2,1)',[ranked,newPagedShadowRun({runId:ranked,scanStartedAt:new Date().toISOString()})]);
   const rankedLease=await claim(a,ranked);
-  const rankedConfig={...cfg,model:'openai/gpt-oss-120b',requestProfile:requestProfileForModel('openai/gpt-oss-120b'),expectedProvider:'Groq'};
+  const rankedConfig={...cfg,model:'openai/gpt-oss-120b',requestProfile:requestProfileForModel('openai/gpt-oss-120b','2026-11-16.4'),expectedProvider:'Groq'};
   assert.equal(await scalar(a,'select shadow_agent.paged_bind_config($1,$2,$3) as value',[ranked,rankedLease,rankedConfig]),true);
   await scalar(a,'select shadow_agent.paged_append($1,$2,0,$3) as value',[ranked,rankedLease,'[]']);
   const finalize=client=>scalar(client,'select shadow_agent.paged_begin($1,$2,1,25) as value',[ranked,rankedLease]);

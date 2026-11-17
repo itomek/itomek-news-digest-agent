@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {createHash} from 'node:crypto';
 import {createVerificationService} from './verification-services.mjs';
 const id=n=>`${String(n).padStart(8,'0')}-1111-4111-8111-111111111111`,story='a'.repeat(64),url='https://example.com/release';
-const config={projectUrl:'https://fixture.supabase.co',serviceKey:'synthetic-service-key',runtimeConfig:{enabled:true,apiKey:'synthetic-model-key',model:'openai/gpt-oss-120b',allowedModels:['openai/gpt-oss-120b'],expectedProvider:'Groq',maxOutputTokens:4096,maxCostCredits:.058983,allowedSourceHosts:['example.com']}};
+const config={projectUrl:'https://fixture.supabase.co',serviceKey:'synthetic-service-key',runtimeConfig:{enabled:true,apiKey:'synthetic-model-key',model:'openai/gpt-oss-120b',allowedModels:['openai/gpt-oss-120b'],expectedProvider:'Cerebras',maxOutputTokens:4096,maxCostCredits:.076596,allowedSourceHosts:['example.com']}};
 test('separate transports receive only their own credentials and fixed RPC bodies',async()=>{
  const events=[];let requestHash;
  const service=createVerificationService(config,{
@@ -11,7 +11,7 @@ test('separate transports receive only their own credentials and fixed RPC bodie
    if(name==='warpcore_verification_claim'){assert.deepEqual(body,{});return Response.json({jobId:id(1),rankingRunId:id(2),storyKey:story,lease:id(3)});}
    if(name==='warpcore_curator_snapshot'){assert.deepEqual(body,{p_story:story});return Response.json({story_key:story,evidence_hash:'b'.repeat(64),evidence:[{id:'fixture:source',url,text:'Discovery only',sourceType:'rss',visibility:'public',sourceLinks:[url]}]});}
    if(name==='warpcore_agent_history'){assert.deepEqual(body,{p_cursor:null});return Response.json({snapshotHash:'c'.repeat(64),historyCoverageMode:'all-published-plus-unresolved-v1',items:[],cursor:null,complete:true});}
-   if(name==='warpcore_verification_reserve'){requestHash=body.p_hash;assert.equal(body.p_max,.058983);assert.equal(body.p_metadata.profileVersion,'2026-11-16.verify.1');return Response.json(id(4));}
+   if(name==='warpcore_verification_reserve'){requestHash=body.p_hash;assert.equal(body.p_max,.076596);assert.equal(body.p_metadata.profileVersion,'2026-11-16.verify.1');return Response.json(id(4));}
    if(name==='warpcore_verification_settle'){assert.equal(body.p_cost,.005);assert.equal(body.p_status,'settled');}
    if(name==='warpcore_verification_finish')assert.equal(body.p_status,'deferred');
    assert.ok(['warpcore_verification_dispatch','warpcore_verification_settle','warpcore_verification_finish'].includes(name));return Response.json(true);
@@ -19,7 +19,7 @@ test('separate transports receive only their own credentials and fixed RPC bodie
   evidenceFetcher:async(target,options)=>{events.push('source');assert.equal(target,url);assert.equal(options.headers.Authorization,undefined);assert.equal(options.headers.apikey,undefined);return new Response('Actual captured public source.',{headers:{'content-type':'text/plain'}});},
   modelFetcher:async(target,options)=>{
    events.push('model');assert.equal(target,'https://openrouter.ai/api/v1/chat/completions');assert.equal(options.headers.Authorization,'Bearer '+config.runtimeConfig.apiKey);assert.equal(options.body.includes(config.serviceKey),false);assert.equal(createHash('sha256').update(options.body).digest('hex'),requestHash);
-   return Response.json({id:'fixture-model-generation',model:config.runtimeConfig.model,provider:'Groq',usage:{prompt_tokens:20,completion_tokens:10,total_tokens:30,cost:.005},choices:[{finish_reason:'stop',message:{content:JSON.stringify({result:{action:'defer',reason:'Insufficient primary evidence.'}})}}]});
+   return Response.json({id:'fixture-model-generation',model:config.runtimeConfig.model,provider:'Cerebras',usage:{prompt_tokens:20,completion_tokens:10,total_tokens:30,cost:.005},choices:[{finish_reason:'stop',message:{content:JSON.stringify({result:{action:'defer',reason:'Insufficient primary evidence.'}})}}]});
   },
  });
  assert.equal((await service.runInvocation()).status,'deferred');assert.equal(events.filter(e=>e==='model').length,1);assert.ok(events.indexOf('warpcore_verification_dispatch')<events.indexOf('model'));assert.equal(events.at(-1),'warpcore_verification_finish');

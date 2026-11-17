@@ -23,12 +23,14 @@ const keyedGptOss=freeze({...rankedGptOss,version:'2026-11-16.4',responseFormat:
 const stageAwareNvidia=freeze({...profiles['nvidia/nemotron-3.5-super-vl'],version:'2026-11-17.3'});
 const codedNvidia=freeze({...stageAwareNvidia,version:'2026-11-17.4',responseFormat:'discovery-keyed-coded-ranking-json-schema-v4'});
 const togetherNvidia=freeze({...codedNvidia,version:'2026-11-17.5',provider:{...codedNvidia.provider,only:['together'],order:['together']}});
+const cerebrasGptOss=freeze({...keyedGptOss,version:'2026-11-17.6',responseFormat:'discovery-keyed-coded-ranking-json-schema-v4',provider:{...keyedGptOss.provider,only:['cerebras/fp16'],order:['cerebras/fp16'],max_price:{prompt:.35,completion:.75,request:0}}});
 export function requestProfileForModel(model,version){
  if(typeof model!=='string'||!Object.hasOwn(profiles,model))return undefined;
- const current=model==='openai/gpt-oss-120b'?keyedGptOss:model==='nvidia/nemotron-3.5-super-vl'?togetherNvidia:profiles[model];
+ const current=model==='openai/gpt-oss-120b'?cerebrasGptOss:model==='nvidia/nemotron-3.5-super-vl'?togetherNvidia:profiles[model];
  if(version===undefined||version===current.version)return current;
  if(model==='nvidia/nemotron-3.5-super-vl'&&version===codedNvidia.version)return codedNvidia;
  if(model==='nvidia/nemotron-3.5-super-vl'&&version===stageAwareNvidia.version)return stageAwareNvidia;
+ if(model==='openai/gpt-oss-120b'&&version===keyedGptOss.version)return keyedGptOss;
  if(model==='openai/gpt-oss-120b'&&version===rankedGptOss.version)return rankedGptOss;
  return version===profiles[model].version?profiles[model]:undefined;
 }
@@ -38,5 +40,6 @@ const expectedProviders=freeze({'nvidia/nemotron-3.5-super-vl':'DeepInfra','nvid
 export function expectedProviderForModel(model,version){
  if(typeof model!=='string'||!Object.hasOwn(expectedProviders,model))return undefined;
  const selected=requestProfileForModel(model,version);if(!selected)return undefined;
+ if(model==='openai/gpt-oss-120b'&&selected.version==='2026-11-17.6')return 'Cerebras';
  return model==='nvidia/nemotron-3.5-super-vl'&&selected.version==='2026-11-17.5'?'Together':expectedProviders[model];
 }

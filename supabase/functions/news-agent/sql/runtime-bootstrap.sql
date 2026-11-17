@@ -8,10 +8,10 @@ end $$;
 -- Private SQL mirror of the code-owned approved runtime registry.
 create function shadow_agent.approved_runtime_model(p_model text) returns jsonb
 language sql immutable security definer set search_path='' as $$
- select jsonb_build_object('model',model,'provider',provider,'discoveryProfileVersion',profile,'maxCostCredits',cap,'maxOutputTokens',4096,'reviewBatchSize',16)
- from (values ('openai/gpt-oss-120b','Groq','2026-11-16.4',0.058983::numeric),
- ('nvidia/nemotron-3.5-super-vl','Together','2026-11-17.5',0.157287::numeric),
- ('nvidia/nemotron-3-super-120b-a12b','DeepInfra','2026-11-17.2',0.026215::numeric)) approved(model,provider,profile,cap) where model=p_model
+ select jsonb_build_object('model',model,'provider',provider,'discoveryProfileVersion',profile,'maxCostCredits',cap,'maxOutputTokens',output_cap,'reviewBatchSize',16)
+ from (values ('openai/gpt-oss-120b','Cerebras','2026-11-17.6',0.076596::numeric,8192),
+ ('nvidia/nemotron-3.5-super-vl','Together','2026-11-17.5',0.157287::numeric,4096),
+ ('nvidia/nemotron-3-super-120b-a12b','DeepInfra','2026-11-17.2',0.026215::numeric,4096)) approved(model,provider,profile,cap,output_cap) where model=p_model
 $$;
 revoke all on function shadow_agent.approved_runtime_model(text) from public,anon,authenticated,service_role;
 create table shadow_agent.runtime_settings(
@@ -49,7 +49,7 @@ begin
  end loop;
  select count(*),min(decrypted_secret) into n,api_key from vault.decrypted_secrets where name='warpcore_agent_openrouter_key';
  if n<>1 or api_key is null or length(api_key) not between 16 and 4096 or api_key ~ '[[:space:][:cntrl:]]' then raise exception 'Invalid agent runtime configuration';end if;
- return jsonb_build_object('model',cfg.model,'apiKey',api_key,'maxOutputTokens',4096,'maxCostCredits',(approved->>'maxCostCredits')::numeric,'allowedSourceHosts',to_jsonb(cfg.allowed_source_hosts));
+ return jsonb_build_object('model',cfg.model,'apiKey',api_key,'maxOutputTokens',(approved->>'maxOutputTokens')::integer,'maxCostCredits',(approved->>'maxCostCredits')::numeric,'allowedSourceHosts',to_jsonb(cfg.allowed_source_hosts));
 exception when others then raise exception 'Invalid agent runtime configuration';
 end $$;
 revoke all on function public.warpcore_agent_authorization(),public.warpcore_agent_runtime_config() from public,anon,authenticated,service_role;

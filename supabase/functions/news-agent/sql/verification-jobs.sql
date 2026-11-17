@@ -8,6 +8,7 @@ create table shadow_agent.verification_settings(
  singleton boolean primary key default true check(singleton),enabled boolean not null default false,
  submit_enabled boolean not null default false,
  backfill_enabled boolean not null default false,
+ ranking_finalized_since timestamptz, -- Owner-only new-job cohort; NULL preserves all history.
  job_limit_credits numeric check(job_limit_credits>0 and job_limit_credits<=1)
 );
 insert into shadow_agent.verification_settings(singleton) values(true);
@@ -48,6 +49,7 @@ language sql stable security definer set search_path='' as $$
  left join shadow_agent.decisions d on d.run_id=c.run_id and d.ordinal=c.ordinal
  cross join shadow_agent.verification_settings cfg
  where cfg.singleton and cfg.enabled and k.finalized_at is not null
+ and (cfg.ranking_finalized_since is null or k.finalized_at>=cfg.ranking_finalized_since)
  and (select count(distinct v.story_key) from shadow_agent.verification_jobs v where v.ranking_run_id=k.run_id and v.status='verified')<5
  and not exists(select 1 from shadow_agent.verification_jobs v where v.ranking_run_id=c.run_id and v.story_key=c.candidate_id)
  and (selected.ordinal is not null or (cfg.backfill_enabled
@@ -98,7 +100,7 @@ begin
  perform shadow_agent.verification_lock();
  if not coalesce((select enabled from shadow_agent.verification_settings where singleton),false) then raise exception 'Verification disabled';end if;
  if p_metadata is null or jsonb_typeof(p_metadata) is distinct from 'object' or (p_metadata-'model'-'profileVersion'-'expectedProvider')<>'{}'::jsonb
- or not coalesce(p_metadata->>'profileVersion' in ('2026-11-16.verify.1','2026-11-17.verify.2','2026-11-17.verify.3','2026-11-17.verify.4'),false)
+ or not coalesce(p_metadata->>'profileVersion' in ('2026-11-16.verify.1','2026-11-17.verify.2','2026-11-17.verify.3','2026-11-17.verify.4','2026-11-17.verify.5'),false)
  or not coalesce((p_metadata->>'model'='openai/gpt-oss-120b' and p_metadata->>'expectedProvider'='Groq' and p_max=0.058983)
  or (p_metadata->>'model'='openai/gpt-oss-120b' and p_metadata->>'expectedProvider'='Cerebras' and p_max=0.076596)
  or (p_metadata->>'model'='nvidia/nemotron-3.5-super-vl' and p_metadata->>'expectedProvider' in ('DeepInfra','Together') and p_max=0.157287)

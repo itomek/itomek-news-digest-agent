@@ -58,7 +58,8 @@ try{
   assert.equal(await scalar("select public.warpcore_verification_finish($1,$2,'deferred',null) value",[deferred.jobId,deferred.lease]),true,'Initial candidate can defer without paid attempt after inaccessible-source fixture');
  }
  assert.equal(await scalar('select public.warpcore_verification_claim() value'),null,'Default disabled backfill stops after original five');
- await admin(()=>db.exec('update shadow_agent.verification_settings set backfill_enabled=true'));
+ await admin(()=>q('update shadow_agent.verification_settings set backfill_enabled=true,ranking_finalized_since=(select finalized_at from shadow_agent.ranking_runs where run_id=$1)',[run]));
+ assert.equal(await queueCount(),4,'Pre-cohort existing Dot queue still consumes four global slots');
  const job=await scalar('select public.warpcore_verification_claim() value');assert.equal(job.storyKey,key(1));assert.equal(job.rankingRunId,run);
  const s=await snapshot(key(1)),h=await history(),date=new Date().toISOString().slice(0,10),body=`🦀 Official release ${date}: a useful new capability is available.`,quote=body.slice(3);
  const requestBody=JSON.stringify({model,messages:[{role:'user',content:body}],response_format:'fabricated verification schema'}),requestHash=hash(requestBody),meta={model,profileVersion:'2026-11-16.verify.1',expectedProvider:'Groq'};

@@ -11,7 +11,7 @@ test('separate transports receive only their own credentials and fixed RPC bodie
    if(name==='warpcore_verification_claim'){assert.deepEqual(body,{});return Response.json({jobId:id(1),rankingRunId:id(2),storyKey:story,lease:id(3)});}
    if(name==='warpcore_curator_snapshot'){assert.deepEqual(body,{p_story:story});return Response.json({story_key:story,evidence_hash:'b'.repeat(64),evidence:[{id:'fixture:source',url,text:'Discovery only',sourceType:'rss',visibility:'public',sourceLinks:[url]}]});}
    if(name==='warpcore_agent_history'){assert.deepEqual(body,{p_cursor:null});return Response.json({snapshotHash:'c'.repeat(64),historyCoverageMode:'all-published-plus-unresolved-v1',items:[],cursor:null,complete:true});}
-   if(name==='warpcore_verification_reserve'){requestHash=body.p_hash;assert.equal(body.p_max,.076596);assert.equal(body.p_metadata.profileVersion,'2026-11-17.verify.4');return Response.json(id(4));}
+   if(name==='warpcore_verification_reserve'){requestHash=body.p_hash;assert.equal(body.p_max,.076596);assert.equal(body.p_metadata.profileVersion,'2026-11-17.verify.5');return Response.json(id(4));}
    if(name==='warpcore_verification_settle'){assert.equal(body.p_cost,.005);assert.equal(body.p_status,'settled');}
    if(name==='warpcore_verification_finish')assert.equal(body.p_status,'deferred');
    assert.ok(['warpcore_verification_dispatch','warpcore_verification_settle','warpcore_verification_finish'].includes(name));return Response.json(true);

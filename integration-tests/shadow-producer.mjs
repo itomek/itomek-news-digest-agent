@@ -89,7 +89,7 @@ try{
  const pq=async(s,a=[])=>(await precedence.query(s,a)).rows;
  const pick=async()=> (await pq('select public.warpcore_shadow_select_run() v'))[0].v;
  await precedence.exec(`update shadow_agent.producer_settings set enabled=true,run_limit_credits=1,policy_version='2026-11-14.1';
- create table shadow_agent.verification_settings(singleton boolean,enabled boolean,submit_enabled boolean,job_limit_credits numeric,backfill_enabled boolean default false);
+ create table shadow_agent.verification_settings(singleton boolean,enabled boolean,submit_enabled boolean,job_limit_credits numeric,backfill_enabled boolean default false,ranking_finalized_since timestamptz);
  insert into shadow_agent.verification_settings(singleton,enabled,submit_enabled,job_limit_credits) values(true,true,false,.157287);
  create table shadow_agent.verification_jobs(id uuid default gen_random_uuid(),ranking_run_id uuid,story_key text,child_run_id uuid,status text,receipt_id uuid,handoff_status text,quarantined boolean default false);
  insert into shadow_agent.runs(id,state,limit_credits) values('00000000-0000-4000-8000-000000000001','{"phase":"complete","storageKind":"paged-v1"}',1);

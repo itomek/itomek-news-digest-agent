@@ -23,7 +23,7 @@ export const VERIFICATION_RESPONSE_FORMAT={type:'json_schema',json_schema:{name:
  object({action:{type:'string',enum:['approve']},editorial:editorialSchema,claims:{type:'array',items:claimSchema},publicationDate:str,scopeReason:str,changeReason:str,dedupReason:str}),
  object({action:{type:'string',enum:['defer']},reason:str}),
 ]}})}};
-const V2='2026-11-17.verify.2',V3='2026-11-17.verify.3',V4='2026-11-17.verify.4';
+const V2='2026-11-17.verify.2',V3='2026-11-17.verify.3',V4='2026-11-17.verify.4',V5='2026-11-17.verify.5';
 const pgSafe=value=>typeof value==='string'&&!/[\u0000\uD800-\uDFFF]/u.test(value);
 const quoteIdPattern=/^source-[1-9][0-9]*-(?:chunk-[0-9]{4}|original-text|created-at)$/;
 export function splitVerificationBody(body){
@@ -88,7 +88,7 @@ export function assertCerebrasSchemaCompatibility(schema){
  if(metrics.unsupportedKeywords.length||metrics.countedText>5000||metrics.totalEnumValues>500||metrics.totalProperties>500||metrics.maxDepth>10)throw Error('Unsupported Cerebras structured-output schema');
  return metrics;
 }
-function providerCompatibleVerificationFormat(full){
+function providerCompatibleVerificationFormat(full,name='primary_evidence_verification_v4'){
  const definitions={},shared=new Map();let serial=0;
  function compact(node){
   if(!node||typeof node!=='object')return node;
@@ -102,9 +102,26 @@ function providerCompatibleVerificationFormat(full){
  }
  const schema=compact(full.json_schema.schema);if(Object.keys(definitions).length)schema.$defs=definitions;
  assertCerebrasSchemaCompatibility(schema);
- return {...full,json_schema:{...full.json_schema,name:'primary_evidence_verification_v4',schema}};
+ return {...full,json_schema:{...full.json_schema,name,schema}};
 }
-export function buildVerificationResponseFormat(input,{version=V4}={}){
+function fullV5Format(input){
+ const full=buildVerificationResponseFormat(input,{version:V3});full.json_schema.name='primary_evidence_verification_v5';
+ for(const branch of full.json_schema.schema.properties.result.anyOf){
+  const p=branch.properties;if(p.action.enum[0]==='defer'){p.reason.maxLength=240;continue;}
+  for(const key of ['scopeReason','changeReason','dedupReason'])p[key].maxLength=240;
+  const e=p.editorial.properties;e.change.maxLength=300;
+  if(!e.summary)continue;
+  const item=input.evidence.find(item=>item.id===e.evidenceIds.items.enum[0]);
+  const links=[...new Set([item.url,...(item.sourceLinks??[]),...(item.nativeUrl?[item.nativeUrl]:[])].map(u=>new URL(u).href))];
+  const minimal=preview({storyKey:input.storyKey,summary:'a',whyItMatters:'b',links,verified:true,approved:true});
+  const prefix=primarySourceAttributionLabel(input.sources.find(source=>source.evidenceId===item.id).url)+' reports: ';
+  const budget=300-minimal.graphemes+2-[...new Intl.Segmenter('en',{granularity:'grapheme'}).segment(prefix)].length;
+  e.summary.maxLength=budget;e.whyItMatters.maxLength=budget;
+ }
+ return full;
+}
+export function buildVerificationResponseFormat(input,{version=V5}={}){
+ if(version===V5)return providerCompatibleVerificationFormat(fullV5Format(input),'primary_evidence_verification_v5');
  if(version===V4)return providerCompatibleVerificationFormat(buildVerificationResponseFormat(input,{version:V3}));
  validateInput(input);if(![V2,V3].includes(version))fail();const v3=version===V3,projection=v3?projectVerificationInput(input):undefined;
  const bounded=(max,min=1)=>({type:'string',minLength:min,maxLength:max});
@@ -142,10 +159,10 @@ export function matchesVerificationSchema(value,schema,root=schema){
   default:return false;
  }
 }
-export function normalizeVerificationResult(result,input){
+export function normalizeVerificationResult(result,input,{version=V5}={}){
  if(!Object.hasOwn(result??{},'supports'))return result;
  const v3=Object.values(result.supports??{}).some(value=>typeof value==='string');
- const schema=buildVerificationResponseFormat(input,{version:v3?V3:V2}).json_schema.schema;
+ const schema=(v3&&version===V5?fullV5Format(input):buildVerificationResponseFormat(input,{version:v3?V3:V2})).json_schema.schema;
  if(!matchesVerificationSchema({result},schema))fail();
  const {supports,...legacy}=structuredClone(result);
  let projection;
@@ -185,7 +202,7 @@ function validateInput(input){
  if(size>200000||new TextEncoder().encode(JSON.stringify(history.items)).length>500000)fail();
  return time;
 }
-export function buildVerificationRequest(input,{model,maxOutputTokens,version=V4}={}){
+export function buildVerificationRequest(input,{model,maxOutputTokens,version=V5}={}){
  validateInput(input);const approved=approvedRuntimeModel(model),profile=approved&&requestProfileForModel(model,approved.discoveryProfileVersion);
  if(!approved||!profile||!Number.isInteger(maxOutputTokens)||maxOutputTokens<1||maxOutputTokens>approved.maxOutputTokens)fail();
  const request={model,max_tokens:maxOutputTokens,provider:profile.provider,reasoning:profile.reasoning,response_format:buildVerificationResponseFormat(input,{version}),messages:[
@@ -196,14 +213,19 @@ export function buildVerificationRequest(input,{model,maxOutputTokens,version=V4
  if(version!==V2)request.messages[0].content+='\nV3 QUOTE REFERENCES: supports fields must each be exactly one provided quote ID string, never copied or normalized quote text and never an object. Ordinary quote IDs name exact raw body chunks; native quote IDs name only the original decoded record text and createdAt. Body chunks cover every original character without HTML normalization. Use a chunk containing the actual publication/release date for publicationDate; if unsupported, defer. Do not invent a quote ID or facts not established by its raw text. For ordinary summary, return concise text WITHOUT the trusted attributionPrefix shown in its selected source: trusted code prepends it. For any benchmark or performance claim, whyItMatters must state the material workload, cache/prefix or concurrency qualifications present in the source, never present a configured benchmark gain as a universal speedup. When that qualification cannot fit or is unsupported, defer.';
  if(version===V4)request.messages[0].content=request.messages[0].content.replace('V3 QUOTE REFERENCES:','V4 QUOTE REFERENCES:');
  if(version===V4){const full=buildVerificationResponseFormat(input,{version:V3}).json_schema.schema.properties.result.anyOf;const limits=full.filter(branch=>branch.properties.action.enum[0]==='approve').map(branch=>{const e=branch.properties.editorial.properties;return {evidenceIdsExactly:[...e.evidenceIds.items.enum],mode:e.mode?'repost':'post',...(e.summary?{summaryMaxLength:e.summary.maxLength,whyItMattersMaxLength:e.whyItMatters.maxLength}:{}),changeMaxLength:e.change.maxLength};});request.messages[0].content+='\nV4 TRUSTED EDITORIAL LIMITS: '+JSON.stringify(limits)+'. These are maximum character lengths for unprefixed wire text; use exactly the indicated single evidence ID. Trusted code adds the publisher prefix within the total 300-grapheme/3000-byte post limit. If meaningful qualified text cannot fit, defer.';}
+ if(version===V5){
+  request.messages[0].content=request.messages[0].content.replace('V3 QUOTE REFERENCES:','V5 QUOTE REFERENCES:');
+  const limits=fullV5Format(input).json_schema.schema.properties.result.anyOf.filter(b=>b.properties.action.enum[0]==='approve').map(b=>{const e=b.properties.editorial.properties;return {evidenceIdsExactly:e.evidenceIds.items.enum,mode:e.mode?'repost':'post',changeMaxLength:300,...(e.summary?{summaryMaxLength:e.summary.maxLength,whyItMattersMaxLength:e.whyItMatters.maxLength,summaryPlusWhyItMattersCombinedBudget:e.summary.maxLength}:{})};});
+  request.messages[0].content+='\nV5 CONCISE OUTPUT LIMITS: '+JSON.stringify(limits)+'. scopeReason, changeReason, dedupReason and defer reason: each one concise sentence, at most 240 characters. Editorial change: at most 300 characters. Ordinary summary and whyItMatters share the indicated COMBINED budget, not separate allowances; allocate it asymmetrically as useful. Each individual text must also stay within its stated maximum. Trusted publisher prefix and all real source links are included in the final 300-grapheme/3000-byte rendered-post guard. Use exactly one indicated evidence ID. Do not enumerate history, reproduce sources, or repeat analysis in reasons. Return only the requested concise result and quote IDs; if qualified factual text cannot fit, defer.';
+ }
  if(new TextEncoder().encode(JSON.stringify(request)).length>750000)fail();
  return request;
 }
-export async function validateVerificationResult(result,input){
+export async function validateVerificationResult(result,input,{version=V5}={}){
  const time=validateInput(input);
- result=normalizeVerificationResult(result,input);
+ result=normalizeVerificationResult(result,input,{version});
  if(result?.action==='defer'){
-  if(!exact(result,['action','reason'])||!text(result.reason,1000))fail();
+  if(!exact(result,['action','reason'])||!text(result.reason,version===V5?240:1000))fail();
   return {action:'defer',reason:result.reason};
  }
  if(!exact(result,['action','editorial','claims','publicationDate','scopeReason','changeReason','dedupReason'])||result.action!=='approve')fail();

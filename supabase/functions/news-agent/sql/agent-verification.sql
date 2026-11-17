@@ -96,7 +96,7 @@ begin
 end $$;
 create function public.warpcore_agent_issue_receipt(p_material jsonb) returns uuid
 language plpgsql security definer set search_path='' as $$
-declare m jsonb:=p_material;j jsonb;s jsonb;source jsonb;claim jsonb;k text;existing agent_verification.receipts;expiry timestamptz;rid uuid;body text;captured jsonb;native boolean;original jsonb;
+declare m jsonb:=p_material;j jsonb;s jsonb;source jsonb;claim jsonb;k text;existing agent_verification.receipts;expiry timestamptz;rid uuid;body text;captured jsonb;native boolean;github boolean;original jsonb;release_path text[];published timestamptz;
 begin
  if not pg_try_advisory_xact_lock(hashtextextended('warpcore_shared_admission_v1',0)) then raise exception 'Admission busy' using errcode='55P03';end if;
  if m is null or jsonb_typeof(m) is distinct from 'object' or octet_length(m::text)>2000000
@@ -138,7 +138,8 @@ begin
  for source in select value from jsonb_array_elements(m->'sources') loop
   select e into captured from jsonb_array_elements(s->'evidence') e where e->>'id'=source->>'evidenceId';
   native:=coalesce(captured->>'sourceType'='bluesky',false);
-  if jsonb_typeof(source) is distinct from 'object' or (case when native then source-'fetchedUrl'-'nativeUri'-'nativeCid'-'nativeAuthorDid' else source end-'evidenceId'-'url'-'contentSha256'-'fetchedAt'-'body')<>'{}'::jsonb
+  github:=not native and coalesce(source->>'captureKind'='github-release-v1',false);
+  if jsonb_typeof(source) is distinct from 'object' or (case when native then source-'fetchedUrl'-'nativeUri'-'nativeCid'-'nativeAuthorDid' when github then source-'captureKind'-'fetchedUrl' else source end-'evidenceId'-'url'-'contentSha256'-'fetchedAt'-'body')<>'{}'::jsonb
   or jsonb_typeof(source->'body') is distinct from 'string' or octet_length(source->>'body') not between 1 and 200000
   or jsonb_typeof(source->'evidenceId') is distinct from 'string' or jsonb_typeof(source->'url') is distinct from 'string'
   or source->>'url' !~ '^https://[^/@[:space:]]+([/?#]|$)'
@@ -163,6 +164,29 @@ begin
    or not agent_verification.native_public_json(original)
    then raise exception 'Invalid native original identity';end if;
    if m->'editorial'->>'mode'='repost' and m->'editorial'->'evidenceIds' ? (source->>'evidenceId') and ((original->'record'->>'createdAt')::timestamptz at time zone 'UTC')::date is distinct from (j->>'publicationDate')::date then raise exception 'Invalid native publication date';end if;
+  end if;
+  if github then
+   release_path:=regexp_match(source->>'url','^https://github[.]com/(lemonade-sdk/lemonade|ROCm/TheRock|ggml-org/llama[.]cpp|vllm-project/vllm|ollama/ollama|ml-explore/mlx|anthropics/claude-code)/releases/tag/([A-Za-z0-9._+~-]+)$');
+   if release_path is null or release_path[2] in ('.','..') or source->>'url' ~ U&'[\0001-\001F\007F-\009F]'
+   or octet_length(source->>'body')>100000 or source->>'fetchedUrl' is distinct from 'https://api.github.com/repos/'||release_path[1]||'/releases/tags/'||release_path[2]
+   then raise exception 'Invalid GitHub capture binding';end if;
+   original:=(source->>'body')::jsonb;
+   if jsonb_typeof(original) is distinct from 'object' or original->>'html_url' is distinct from source->>'url'
+   or original->>'tag_name' is distinct from release_path[2] or original->'draft' is distinct from 'false'::jsonb
+   or jsonb_typeof(original->'prerelease') is distinct from 'boolean' or jsonb_typeof(original->'body') is distinct from 'string'
+   or jsonb_typeof(original->'published_at') is distinct from 'string'
+   or original->>'published_at' ~ '[[:cntrl:]]'
+   or original->>'published_at' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?Z$'
+   then raise exception 'Invalid GitHub release identity';end if;
+   if substring(original->>'published_at' from 12 for 2)::integer>23 or substring(original->>'published_at' from 15 for 2)::integer>59
+   or substring(original->>'published_at' from 18 for 2)::integer>59 then raise exception 'Invalid GitHub publication time';end if;
+   -- Match JavaScript Date's millisecond precision before UTC-day binding.
+   published:=regexp_replace(original->>'published_at','([.][0-9]{3})[0-9]+Z$','\1Z')::timestamptz;
+   if published not between clock_timestamp()-interval '7 days' and clock_timestamp()+interval '5 minutes'
+   or (published at time zone 'UTC')::date is distinct from substring(original->>'published_at' from 1 for 10)::date
+   then raise exception 'Invalid GitHub publication time';end if;
+   if m->'editorial'->'evidenceIds' ? (source->>'evidenceId') and (published at time zone 'UTC')::date is distinct from (j->>'publicationDate')::date
+   then raise exception 'Invalid GitHub publication date';end if;
   end if;
   expiry:=least(expiry,(source->>'fetchedAt')::timestamptz+interval '1 hour');
  end loop;

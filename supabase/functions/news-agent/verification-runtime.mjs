@@ -1,3 +1,4 @@
+import {fetchGithubReleaseEvidence} from './github-release-verification.mjs';
 import {createReviewPacket,approveReview} from '../_shared/curation.mjs';
 import {previewRecord} from '../_shared/publishing.mjs';
 import {isApprovedPrimarySourceUrl} from './primary-source-policy.mjs';
@@ -105,6 +106,7 @@ export async function runVerificationInvocation({config={},rpc,modelFetcher,evid
    }
    const url=[item.url,...(item.sourceLinks??[])].find(raw=>{try{const u=new URL(raw);return isApprovedPrimarySourceUrl(raw)&&config.allowedSourceHosts.includes(u.hostname)&&u.protocol==='https:'&&u.href===raw&&!u.username&&!u.password&&!u.port&&!u.hash;}catch{return false;}});
    if(!url||!isApprovedPrimarySourceUrl(url))return finishDeferred('unapproved_primary_source');
+   if(new URL(url).hostname==='github.com'&&/\/releases\/tag\//.test(new URL(url).pathname)){const fetched=await fetchGithubReleaseEvidence({url,evidence:item,fetcher:evidenceFetcher,maxBytes:remainingBytes,timeoutMs:Math.min(config.sourceTimeoutMs??10000,10000),now});remainingBytes-=encoder.encode(fetched.body).length;sources.push({...fetched});continue;}
    const fetched=await fetchCapturedEvidence({url,evidence:item,config:{enabled:true,allowedHosts:config.allowedSourceHosts,maxBytes:remainingBytes,timeoutMs:Math.min(config.sourceTimeoutMs??10000,10000)},fetcher:evidenceFetcher});
    if(!text(fetched.body)||!sha(fetched.contentSha256))throw Error();remainingBytes-=fetched.byteLength;
    sources.push(project(fetched,['evidenceId','url','contentSha256','fetchedAt','body']));

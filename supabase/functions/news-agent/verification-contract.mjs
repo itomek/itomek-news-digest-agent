@@ -1,3 +1,4 @@
+import {validateGithubReleaseCapture} from './github-release-verification.mjs';
 import {primarySourceAttributionLabel} from './primary-source-policy.mjs';
 import {preview} from '../_shared/publishing.mjs';
 import {approvedRuntimeModel} from './approved-runtime-models.mjs';
@@ -172,10 +173,11 @@ function validateInput(input){
  }
  for(const source of sources){
   const item=evidence.find(e=>e.id===source.evidenceId),native=item?.sourceType==='bluesky';
-  if(!exact(source,['evidenceId','url','contentSha256','fetchedAt','body',...(native?['fetchedUrl','nativeUri','nativeCid','nativeAuthorDid']:[])])||ids.has(source.evidenceId)||!sha.test(source.contentSha256)||!text(source.body,200000)||!pgSafe(source.body))fail();
+  if(!exact(source,['evidenceId','url','contentSha256','fetchedAt','body',...(native?['fetchedUrl','nativeUri','nativeCid','nativeAuthorDid']:source.captureKind!==undefined?['captureKind','fetchedUrl']:[])])||ids.has(source.evidenceId)||!sha.test(source.contentSha256)||!text(source.body,200000)||!pgSafe(source.body))fail();
   ids.add(source.evidenceId);size+=new TextEncoder().encode(source.body).length;
   const fetched=Date.parse(source.fetchedAt);
   if(native)validateNativeCapture(source,item,now);
+  else if(source.captureKind!==undefined)validateGithubReleaseCapture(source,item,now);
   if(!item||item.visibility!=='public'||![item.url,item.nativeUrl,...(item.sourceLinks??[])].includes(source.url)||!Number.isFinite(fetched)||fetched>time+300000||time-fetched>3600000)fail();
   let url;try{url=new URL(source.url);}catch{fail();}
   if(url.protocol!=='https:'||url.username||url.password||url.port||url.hash||url.href!==source.url)fail();
@@ -218,6 +220,7 @@ export async function validateVerificationResult(result,input){
  const selected=input.evidence.filter(e=>editorial.evidenceIds.includes(e.id));
  if(repost){if(selected.length!==1||selected[0].sourceType!=='bluesky'||validateNativeCapture(sources.get(selected[0].id),selected[0],input.now).publicationDate!==publicationDate)fail();}
  else if(selected.some(e=>e.sourceType==='bluesky'))fail();
+ for(const item of selected){const source=sources.get(item.id);if(source?.captureKind!==undefined&&validateGithubReleaseCapture(source,item,input.now).publicationDate!==publicationDate)fail('verification_date_invalid');}
  const located=[];
  for(const claim of claims){
   if(!exact(claim,['claim','evidenceId','url','contentSha256','quote'])||!text(claim.claim)||!text(claim.quote,3000)||!editorial.evidenceIds.includes(claim.evidenceId))fail();

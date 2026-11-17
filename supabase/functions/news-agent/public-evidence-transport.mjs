@@ -60,7 +60,9 @@ export function createPublicEvidenceTransport({runtime=globalThis.Deno}={}){
    const ip=addresses[0];tcp=await runtime.connect({hostname:ip,port:443,transport:'tcp'});if(aborted){close(tcp);fail();}
    if(tcp.remoteAddr?.hostname!==ip)fail();
    tls=await runtime.startTls(tcp,{hostname:parsed.hostname,alpnProtocols:['http/1.1']});if(aborted){close(tls);fail();}
-   const request=encoder.encode(`GET ${parsed.pathname}${parsed.search} HTTP/1.1\r\nHost: ${parsed.hostname}\r\nAccept: text/plain, text/html, application/json\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n`);
+   // GitHub's public API requires an application identity; callers cannot set it.
+   const identity=parsed.hostname==='api.github.com'?'User-Agent: WarpCore-NewsDigest/1.0\r\n':'';
+   const request=encoder.encode(`GET ${parsed.pathname}${parsed.search} HTTP/1.1\r\nHost: ${parsed.hostname}\r\n${identity}Accept: text/plain, text/html, application/json\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n`);
    for(let offset=0;offset<request.length;){const n=await tls.write(request.subarray(offset));if(aborted||!Number.isInteger(n)||n<1||n>request.length-offset)fail();offset+=n;}
    const wire=new Uint8Array(MAX_WIRE),buffer=new Uint8Array(8192);let size=0,end=-1,head;
    for(;;){const n=await tls.read(buffer);if(aborted)fail();if(n===null)break;if(!Number.isInteger(n)||n<1||n>buffer.length||size+n>MAX_WIRE)fail();wire.set(buffer.subarray(0,n),size);const prior=size;size+=n;

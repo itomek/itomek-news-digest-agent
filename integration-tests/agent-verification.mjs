@@ -84,6 +84,27 @@ try{
  assert.equal(await finalizeExact(nl),true);
  const record=(await q('select record_payload from public.warpcore_publications where story_key=$1',[nativeStory]))[0].record_payload;
  assert.equal(record.$type,'app.bsky.feed.repost');assert.deepEqual(record.subject,{uri:nativeUri,cid});
+ // API capture retains the logical approved release URL and exact raw JSON.
+ const githubUrl='https://github.com/lemonade-sdk/lemonade/releases/tag/v2026.47.1',githubStory=key(7);
+ await seed(7);await admin(()=>q('update public.warpcore_candidates set source_url=$2,source_links=$3 where story_key=$1',[githubStory,githubUrl,[githubUrl]]));
+ const gm=await material(githubStory),publishedAt=new Date().toISOString(),release={html_url:githubUrl,tag_name:'v2026.47.1',draft:false,prerelease:true,published_at:publishedAt,body:'🦀 Official release capability with exact raw JSON quote.'};
+ const githubBody=JSON.stringify(release),githubHash=hash(githubBody),githubQuote='Official release capability';
+ gm.sources=[{evidenceId:gm.editorial.evidenceIds[0],url:githubUrl,captureKind:'github-release-v1',fetchedUrl:'https://api.github.com/repos/lemonade-sdk/lemonade/releases/tags/v2026.47.1',contentSha256:githubHash,fetchedAt:new Date().toISOString(),body:githubBody}];gm.editorial.verification.sourceUrls=[githubUrl];gm.judgment.publicationDate=publishedAt.slice(0,10);
+ gm.judgment.claims=[{claim:gm.editorial.change,evidenceId:gm.sources[0].evidenceId,url:githubUrl,contentSha256:githubHash,quote:githubQuote,quoteStart:Array.from(githubBody.slice(0,githubBody.indexOf(githubQuote))).length,quoteEnd:Array.from(githubBody.slice(0,githubBody.indexOf(githubQuote)+githubQuote.length)).length}];
+ for(const mutate of [x=>x.sources[0].captureKind='github-release-v2',x=>x.sources[0].fetchedUrl='https://api.github.com/repos/evil/repo/releases/tags/v2026.47.1',x=>x.sources[0].fetchedUrl+='?token=private',x=>x.sources[0].contentSha256='0'.repeat(64),x=>x.judgment.claims[0].quoteStart++,x=>x.judgment.publicationDate=new Date(Date.now()-86400000).toISOString().slice(0,10),...['html_url','tag_name','draft','prerelease','published_at','body'].map(field=>x=>{const data=JSON.parse(x.sources[0].body);data[field]=({html_url:'https://evil.example/',tag_name:'wrong',draft:true,prerelease:'false',published_at:null,body:null})[field];x.sources[0].body=JSON.stringify(data);x.sources[0].contentSha256=hash(x.sources[0].body);})]){
+  const bad=structuredClone(gm);bad.requestSha256=hash(randomUUID());mutate(bad);await assert.rejects(()=>issue(bad),/Invalid|Unsupported|GitHub/);
+ }
+ for(const patch of [{published_at:'2000-01-01T00:00:00Z'},{published_at:new Date(Date.now()+3600000).toISOString()},{published_at:publishedAt+'\n'},{published_at:publishedAt.replace(/T[0-9]{2}:/,'T24:')},{body:'x'.repeat(100000)}]){
+  const bad=structuredClone(gm);bad.requestSha256=hash(randomUUID());bad.sources[0].body=JSON.stringify({...release,...patch});bad.sources[0].contentSha256=hash(bad.sources[0].body);await assert.rejects(()=>issue(bad),/GitHub/);
+ }
+ const gr=await issue(gm),gi=await submit(gr),gl=(await q('select * from public.warpcore_curator_claim(5)')).find(x=>x.id===gi);assert.equal(await finalizeExact(gl),true);
+ assert.equal((await q('select record_payload from public.warpcore_publications where story_key=$1',[githubStory]))[0].record_payload.$type,'app.bsky.feed.post');
+ // All seven code-reviewed repositories and literal + tags retain parity.
+ const repos=['lemonade-sdk/lemonade','ROCm/TheRock','ggml-org/llama.cpp','vllm-project/vllm','ollama/ollama','ml-explore/mlx','anthropics/claude-code'];
+ async function githubCase(repo,tag,n){const story=await seed(n),url=`https://github.com/${repo}/releases/tag/${tag}`;await admin(()=>q('update public.warpcore_candidates set source_url=$2,source_links=$3 where story_key=$1',[story,url,[url]]));const x=await material(story),data={...release,html_url:url,tag_name:tag},body=JSON.stringify(data),digest=hash(body),id=x.editorial.evidenceIds[0];x.sources=[{evidenceId:id,url,captureKind:'github-release-v1',fetchedUrl:`https://api.github.com/repos/${repo}/releases/tags/${tag}`,contentSha256:digest,fetchedAt:new Date().toISOString(),body}];x.judgment.claims=[{...gm.judgment.claims[0],evidenceId:id,url,contentSha256:digest,quoteStart:Array.from(body.slice(0,body.indexOf(githubQuote))).length,quoteEnd:Array.from(body.slice(0,body.indexOf(githubQuote)+githubQuote.length)).length}];return x;}
+ for(const [n,repo] of repos.entries())assert.ok(await issue(await githubCase(repo,'v1.0+build',70+n)));
+ await assert.rejects(()=>githubCase('unreviewed/repo','v1.0',80).then(issue),/GitHub capture/);
+ await assert.rejects(()=>githubCase('lemonade-sdk/lemonade','.',81).then(issue),/GitHub capture/);
  // Complete history spans pages and conservatively retains old published rows.
  await admin(async()=>{
   await q("insert into public.warpcore_stories(story_key,status) select lpad(to_hex(n),64,'0'),'approved' from generate_series(100,159)n");

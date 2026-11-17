@@ -34,6 +34,13 @@ try {
  await assert.rejects(()=>save(1,{...state(2),scanStartedAt:'2020-01-01'}),/Invalid/);
  await assert.rejects(()=>save(1,{...state(2),policyVersion:'other'}),/Invalid/);
  const reserve=async(hash='a'.repeat(64),cost=0.6)=>(await q('select shadow_agent.reserve($1,$2,$3,$4) as attempt',[id,lease,hash,cost]))[0].attempt;
+ await db.exec('reset role');await db.exec('begin');
+ await q('update shadow_agent.budgets set limit_credits=null,spent_credits=25,held_credits=10');
+ const beforeUnlimited=(await q('select spent_credits,held_credits from shadow_agent.budgets'))[0];
+ await db.exec('set role service_role');const unlimitedAttempt=await reserve();assert.ok(unlimitedAttempt,'Uncapped daily ledger can reserve beyond former daily/lifetime caps');
+ await db.exec('savepoint duplicate_guard');await assert.rejects(()=>reserve(),/already reserved/,'Removing caps never permits duplicate paid requests');await db.exec('rollback to savepoint duplicate_guard');
+ await db.exec('reset role');const afterUnlimited=(await q('select spent_credits::float spent,held_credits::float held from shadow_agent.budgets'))[0];assert.equal(afterUnlimited.spent,Number(beforeUnlimited.spent_credits));assert.equal(afterUnlimited.held,Number(beforeUnlimited.held_credits)+.6,'Reservations remain accounted');
+ await db.exec('rollback');await db.exec('set role service_role');
  const attempt=await reserve();assert.ok(attempt);
  await assert.rejects(()=>reserve(),/already reserved/);
  await assert.rejects(()=>reserve('b'.repeat(64),0.1),/checkpoint/);

@@ -28,6 +28,16 @@ try{
  const day=(await q("select * from shadow_agent.budgets where day=(now() at time zone 'utc')::date"))[0];assert.equal(Number(day.limit_credits),.1,'Rollover bounded by lifetime remaining');
  await db.exec("update shadow_agent.budgets set spent_credits=0 where day<(now() at time zone 'utc')::date");assert.equal(await ensure(),true);assert.equal(Number((await q("select limit_credits from shadow_agent.budgets where day=(now() at time zone 'utc')::date"))[0].limit_credits),.1,'Never expand an existing daily budget');
  await assert.rejects(()=>q('update shadow_agent.spending_policy set daily_limit_credits=2.01'),/check constraint/);await assert.rejects(()=>q('update shadow_agent.spending_policy set lifetime_limit_credits=20.01'),/check constraint/);
+ // Explicit NULL removes application caps; accounting and disabled gates remain.
+ await db.exec('begin');
+ await db.exec("update shadow_agent.spending_policy set daily_limit_credits=null,lifetime_limit_credits=null;update shadow_agent.budgets set limit_credits=null where day=(now() at time zone 'utc')::date");
+ assert.equal(await ensure(),true,'No application cap remains when both limits are NULL');
+ assert.equal((await health()).spendingPolicy.dailyLimitCredits,null);assert.equal((await health()).spendingPolicy.lifetimeLimitCredits,null);
+ await db.exec("delete from shadow_agent.budgets where day=(now() at time zone 'utc')::date;update shadow_agent.budgets set spent_credits=100,held_credits=50");
+ assert.equal(await ensure(),true,'Previous spending/holds do not impose a hidden lifetime cap');
+ assert.equal((await q("select limit_credits from shadow_agent.budgets where day=(now() at time zone 'utc')::date"))[0].limit_credits,null,'UTC rollover retains uncapped mode');
+ await db.exec("update shadow_agent.spending_policy set enabled=false");assert.equal(await ensure(),false,'Disabling the worker remains independent of spending caps');
+ await db.exec('rollback');
  await db.exec("update public.warpcore_curator_inbox set state='processed' where id=0;insert into public.warpcore_curator_inbox(id,story_key,actor_kind,state) values(1,'one','dot','pending');update shadow_agent.spending_policy set exclusive_agent=true");
  await assert.rejects(()=>q("insert into public.warpcore_curator_inbox values(2,'two','dot','pending',now())"),/exclusive/);
  await q("update public.warpcore_curator_inbox set state='processed' where id=1");await q("insert into public.warpcore_curator_inbox(id,story_key,actor_kind,state) values(2,'two','agent','pending')");

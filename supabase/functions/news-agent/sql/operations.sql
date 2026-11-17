@@ -2,8 +2,8 @@
 begin;
 create table shadow_agent.spending_policy(
  singleton boolean primary key default true check(singleton),enabled boolean not null default false,
- daily_limit_credits numeric not null default 2 check(daily_limit_credits>0 and daily_limit_credits<=2),
- lifetime_limit_credits numeric not null default 20 check(lifetime_limit_credits>0 and lifetime_limit_credits<=20),
+ daily_limit_credits numeric default 2 check(daily_limit_credits>0 and daily_limit_credits<=2),
+ lifetime_limit_credits numeric default 20 check(lifetime_limit_credits>0 and lifetime_limit_credits<=20),
  exclusive_agent boolean not null default false
 );
 insert into shadow_agent.spending_policy(singleton) values(true);
@@ -35,15 +35,16 @@ begin
  if not coalesce(producer_enabled,false) then return false;end if;
  if to_regclass('shadow_agent.runtime_settings') is not null then perform 1 from shadow_agent.runtime_settings where singleton for share nowait;end if;
  minimum_required:=(shadow_agent.active_runtime_model()->>'maxCostCredits')::numeric;
+ -- NULL policy limits explicitly mean no application spending cap.
  -- Never wait holding policy resources behind reserve/settle row locks. Access
  -- exclusive also fences their preceding SELECT FOR UPDATE, not just UPDATE.
  -- A busy tick does nothing; no ledger row or old budget is changed.
  lock table shadow_agent.budgets in access exclusive mode nowait;
  d:=(clock_timestamp() at time zone 'utc')::date;
  select policy.lifetime_limit_credits-coalesce(sum(spent_credits+held_credits),0) into remaining from shadow_agent.budgets;
- if exists(select 1 from shadow_agent.budgets where day=d) then return exists(select 1 from shadow_agent.budgets where day=d and not blocked and limit_credits-spent_credits-held_credits>=minimum_required) and remaining>=minimum_required;end if;
+ if exists(select 1 from shadow_agent.budgets where day=d) then return exists(select 1 from shadow_agent.budgets where day=d and not blocked and (limit_credits is null or limit_credits-spent_credits-held_credits>=minimum_required)) and (remaining is null or remaining>=minimum_required);end if;
  cap:=least(policy.daily_limit_credits,remaining);
- if cap<minimum_required then return false;end if;
+ if cap is not null and cap<minimum_required then return false;end if;
  insert into shadow_agent.budgets(day,limit_credits) values(d,cap);
  return true;
 exception when lock_not_available then return false;

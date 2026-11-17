@@ -9,7 +9,7 @@ begin;
 create schema shadow_agent;
 revoke all on schema shadow_agent from public,anon,authenticated,service_role;
 create table shadow_agent.budgets (
- day date primary key, limit_credits numeric not null check(limit_credits>0 and limit_credits<1000000),
+ day date primary key, limit_credits numeric check(limit_credits>0 and limit_credits<1000000),
  held_credits numeric not null default 0 check(held_credits>=0),
  spent_credits numeric not null default 0 check(spent_credits>=0), blocked boolean not null default false
 );

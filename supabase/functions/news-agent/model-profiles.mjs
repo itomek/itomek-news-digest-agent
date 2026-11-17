@@ -25,9 +25,10 @@ const stageAwareNvidia=freeze({...profiles['nvidia/nemotron-3.5-super-vl'],versi
 const codedNvidia=freeze({...stageAwareNvidia,version:'2026-11-17.4',responseFormat:'discovery-keyed-coded-ranking-json-schema-v4'});
 const togetherNvidia=freeze({...codedNvidia,version:'2026-11-17.5',provider:{...codedNvidia.provider,only:['together'],order:['together']}});
 const cerebrasGptOss=freeze({...keyedGptOss,version:'2026-11-17.6',responseFormat:'discovery-keyed-coded-ranking-json-schema-v4',provider:{...keyedGptOss.provider,only:['cerebras/fp16'],order:['cerebras/fp16'],max_price:{prompt:.35,completion:.75,request:0}}});
+const rankedGemma26=freeze({...profiles['google/gemma-4-26b-a4b-it'],version:'2026-11-17.8',responseFormat:'discovery-keyed-coded-ranking-json-schema-v4',rankingRubricVersion:RANKING_RUBRIC_VERSION,provider:{...profiles['google/gemma-4-26b-a4b-it'].provider,max_price:{prompt:.10,completion:.30,request:0}}});
 export function requestProfileForModel(model,version){
  if(typeof model!=='string'||!Object.hasOwn(profiles,model))return undefined;
- const current=model==='openai/gpt-oss-120b'?cerebrasGptOss:model==='nvidia/nemotron-3.5-super-vl'?togetherNvidia:profiles[model];
+ const current=model==='google/gemma-4-26b-a4b-it'?rankedGemma26:model==='openai/gpt-oss-120b'?cerebrasGptOss:model==='nvidia/nemotron-3.5-super-vl'?togetherNvidia:profiles[model];
  if(version===undefined||version===current.version)return current;
  if(model==='nvidia/nemotron-3.5-super-vl'&&version===codedNvidia.version)return codedNvidia;
  if(model==='nvidia/nemotron-3.5-super-vl'&&version===stageAwareNvidia.version)return stageAwareNvidia;

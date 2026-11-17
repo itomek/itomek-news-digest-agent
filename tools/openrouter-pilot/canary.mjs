@@ -1,8 +1,11 @@
+import {approvedRuntimeModel} from '../../supabase/functions/news-agent/approved-runtime-models.mjs';
 import {createHash} from 'node:crypto';
 import {evaluateDecisions} from '../../supabase/functions/news-agent/evaluation.mjs';
 import {reviewWithOpenRouter,serializeReviewBody,OpenRouterAttemptError} from '../../supabase/functions/news-agent/openrouter.mjs';
 const stop=code=>{const e=new Error(code);e.pilotCode=code;throw e;};
+export function assertActivePilotModel(model){if(!approvedRuntimeModel(model))stop('pilot_model_not_active');}
 export async function executeCanary({request,model,apiKey,expectedProvider,maxCostCredits,ledger,attempt,cases,save,fetcher=fetch}){
+ if(typeof model==='string'&&(model.startsWith('nvidia/')||model.startsWith('meta-llama/')))assertActivePilotModel(model);
  const body=serializeReviewBody(request),requestHash=createHash('sha256').update(body).digest('hex');
  ledger.markDispatched(attempt);const started=Date.now();let result;
  try{

@@ -100,9 +100,11 @@ begin
  perform shadow_agent.verification_lock();
  if not coalesce((select enabled from shadow_agent.verification_settings where singleton),false) then raise exception 'Verification disabled';end if;
  if p_metadata is null or jsonb_typeof(p_metadata) is distinct from 'object' or (p_metadata-'model'-'profileVersion'-'expectedProvider')<>'{}'::jsonb
- or not coalesce(p_metadata->>'profileVersion' in ('2026-11-16.verify.1','2026-11-17.verify.2','2026-11-17.verify.3','2026-11-17.verify.4','2026-11-17.verify.5','2026-11-17.verify.6','2026-11-17.verify.7'),false)
+ or not coalesce(p_metadata->>'profileVersion' in ('2026-11-16.verify.1','2026-11-17.verify.2','2026-11-17.verify.3','2026-11-17.verify.4','2026-11-17.verify.5','2026-11-17.verify.6','2026-11-17.verify.7') or (p_metadata->>'profileVersion'='2026-11-17.verify.8' and p_metadata->>'model' in ('openai/gpt-oss-120b','google/gemma-4-26b-a4b-it')),false)
+ or not coalesce(p_metadata->>'model' in ('openai/gpt-oss-120b','google/gemma-4-26b-a4b-it'),false) -- Retired models remain accounting history, never new reservations.
  or not coalesce((p_metadata->>'model'='openai/gpt-oss-120b' and p_metadata->>'expectedProvider'='Groq' and p_max=0.058983)
  or (p_metadata->>'model'='openai/gpt-oss-120b' and p_metadata->>'expectedProvider'='Cerebras' and p_max=0.076596)
+ or (p_metadata->>'model'='google/gemma-4-26b-a4b-it' and p_metadata->>'expectedProvider'='PrimeIntellect' and p_metadata->>'profileVersion'='2026-11-17.verify.8' and p_max=0.036045)
  or (p_metadata->>'model'='nvidia/nemotron-3.5-super-vl' and p_metadata->>'expectedProvider' in ('DeepInfra','Together') and p_max=0.157287)
  or (p_metadata->>'model'='meta-llama/llama-4-maverick' and p_metadata->>'expectedProvider'='Parasail' and p_metadata->>'profileVersion'='2026-11-17.verify.7' and p_max=0.216269)
  or (p_metadata->>'model'='nvidia/nemotron-3-super-120b-a12b' and p_metadata->>'expectedProvider'='DeepInfra' and p_max=0.026215),false) then raise exception 'Invalid verification metadata';end if;

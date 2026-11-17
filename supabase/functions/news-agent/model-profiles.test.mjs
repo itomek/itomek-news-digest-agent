@@ -17,7 +17,7 @@ test('optional reasoning is disabled only for the two nonmandatory-reasoning can
 test('Gemma pilot profiles pin exact quantized routes, prices and ZDR with no reasoning',()=>{
  assert.equal(requestProfileForModel('qwen/qwen3.6-35b-a3b'),undefined);assert.equal(requestProfileForModel('deepseek/deepseek-v4-flash-0731'),undefined);
  for(const [model,route,prompt,completion] of [['google/gemma-4-26b-a4b-it','primeintellect/bf16',0.06,0.18],['google/gemma-4-31b-it','deepinfra/fp8',0.20,0.40]]){
-  const p=requestProfileForModel(model);
+  const p=requestProfileForModel(model,'2026-11-16.1');
   assert.deepEqual(p,{version:'2026-11-16.1',reasoning:{effort:'none'},responseFormat:'discovery-json-schema-v1',provider:{only:[route],order:[route],allow_fallbacks:false,require_parameters:true,max_price:{prompt,completion,request:0},zdr:true}});
   assert.ok(Object.isFrozen(p));assert.ok(Object.isFrozen(p.provider));assert.ok(Object.isFrozen(p.provider.max_price));assert.ok(Object.isFrozen(p.reasoning));
   assert.throws(()=>{p.provider.zdr=false;});assert.throws(()=>{p.provider.max_price.prompt=100;});
@@ -32,7 +32,7 @@ test('only added candidate is GPT-OSS120B with fixed Groq, low reasoning and new
  const model='openai/gpt-oss-120b',p=requestProfileForModel(model,'2026-11-16.2');
  assert.deepEqual(p,{version:'2026-11-16.2',reasoning:{effort:'low'},responseFormat:'discovery-json-schema-v1',provider:{only:['groq'],order:['groq'],allow_fallbacks:false,require_parameters:true,max_price:{prompt:0.15,completion:0.60,request:0},zdr:true}});
  assert.equal(expectedProviderForModel(model,'2026-11-16.2'),'Groq');assert.ok(Object.isFrozen(p.reasoning));assert.ok(Object.isFrozen(p.provider.max_price));assert.throws(()=>{p.reasoning.effort='high';});
- for(const gemma of ['google/gemma-4-26b-a4b-it','google/gemma-4-31b-it']){const old=requestProfileForModel(gemma);assert.equal(old.version,'2026-11-16.1');assert.deepEqual(old.reasoning,{effort:'none'});}
+ for(const gemma of ['google/gemma-4-26b-a4b-it','google/gemma-4-31b-it']){const old=requestProfileForModel(gemma,'2026-11-16.1');assert.equal(old.version,'2026-11-16.1');assert.deepEqual(old.reasoning,{effort:'none'});}
 });
 test('historical ranked array retains explicit immutable GPT-oss profile',()=>{
  const current=requestProfileForModel('openai/gpt-oss-120b','2026-11-16.3');

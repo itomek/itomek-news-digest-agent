@@ -32,7 +32,7 @@ try{
  // Bind the exact researched code-owned Gemma profiles, not a hand-written
  // approximation that might miss a newly required routing/privacy field.
  for(const [model,maxCostCredits] of [['google/gemma-4-26b-a4b-it',0.021627],['google/gemma-4-31b-it',0.058983]]){
-  const profile=requestProfileForModel(model);
+  const profile=requestProfileForModel(model,'2026-11-16.1');
   assert.equal(profile.version,'2026-11-16.1');assert.equal(profile.provider.zdr,true);
   const gemmaConfig={...config,model,maxOutputTokens:2048,timeoutMs:30000,maxCostCredits,requestProfile:profile,reviewBatchSize:4,expectedProvider:model.includes('26b')?'PrimeIntellect':'DeepInfra'};
   const gemma=await fixture(1,gemmaConfig);

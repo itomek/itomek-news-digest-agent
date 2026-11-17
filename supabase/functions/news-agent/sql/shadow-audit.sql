@@ -45,7 +45,7 @@ begin
  or (p_config->>'maxResponseBytes')::numeric not between 1 and 200000
  or jsonb_typeof(p_config->'maxCostCredits') is distinct from 'number' then raise exception 'Invalid runtime config'; end if;
  if not((p_config->>'maxCostCredits')::numeric>0 and (p_config->>'maxCostCredits')::numeric<1000000) then raise exception 'Invalid runtime config'; end if;
- if p_config->>'model' in ('nvidia/nemotron-3.5-super-vl','nvidia/nemotron-3-super-120b-a12b','meta-llama/llama-4-maverick') and not(p_config ? 'requestProfile') then raise exception 'Invalid approved runtime profile';end if;
+ if p_config->>'model' in ('nvidia/nemotron-3.5-super-vl','nvidia/nemotron-3-super-120b-a12b','meta-llama/llama-4-maverick','google/gemma-4-26b-a4b-it') and not(p_config ? 'requestProfile') then raise exception 'Invalid approved runtime profile';end if;
  -- Optional immutable routing/structured-output profile. Keep only the
  -- reviewed public contract, never arbitrary transport parameters or secrets.
  if p_config ? 'requestProfile' then
@@ -55,7 +55,7 @@ begin
   or (profile-'version'-'provider'-'responseFormat'-'reasoning'-'rankingRubricVersion'-'temperature')<>'{}'::jsonb
   or jsonb_typeof(profile->'version') is distinct from 'string'
   or profile->>'version' !~ '^[A-Za-z0-9._-]{1,64}$'
-  or not coalesce((profile->>'responseFormat'='discovery-json-schema-v1' and profile->>'version' not in ('2026-11-16.3','2026-11-16.4','2026-11-17.1','2026-11-17.2','2026-11-17.3','2026-11-17.4','2026-11-17.5','2026-11-17.6','2026-11-17.7') and not(profile ? 'rankingRubricVersion') or profile->>'responseFormat'='discovery-ranked-json-schema-v2' and profile->>'version'='2026-11-16.3' and profile->>'rankingRubricVersion'='2026-11-16.1' or profile->>'responseFormat'='discovery-keyed-ranked-json-schema-v3' and profile->>'version' in ('2026-11-16.4','2026-11-17.1','2026-11-17.2','2026-11-17.3') and profile->>'rankingRubricVersion'='2026-11-16.1' or profile->>'responseFormat'='discovery-keyed-coded-ranking-json-schema-v4' and profile->>'version' in ('2026-11-17.4','2026-11-17.5','2026-11-17.6','2026-11-17.7') and profile->>'rankingRubricVersion'='2026-11-16.1'),false)
+  or not coalesce((profile->>'responseFormat'='discovery-json-schema-v1' and profile->>'version' not in ('2026-11-16.3','2026-11-16.4','2026-11-17.1','2026-11-17.2','2026-11-17.3','2026-11-17.4','2026-11-17.5','2026-11-17.6','2026-11-17.7','2026-11-17.8') and not(profile ? 'rankingRubricVersion') or profile->>'responseFormat'='discovery-ranked-json-schema-v2' and profile->>'version'='2026-11-16.3' and profile->>'rankingRubricVersion'='2026-11-16.1' or profile->>'responseFormat'='discovery-keyed-ranked-json-schema-v3' and profile->>'version' in ('2026-11-16.4','2026-11-17.1','2026-11-17.2','2026-11-17.3') and profile->>'rankingRubricVersion'='2026-11-16.1' or profile->>'responseFormat'='discovery-keyed-coded-ranking-json-schema-v4' and profile->>'version' in ('2026-11-17.4','2026-11-17.5','2026-11-17.6','2026-11-17.7','2026-11-17.8') and profile->>'rankingRubricVersion'='2026-11-16.1'),false)
   or jsonb_typeof(profile->'provider') is distinct from 'object'
   then raise exception 'Invalid request profile'; end if;
   if (profile->>'version' in ('2026-11-16.2','2026-11-16.3','2026-11-16.4','2026-11-17.6') and profile->'reasoning' is distinct from '{"effort":"low"}'::jsonb)
@@ -76,7 +76,7 @@ begin
   -- required in v16.1/v16.2 and forbidden in historical code-owned v15.2.
   -- Existing bound configuration remains immutable across lease/resume.
   if (provider ? 'zdr' and provider->'zdr' is distinct from 'true'::jsonb)
-  or (profile->>'version' in ('2026-11-16.1','2026-11-16.2','2026-11-16.3','2026-11-16.4','2026-11-17.1','2026-11-17.2','2026-11-17.3','2026-11-17.4','2026-11-17.5','2026-11-17.6','2026-11-17.7') and provider->'zdr' is distinct from 'true'::jsonb)
+  or (profile->>'version' in ('2026-11-16.1','2026-11-16.2','2026-11-16.3','2026-11-16.4','2026-11-17.1','2026-11-17.2','2026-11-17.3','2026-11-17.4','2026-11-17.5','2026-11-17.6','2026-11-17.7','2026-11-17.8') and provider->'zdr' is distinct from 'true'::jsonb)
   or (profile->>'version'='2026-11-15.2' and provider ? 'zdr')
   then raise exception 'Invalid request profile ZDR policy'; end if;
   if jsonb_array_length(provider->'only')<>1
@@ -96,6 +96,12 @@ begin
    and p_config->>'expectedProvider'='Parasail' and provider->'only'='["parasail/fp8"]'::jsonb
    and provider->'max_price'='{"prompt":0.35,"completion":1,"request":0}'::jsonb
    and p_config->'maxCostCredits'='0.216269'::jsonb and p_config->'maxOutputTokens'='4096'::jsonb
+   and p_config->'reviewBatchSize'='16'::jsonb,false) then raise exception 'Invalid approved runtime profile';end if;
+  if profile->>'version'='2026-11-17.8' and not coalesce(p_config->>'model'='google/gemma-4-26b-a4b-it'
+   and p_config->>'expectedProvider'='PrimeIntellect' and provider->'only'='["primeintellect/bf16"]'::jsonb
+   and provider->'max_price'='{"prompt":0.10,"completion":0.30,"request":0}'::jsonb
+   and profile->'reasoning'='{"effort":"none"}'::jsonb
+   and p_config->'maxCostCredits'='0.036045'::jsonb and p_config->'maxOutputTokens'='4096'::jsonb
    and p_config->'reviewBatchSize'='16'::jsonb,false) then raise exception 'Invalid approved runtime profile';end if;
   prices:=provider->'max_price';
   if (prices-'prompt'-'completion'-'request')<>'{}'::jsonb

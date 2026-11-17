@@ -33,3 +33,7 @@ Reasoning omission must survive canonical construction and SQL audit. Temperatur
 - [ ] Root: conduct one fresh normal-candidate nonpublishing trial, inspect actual provider/usage and independently review complete output before accepting any sample.
 
 Formal quality thresholds, owner sample review, actual public canary/readback and production cutover remain separate requirements. No default-model replacement or new arbitrary model-choice interface is introduced.
+
+## Superseding owner direction
+
+The owner excludes NVIDIA and Meta, directs Gemma deployment, and accepts best-effort editorial imperfections. No further Meta/NVIDIA activation or paid test is permitted. Historical records remain for reconciliation. The active implementation and deployment evidence are in `docs/evidence/2026-11-17-gemma-deployment.md`.

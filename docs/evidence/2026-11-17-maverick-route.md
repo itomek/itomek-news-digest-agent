@@ -1,4 +1,6 @@
-# Meta Llama 4 Maverick route — November 17
+# Historical Meta Llama 4 route — disabled
+
+**Superseded:** The owner excludes Meta and NVIDIA from further use. These records describe historical testing only; active model selection and fresh reservations reject those models. Existing costs, profiles and late-accounting evidence are preserved.
 
 The operator selected one alternative for a bounded nonpublishing trial after real GPT-oss drafts failed length and qualification checks and a separate NVIDIA/DeepInfra request hit upstream capacity limits. Meta Llama 4 is an American open-weight model; no editorial superiority is assumed.
 

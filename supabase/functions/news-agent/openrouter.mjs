@@ -42,7 +42,15 @@ function classifyHttpError(data,secret){
  if(typeof raw==='string'){try{nested=JSON.parse(raw);}catch{}}
  else if(raw&&typeof raw==='object')nested=raw;
  const error=data?.error;
- const code=[error?.metadata?.provider_error_code,error?.metadata?.provider_code,error?.code,nested?.error?.code,nested?.code].find(value=>upstreamErrorCodes.has(value));
+ const upstream=[error?.metadata?.provider_error_code,error?.metadata?.provider_code,nested?.error?.code,nested?.code].find(value=>upstreamErrorCodes.has(value));
+ let code=upstream??(upstreamErrorCodes.has(error?.code)?error.code:undefined);
+ // Classify only explicit failure wording into existing fixed enums. Raw text
+ // never survives; this is diagnostic evidence, never billing reconciliation.
+ if(code===undefined||[400,'invalid_request_error','api_error'].includes(code)){
+  const messages=[error?.message,nested?.error?.message,nested?.message,...(typeof raw==='string'&&!nested?[raw]:[])].filter(value=>typeof value==='string'&&value.length<=8192);
+  if(messages.some(message=>/\b(?:maximum )?context (?:length|window)\b.{0,160}\b(?:exceed(?:s|ed|ing)?|too (?:many|long|large)|however|requested)\b|\b(?:prompt|input)\b.{0,120}\btokens?\b.{0,120}\bexceed(?:s|ed|ing)?\b/i.test(message)))code='context_length_exceeded';
+  else if(messages.some(message=>/\b(?:json[ -]?)?schema\b.{0,120}\b(?:unsupported|not supported|too large|exceeds?)\b|\bunsupported\b.{0,120}\b(?:json[ -]?)?schema\b|\bresponse_format\b.{0,80}\b(?:unsupported|not supported)\b/i.test(message)))code='unsupported_parameter';
+ }
  const type=[error?.metadata?.error_type,error?.type,nested?.error?.type,nested?.type].find(value=>typedErrors.has(value));
  return sanitizedHttpDiagnostics({providerErrorCode:code,providerErrorType:type,errorProvider:error?.metadata?.provider_name,limitSource:error?.metadata?.limit_source,requestId:data?.id},secret);
 }

@@ -64,6 +64,30 @@ try{
  for(const role of ['anon','authenticated','service_role']){await db.exec('set role '+role);await db.exec('savepoint typed_worker');await assert.rejects(()=>typed(),/permission/);await db.exec('rollback to typed_worker');await db.exec('reset role');}
  assert.equal(await v("select shadow_agent.settle($1,$2,'settled',.01) v",[attempt,lease]),true,'Schema quarantine retains original-token late accounting');assert.equal((await q('select status from shadow_agent.verification_jobs'))[0].status,'uncertain');
  await db.exec('rollback');
+ // The explicit owner mitigation may keep protocol4 while skipping another
+ // oversized source before any new paid call; it never retries this old job.
+ for(const failedProfile of ['2026-11-17.verify.3','2026-11-17.verify.4']){
+  await db.exec('begin');await q('update shadow_agent.verification_jobs set metadata=$1',[{model:'openai/gpt-oss-120b',expectedProvider:'Cerebras',profileVersion:failedProfile}]);await q('update shadow_agent.verification_audit set audit=$1',[rejectedAudit]);
+  const generic=(profile='2026-11-17.verify.4',sha=manifest)=>v('select shadow_agent.quarantine_rejected_cerebras_request($1,$2,$3,$4,$5,$6) v',[job,attempt,7,profile,sha,'Owner verified manifest rejects the prior 187k source under a 100000-byte pre-model acquisition limit without truncation; billing remains unknown, other candidates only.']);
+  async function genericRefused(sql,pattern,profile='2026-11-17.verify.4',sha=manifest){await db.exec('savepoint generic_refusal');if(sql)await db.exec(sql);await assert.rejects(()=>generic(profile,sha),pattern);await db.exec('rollback to generic_refusal');}
+  for(const profile of ['2026-11-17.verify.3','unreviewed'])await genericRefused(null,/provenance/,profile);
+  await genericRefused(null,/provenance/,'2026-11-17.verify.4','invalid-manifest');
+  await genericRefused("update shadow_agent.runs set held_credits=.1",/hold/);
+  await genericRefused("update shadow_agent.verification_jobs set receipt_id=gen_random_uuid()",/receipt|inbox/i);
+  await genericRefused("update shadow_agent.verification_jobs set metadata=jsonb_set(metadata,'{profileVersion}','\"2026-11-16.verify.1\"')",/V3\/V4 Cerebras/);
+  await genericRefused("update shadow_agent.verification_jobs set metadata=jsonb_set(metadata,'{expectedProvider}','\"Groq\"')",/V3\/V4 Cerebras/);
+  await genericRefused("update shadow_agent.runtime_settings set model='nvidia/nemotron-3.5-super-vl'",/reviewed/i);
+  await genericRefused(`update shadow_agent.verification_audit set audit='{"errorCode":"timeout"}'`,/Recorded HTTP 400/);
+  await genericRefused(`update shadow_agent.verification_audit set audit='{"errorCode":"http_failure","diagnostic":{"httpStatus":400,"providerErrorType":"permission_error"}}'`,/Recorded HTTP 400/);
+  if(failedProfile==='2026-11-17.verify.4'){await db.exec('savepoint narrow_unchanged');await assert.rejects(()=>typed(),/Exact V3 Cerebras/);await db.exec('rollback to narrow_unchanged');}
+  const financialBefore=await snapshot(),jobBefore=(await q("select to_jsonb(j)-'quarantined' value from shadow_agent.verification_jobs j"))[0].value;
+  assert.equal((await generic()).quarantined,true);assert.deepEqual(await snapshot(),financialBefore);assert.deepEqual((await q("select to_jsonb(j)-'quarantined' value from shadow_agent.verification_jobs j"))[0].value,jobBefore);
+  const event=(await q('select * from shadow_agent.verification_quarantine_audit'))[0];assert.equal(event.job_before.metadata.profileVersion,failedProfile);assert.equal(event.replacement_profile_version,'2026-11-17.verify.4');assert.equal(event.deployment_sha256,manifest);assert.deepEqual(event.unknown_audit,rejectedAudit);
+  assert.equal(await generic(),null);await db.exec('savepoint generic_fence');await assert.rejects(()=>v('select shadow_agent.claim($1,120) v',[run]),/Quarantined/);await db.exec('rollback to generic_fence');
+  for(const role of ['anon','authenticated','service_role']){await db.exec('set role '+role);await db.exec('savepoint generic_worker');await assert.rejects(()=>generic(),/permission/);await db.exec('rollback to generic_worker');await db.exec('reset role');}
+  assert.equal(await v("select shadow_agent.settle($1,$2,'settled',.01) v",[attempt,lease]),true);assert.equal((await q('select status from shadow_agent.verification_jobs'))[0].status,'uncertain');assert.equal(Number((await q('select held_credits from shadow_agent.verification_quarantine_audit'))[0].held_credits),.157287);
+  await db.exec('rollback');
+ }
  const before=await snapshot();const result=await call();assert.equal(result.quarantined,true);assert.deepEqual(await snapshot(),before,'All money, workflow, attempts and existing audits unchanged');
  assert.equal((await q('select status,quarantined from shadow_agent.verification_jobs'))[0].status,'uncertain');assert.equal((await q('select quarantined from shadow_agent.verification_jobs'))[0].quarantined,true);
  assert.equal(await call(),null,'Repeated owner action cannot create another audit');

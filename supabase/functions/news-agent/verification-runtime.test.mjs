@@ -160,3 +160,7 @@ test('wire-valid oversized text and empty evidence IDs retain private result and
  const out=await run(f),settlement=f.events.find(e=>e.name==='warpcore_verification_settle').args;assert.equal(out.status,'deferred');assert.equal(out.reason,'unsupported_verification');assert.equal(settlement.p_status,'settled');assert.equal(settlement.p_cost,.01);assert.deepEqual(settlement.p_audit.result,wireResult(f.result,f.projectedInput));assert.equal(settlement.p_audit.validationError,undefined);assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);assert.ok(f.events.findIndex(e=>e.name==='warpcore_verification_settle')<f.events.findIndex(e=>e.name==='warpcore_verification_finish'));
  }
 });
+test('pilot source capacity guard defers over100KB before any paid reservation without truncation',async()=>{
+ const f=fixture();f.evidenceFetcher=async()=>new Response(new ReadableStream({start(controller){controller.enqueue(new TextEncoder().encode('x'.repeat(100001)));controller.close();}}),{headers:{'content-type':'text/plain'}});
+ const out=await run(f);assert.equal(out.status,'deferred');assert.equal(out.reason,'evidence_or_history_unavailable');assert.equal(f.events.some(e=>['model_post','warpcore_verification_reserve','warpcore_verification_dispatch'].includes(e.name)),false);assert.equal(f.events.at(-1).name,'warpcore_verification_finish');
+});

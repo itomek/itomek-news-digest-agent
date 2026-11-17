@@ -147,7 +147,7 @@ test('HTTP error diagnostics expose only status and fixed code/type classificati
  await assert.rejects(reviewWithOpenRouter(request(),config(),async()=>{
   calls++;return Response.json({error:{code:400,message:privateText,metadata:{provider_name:privateText,raw:JSON.stringify({error:{type:'invalid_request_error',code:'unsupported_parameter',message:privateText}})}}},{status:400});
  }),e=>{
-  assert.equal(e.code,'http_failure');assert.equal(e.outcome,'uncertain');assert.equal(e.httpStatus,400);assert.equal(e.providerErrorCode,400);assert.equal(e.providerErrorType,'invalid_request_error');
+  assert.equal(e.code,'http_failure');assert.equal(e.outcome,'uncertain');assert.equal(e.httpStatus,400);assert.equal(e.providerErrorCode,'unsupported_parameter');assert.equal(e.providerErrorType,'invalid_request_error');
   assert.equal(JSON.stringify(e).includes(privateText),false);assert.equal(e.message.includes(privateText),false);assert.equal(Object.hasOwn(e,'usage'),false);return true;
  });assert.equal(calls,1);
 });
@@ -260,3 +260,10 @@ test('actual DeepInfra engine overload code takes precedence over wrapper and al
 test('Together diagnostic identity is retained only as reviewed provider enum',async()=>{
  const {sanitizedHttpDiagnostics}=await import('./openrouter.mjs');assert.deepEqual(sanitizedHttpDiagnostics({errorProvider:'Together',providerErrorCode:'engine_overloaded'}),{errorProvider:'Together',providerErrorCode:'engine_overloaded'});assert.deepEqual(sanitizedHttpDiagnostics({errorProvider:'Together private text'}),{});
 });
+test('explicit provider context/schema wording maps only to fixed diagnostics and specific upstream codes win',async()=>{
+ for(const [message,expected] of [['Maximum context length of 65536 tokens was exceeded','context_length_exceeded'],['Prompt contains 90000 tokens and exceeds the model limit','context_length_exceeded'],['JSON schema uses an unsupported keyword','unsupported_parameter'],['response_format is not supported','unsupported_parameter']])await assert.rejects(reviewWithOpenRouter(request(),config(),async()=>Response.json({error:{code:400,type:'invalid_request_error',message:'private-key '+message}},{status:400})),e=>e.providerErrorCode===expected&&e.providerErrorType==='invalid_request_error'&&!JSON.stringify(e).includes('private-key'));
+ await assert.rejects(reviewWithOpenRouter(request(),config(),async()=>Response.json({error:{code:400,metadata:{provider_error_code:'engine_overloaded',raw:JSON.stringify({error:{message:'Maximum context length is exceeded'}})}}},{status:400})),e=>e.providerErrorCode==='engine_overloaded');
+ await assert.rejects(reviewWithOpenRouter(request(),config(),async()=>Response.json({error:{code:400,message:'private arbitrary failure'}},{status:400})),e=>e.providerErrorCode===400&&!JSON.stringify(e).includes('private arbitrary'));
+});
+
+test('context diagnostics do not infer overflow from a supported token limit alone',async()=>{for(const message of ['Invalid request: input tokens are 10, within the supported limit','Maximum context length is 131072; input remains within budget'])await assert.rejects(reviewWithOpenRouter(request(),config(),async()=>Response.json({error:{code:400,message}},{status:400})),e=>e.providerErrorCode===400&&!JSON.stringify(e).includes(message));});

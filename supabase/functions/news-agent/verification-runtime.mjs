@@ -96,7 +96,7 @@ export async function runVerificationInvocation({config={},rpc,modelFetcher,evid
   const snapshot=await rpc('warpcore_curator_snapshot',{p_story:job.storyKey});
   if(!plain(snapshot)||snapshot.story_key!==job.storyKey||!sha(snapshot.evidence_hash)||!Array.isArray(snapshot.evidence)||snapshot.evidence.length<1||snapshot.evidence.length>20)throw Error();
   const evidence=snapshot.evidence.map(e=>{if(!plain(e))throw Error();return project(e,['id','url','text','sourceType','visibility','sourceLinks','nativeUri','nativeUrl','nativeCid','nativeAuthorDid']);});
-  const history=await readHistory(rpc,started),sources=[];let remainingBytes=200000;
+  const history=await readHistory(rpc,started),sources=[];let remainingBytes=100000; // Pilot capacity mitigation: full captures or deferral, never truncation; not a proven context limit.
   for(const item of evidence){
    if(Date.now()-started>30000||remainingBytes<1)throw Error();
    if(item.sourceType==='bluesky'){

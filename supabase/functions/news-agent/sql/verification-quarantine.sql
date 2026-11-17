@@ -136,5 +136,56 @@ begin
  return jsonb_build_object('jobId',j.id,'attemptId',a.id,'quarantined',true,'billingStatus','unknown_held','replacementProfile',p_replacement_profile,'deploymentSha256',p_deployment_sha256);
 end $$;
 revoke all on function shadow_agent.quarantine_rejected_verification_v3(uuid,uuid,bigint,text,text,text) from public,anon,authenticated,service_role;
+-- Owner attests a reviewed corrective deployment (such as a pre-model source-size
+-- skip), never resolved billing, provider compatibility, or replay authorization.
+create function shadow_agent.quarantine_rejected_cerebras_request(p_job uuid,p_attempt uuid,p_revision bigint,p_replacement_profile text,p_deployment_sha256 text,p_reason text) returns jsonb
+language plpgsql security invoker set search_path='' as $$
+declare j shadow_agent.verification_jobs;r shadow_agent.runs;a shadow_agent.attempts;b shadow_agent.budgets;x jsonb;model_id text;approved jsonb;
+begin
+ if p_replacement_profile is distinct from '2026-11-17.verify.4' or p_deployment_sha256 is null or length(p_deployment_sha256)<>64 or p_deployment_sha256 !~ '^[a-f0-9]{64}$' then raise exception 'Exact reviewed V4 deployment provenance required';end if;
+ if p_reason is null or length(btrim(p_reason,U&'\0009\000A\000B\000C\000D\0020\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000\FEFF')) not between 1 and 1000
+ or p_reason ~ U&'[\0001-\001F\007F-\009F]' then raise exception 'Explicit quarantine reason required';end if;
+ perform shadow_agent.verification_lock();
+ if not pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended('warpcore_shared_admission_v1',0)) then
+  raise exception using errcode='55P03',message='Shared admission busy';end if;
+ -- Freeze reviewed runtime selection until this transaction ends.
+ select model into model_id from shadow_agent.runtime_settings where singleton for share nowait;
+ approved:=shadow_agent.approved_runtime_model(model_id);
+ if approved is null or approved->>'model' is distinct from model_id or approved->>'provider' is distinct from 'Cerebras' then raise exception 'Reviewed active runtime model required';end if;
+ select * into j from shadow_agent.verification_jobs where id=p_job;
+ if not found or j.quarantined then return null;end if;
+ -- Follow accounting's budget -> run -> attempt order. Job identity is stable
+ -- under the shared verification lock; no financial values are rewritten.
+ select * into b from shadow_agent.budgets where day=(select day from shadow_agent.attempts where id=p_attempt and run_id=j.child_run_id) for update;
+ select * into r from shadow_agent.runs where id=j.child_run_id for update;
+ if not found or p_revision is null or r.revision is distinct from p_revision then return null;end if;
+ select * into a from shadow_agent.attempts where id=p_attempt and run_id=j.child_run_id for update;
+ if not found then return null;end if;
+ if j.status is distinct from 'uncertain' then raise exception 'Uncertain verification job required';end if;
+ if model_id is distinct from 'openai/gpt-oss-120b' or j.metadata->>'model' is distinct from model_id
+ or j.metadata->>'expectedProvider' is distinct from 'Cerebras' or not coalesce(j.metadata->>'profileVersion' in ('2026-11-17.verify.3','2026-11-17.verify.4'),false) then raise exception 'Exact V3/V4 Cerebras request required';end if;
+ if r.state->>'storageKind' is distinct from 'verification-v1' or r.state->>'runId' is distinct from r.id::text
+ or r.state->'revision' is distinct from to_jsonb(r.revision) or r.state->'publishingEnabled' is distinct from 'false'::jsonb
+ then raise exception 'Invalid verification workflow snapshot';end if;
+ if a.status<>'uncertain' or a.actual is not null or (select count(*) from shadow_agent.attempts where run_id=r.id)<>1
+ or exists(select 1 from shadow_agent.verification_audit where job_id=p_job and status='settled')
+ then raise exception 'Exactly one unknown unsettled attempt required';end if;
+ if a.reserved<=0 or r.held_credits is distinct from a.reserved or b.held_credits is null or b.held_credits<a.reserved then raise exception 'Full unknown hold required';end if;
+ if j.receipt_id is not null or j.handoff_inbox_id is not null
+ or exists(select 1 from agent_verification.receipts where material->>'storyKey'=j.story_key)
+ or exists(select 1 from public.warpcore_curator_inbox where story_key=j.story_key)
+ or exists(select 1 from public.warpcore_publications where story_key=j.story_key)
+ then raise exception 'Receipt or inbox/publication already exists';end if;
+ select audit into x from shadow_agent.verification_audit where job_id=p_job and status='uncertain';
+ if not found or x ? 'usage' or x->>'errorCode' is distinct from 'http_failure'
+ or x->'diagnostic'->'httpStatus' is distinct from '400'::jsonb
+ or x->'diagnostic'->>'providerErrorType' is distinct from 'invalid_request_error'
+ then raise exception 'Recorded HTTP 400 invalid_request_error required';end if;
+ insert into shadow_agent.verification_quarantine_audit(job_id,attempt_id,run_id,revision,request_hash,job_before,run_before,attempt_before,budget_before,unknown_audit,held_credits,spent_credits,replacement_model,replacement_profile_version,deployment_sha256,reason)
+ values(j.id,a.id,r.id,r.revision,a.request_hash,to_jsonb(j),to_jsonb(r),to_jsonb(a),to_jsonb(b),x,r.held_credits,r.spent_credits,model_id,p_replacement_profile,p_deployment_sha256,p_reason);
+ update shadow_agent.verification_jobs set quarantined=true where id=j.id and not quarantined;
+ return jsonb_build_object('jobId',j.id,'attemptId',a.id,'quarantined',true,'billingStatus','unknown_held','replacementProfile',p_replacement_profile,'deploymentSha256',p_deployment_sha256);
+end $$;
+revoke all on function shadow_agent.quarantine_rejected_cerebras_request(uuid,uuid,bigint,text,text,text) from public,anon,authenticated,service_role;
 revoke all on function shadow_agent.verification_quarantine_immutable(),shadow_agent.verification_quarantined_job_fence(),shadow_agent.verification_quarantined_run_fence(),shadow_agent.quarantine_verification_job(uuid,uuid,bigint,text) from public,anon,authenticated,service_role;
 commit;

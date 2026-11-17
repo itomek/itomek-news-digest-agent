@@ -49,7 +49,7 @@ test('oversized verification error body is cancelled while safe status/retry dia
 });
 test('whole-runtime Cerebras allows8192 verification tokens while preserving its distinct verification schema',async()=>{
  const verify=await adapter(),input=(await import('./verification-contract.mjs')).reconstructVerificationInput(JSON.parse(request().messages[1].content)),r=buildVerificationRequest(input,{model,maxOutputTokens:8192});
- const out=await verify(r,config(),async(_url,options)=>{const body=JSON.parse(options.body);assert.equal(body.max_tokens,8192);assert.deepEqual(body.provider.only,['cerebras/fp16']);assert.deepEqual(body.reasoning,{effort:'low'});assert.equal(body.response_format.json_schema.name,'primary_evidence_verification_v6');return Response.json(payload());});assert.equal(out.provider,'Cerebras');
+ const out=await verify(r,config(),async(_url,options)=>{const body=JSON.parse(options.body);assert.equal(body.max_tokens,8192);assert.deepEqual(body.provider.only,['cerebras/fp16']);assert.deepEqual(body.reasoning,{effort:'low'});assert.equal(body.response_format.json_schema.name,'primary_evidence_verification_v7');return Response.json(payload());});assert.equal(out.provider,'Cerebras');
  await assert.rejects(verify({...r,max_tokens:8193},config(),()=>assert.fail()),e=>e.outcome==='not_started');
 });
 test('V2 canonical source schema rejects observed ISO date/claims omissions and RSS reposts with known billing',async()=>{

@@ -14,7 +14,7 @@
 
 - Preserve the complete raw capture, exact concatenation, SHA-256, date/identity checks and actual 300-grapheme/3000-byte post guard.
 - Preserve V1–V5 canonical requests and their historical immutable accounting.
-- Use `2026-11-17.verify.6`; change the SQL reservation allowlist only. Existing provider, token, reservation, daily and lifetime limits stay intact.
+- Use `2026-11-17.verify.7`, retaining V6 field-role behavior and historical V1–V6 request bytes; change the SQL reservation allowlist only. Existing provider, output-token, reservation, daily and lifetime limits stay intact. Cerebras generic captures allow 120000 bytes, GitHub API captures stay at 100000, and other routes stay at 200000; captures are never cropped.
 - Keep automatic publication disabled during implementation and real-model preview evaluation. Do not replay attempted jobs or release unknown holds.
 - Technical claims may reference only release-body chunks; publication date may reference only the top-level publication-date value. This is a trusted runtime restriction, not a new SQL entailment proof.
 
@@ -57,3 +57,9 @@ Root owns deployment, evidence and integration; `rank_sql` performs independent 
 - [ ] Independently review complete text, quoted support, freshness, follow-ups and history; record pass or hold without replacing editorial acceptance with a receipt.
 
 No additional provider tuning, output-cap increase, source expansion, broad parser framework or discovery cache is included. Owner go/no-go, actual public canary rendering/readback and the remaining issue #159 acceptance requirements remain separate gates.
+
+## Reviewed refinement after the first live V6 follow-up
+
+- [x] Add a combined word target and directly supported second-fact guidance in V7 while preserving exact V6 requests and all existing quote-role proofs.
+- [x] Permit the complete 108006-byte MLPerf article within a 120000-byte Cerebras bound, with 120001-byte prepay rejection and unchanged API ceiling. Earlier actual Cerebras processing of this article is recorded separately from editorial acceptance.
+- [ ] If testing that previously deferred article, allocate one explicitly logged operator diagnostic from an existing completed run's unattempted verify decision, using existing locks, exact state assertions and the normal claim/inference/receipt pipeline. Do not rewrite its closed current-run job, rankings, cutoff, timestamps, attempts or finances; do not report operator selection as autonomous-ranking acceptance.

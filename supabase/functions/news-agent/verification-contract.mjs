@@ -24,7 +24,7 @@ export const VERIFICATION_RESPONSE_FORMAT={type:'json_schema',json_schema:{name:
  object({action:{type:'string',enum:['approve']},editorial:editorialSchema,claims:{type:'array',items:claimSchema},publicationDate:str,scopeReason:str,changeReason:str,dedupReason:str}),
  object({action:{type:'string',enum:['defer']},reason:str}),
 ]}})}};
-const V2='2026-11-17.verify.2',V3='2026-11-17.verify.3',V4='2026-11-17.verify.4',V5='2026-11-17.verify.5',V6='2026-11-17.verify.6';
+const V2='2026-11-17.verify.2',V3='2026-11-17.verify.3',V4='2026-11-17.verify.4',V5='2026-11-17.verify.5',V6='2026-11-17.verify.6',V7='2026-11-17.verify.7';
 const pgSafe=value=>typeof value==='string'&&!/[\u0000\uD800-\uDFFF]/u.test(value);
 const quoteIdPattern=/^source-[1-9][0-9]*-(?:chunk-[0-9]{4}|original-text|created-at)$/;
 export function splitVerificationBody(body){
@@ -34,12 +34,12 @@ export function splitVerificationBody(body){
  chunks.push(body.slice(start,end));start=end;}
  return chunks;
 }
-export function projectVerificationInput(input,{version=V6}={}){
+export function projectVerificationInput(input,{version=V7}={}){
  validateInput(input);
  return {...structuredClone(input),sources:input.sources.map((source,index)=>{
   const {body,...metadata}=source,base='source-'+(index+1),evidence=input.evidence.find(e=>e.id===source.evidenceId),native=evidence.sourceType==='bluesky';
   let chunks=splitVerificationBody(body),roles;
-  if(version===V6&&source.captureKind==='github-release-v1'){
+  if([V6,V7].includes(version)&&source.captureKind==='github-release-v1'){
    const spans=githubReleaseStringSpans(body),boundaries=[...new Set([0,body.length,...Object.values(spans).flatMap(span=>[span.start,span.end])])].sort((a,b)=>a-b);
    chunks=[];roles={content:[],publicationDate:[]};
    for(let j=1;j<boundaries.length;j++){const start=boundaries[j-1],end=boundaries[j];for(const text of splitVerificationBody(body.slice(start,end))){const index=chunks.length;chunks.push(text);if(start>=spans.body.start&&end<=spans.body.end)roles.content.push(index);if(start>=spans.published_at.start&&end<=spans.published_at.end)roles.publicationDate.push(index);}}
@@ -50,7 +50,7 @@ export function projectVerificationInput(input,{version=V6}={}){
   const label=primarySourceAttributionLabel(source.url);return {...metadata,bodyChunks,...(quoteRoles?{quoteRoles}:{}),attributionPrefix:label?label+' reports: ':''};
  })};
 }
-export function reconstructVerificationInput(projected,{version=V6}={}){
+export function reconstructVerificationInput(projected,{version=V7}={}){
  if(!projected||!Array.isArray(projected.sources))fail();
  const input={...structuredClone(projected),sources:projected.sources.map(source=>{
   if(!source||Object.hasOwn(source,'body')||!Array.isArray(source.bodyChunks)||!source.bodyChunks.length||source.bodyChunks.length>200||source.bodyChunks.some(c=>!exact(c,['id','text'])||typeof c.text!=='string'||c.text.length>2500))fail();
@@ -139,7 +139,8 @@ function fullV6Format(input){
   return true;
  });return full;
 }
-export function buildVerificationResponseFormat(input,{version=V6}={}){
+export function buildVerificationResponseFormat(input,{version=V7}={}){
+ if(version===V7)return providerCompatibleVerificationFormat(fullV6Format(input),'primary_evidence_verification_v7');
  if(version===V6)return providerCompatibleVerificationFormat(fullV6Format(input),'primary_evidence_verification_v6');
  if(version===V5)return providerCompatibleVerificationFormat(fullV5Format(input),'primary_evidence_verification_v5');
  if(version===V4)return providerCompatibleVerificationFormat(buildVerificationResponseFormat(input,{version:V3}));
@@ -179,11 +180,11 @@ export function matchesVerificationSchema(value,schema,root=schema){
   default:return false;
  }
 }
-export function normalizeVerificationResult(result,input,{version=V6}={}){
- if(version===V6&&result?.action==='approve'&&input.sources.some(source=>source.captureKind==='github-release-v1'&&result.editorial?.evidenceIds?.includes(source.evidenceId))&&(!result.supports||!Object.values(result.supports).every(value=>typeof value==='string')))fail();
+export function normalizeVerificationResult(result,input,{version=V7}={}){
+ if([V6,V7].includes(version)&&result?.action==='approve'&&input.sources.some(source=>source.captureKind==='github-release-v1'&&result.editorial?.evidenceIds?.includes(source.evidenceId))&&(!result.supports||!Object.values(result.supports).every(value=>typeof value==='string')))fail();
  if(!Object.hasOwn(result??{},'supports'))return result;
  const v3=Object.values(result.supports??{}).some(value=>typeof value==='string');
- const schema=(v3&&version===V6?fullV6Format(input):v3&&version===V5?fullV5Format(input):buildVerificationResponseFormat(input,{version:v3?V3:V2})).json_schema.schema;
+ const schema=(v3&&[V6,V7].includes(version)?fullV6Format(input):v3&&version===V5?fullV5Format(input):buildVerificationResponseFormat(input,{version:v3?V3:V2})).json_schema.schema;
  if(!matchesVerificationSchema({result},schema))fail();
  const {supports,...legacy}=structuredClone(result);
  let projection;
@@ -223,7 +224,7 @@ function validateInput(input){
  if(size>200000||new TextEncoder().encode(JSON.stringify(history.items)).length>500000)fail();
  return time;
 }
-export function buildVerificationRequest(input,{model,maxOutputTokens,version=V6}={}){
+export function buildVerificationRequest(input,{model,maxOutputTokens,version=V7}={}){
  validateInput(input);const approved=approvedRuntimeModel(model),profile=approved&&requestProfileForModel(model,approved.discoveryProfileVersion);
  if(!approved||!profile||!Number.isInteger(maxOutputTokens)||maxOutputTokens<1||maxOutputTokens>approved.maxOutputTokens)fail();
  const request={model,max_tokens:maxOutputTokens,provider:profile.provider,reasoning:profile.reasoning,response_format:buildVerificationResponseFormat(input,{version}),messages:[
@@ -234,20 +235,24 @@ export function buildVerificationRequest(input,{model,maxOutputTokens,version=V6
  if(version!==V2)request.messages[0].content+='\nV3 QUOTE REFERENCES: supports fields must each be exactly one provided quote ID string, never copied or normalized quote text and never an object. Ordinary quote IDs name exact raw body chunks; native quote IDs name only the original decoded record text and createdAt. Body chunks cover every original character without HTML normalization. Use a chunk containing the actual publication/release date for publicationDate; if unsupported, defer. Do not invent a quote ID or facts not established by its raw text. For ordinary summary, return concise text WITHOUT the trusted attributionPrefix shown in its selected source: trusted code prepends it. For any benchmark or performance claim, whyItMatters must state the material workload, cache/prefix or concurrency qualifications present in the source, never present a configured benchmark gain as a universal speedup. When that qualification cannot fit or is unsupported, defer.';
  if(version===V4)request.messages[0].content=request.messages[0].content.replace('V3 QUOTE REFERENCES:','V4 QUOTE REFERENCES:');
  if(version===V4){const full=buildVerificationResponseFormat(input,{version:V3}).json_schema.schema.properties.result.anyOf;const limits=full.filter(branch=>branch.properties.action.enum[0]==='approve').map(branch=>{const e=branch.properties.editorial.properties;return {evidenceIdsExactly:[...e.evidenceIds.items.enum],mode:e.mode?'repost':'post',...(e.summary?{summaryMaxLength:e.summary.maxLength,whyItMattersMaxLength:e.whyItMatters.maxLength}:{}),changeMaxLength:e.change.maxLength};});request.messages[0].content+='\nV4 TRUSTED EDITORIAL LIMITS: '+JSON.stringify(limits)+'. These are maximum character lengths for unprefixed wire text; use exactly the indicated single evidence ID. Trusted code adds the publisher prefix within the total 300-grapheme/3000-byte post limit. If meaningful qualified text cannot fit, defer.';}
- if([V5,V6].includes(version)){
+ if([V5,V6,V7].includes(version)){
   request.messages[0].content=request.messages[0].content.replace('V3 QUOTE REFERENCES:','V5 QUOTE REFERENCES:');
   const limits=fullV5Format(input).json_schema.schema.properties.result.anyOf.filter(b=>b.properties.action.enum[0]==='approve').map(b=>{const e=b.properties.editorial.properties;return {evidenceIdsExactly:e.evidenceIds.items.enum,mode:e.mode?'repost':'post',changeMaxLength:300,...(e.summary?{summaryMaxLength:e.summary.maxLength,whyItMattersMaxLength:e.whyItMatters.maxLength,summaryPlusWhyItMattersCombinedBudget:e.summary.maxLength}:{})};});
   request.messages[0].content+='\nV5 CONCISE OUTPUT LIMITS: '+JSON.stringify(limits)+'. scopeReason, changeReason, dedupReason and defer reason: each one concise sentence, at most 240 characters. Editorial change: at most 300 characters. Ordinary summary and whyItMatters share the indicated COMBINED budget, not separate allowances; allocate it asymmetrically as useful. Each individual text must also stay within its stated maximum. Trusted publisher prefix and all real source links are included in the final 300-grapheme/3000-byte rendered-post guard. Use exactly one indicated evidence ID. Do not enumerate history, reproduce sources, or repeat analysis in reasons. Return only the requested concise result and quote IDs; if qualified factual text cannot fit, defer.';
  }
- if(version===V6)request.messages[0].content=request.messages[0].content.replaceAll('V5 ','V6 ')+'\nV6 GITHUB RELEASE SUPPORT: For github-release-v1 captures, use quoteRoles.content IDs only for summary, whyItMatters and change. Use quoteRoles.publicationDate IDs only for publicationDate. All raw JSON chunks are retained for context, but metadata, assets, authors, URLs and counts cannot serve as release-note support. These roles constrain provenance only, not factual entailment or release novelty; defer when the release notes do not support the claim.';
+ if([V6,V7].includes(version))request.messages[0].content=request.messages[0].content.replaceAll('V5 ','V6 ')+'\nV6 GITHUB RELEASE SUPPORT: For github-release-v1 captures, use quoteRoles.content IDs only for summary, whyItMatters and change. Use quoteRoles.publicationDate IDs only for publicationDate. All raw JSON chunks are retained for context, but metadata, assets, authors, URLs and counts cannot serve as release-note support. These roles constrain provenance only, not factual entailment or release novelty; defer when the release notes do not support the claim.';
+ if(version===V7){
+  const targets=fullV6Format(input).json_schema.schema.properties.result.anyOf.filter(branch=>branch.properties.editorial?.properties.summary).map(branch=>({evidenceIdsExactly:branch.properties.editorial.properties.evidenceIds.items.enum,summaryPlusWhyItMattersTargetMaxWords:Math.max(1,Math.floor(branch.properties.editorial.properties.summary.maxLength/8))}));
+  request.messages[0].content+='\nV7 ORDINARY POST STYLE: '+JSON.stringify(targets)+'. For an ordinary post, summary plus whyItMatters TOTAL should target at most the indicated number of whitespace-separated words. This is a writing target, not permission to exceed any hard character, grapheme or byte cap. whyItMatters must be a SECOND directly supported concrete fact or qualification, never an inferred speed, reliability, compatibility or user-benefit claim. Preserve prerelease, release-candidate, unreviewed and vendor-reported qualifiers. Do not label a new feature as a performance gain without a reported measurement. If a supported second fact or necessary qualification cannot fit, defer. Native repost behavior is unchanged; do not add bot prose.';
+ }
  if(new TextEncoder().encode(JSON.stringify(request)).length>750000)fail();
  return request;
 }
-export async function validateVerificationResult(result,input,{version=V6}={}){
+export async function validateVerificationResult(result,input,{version=V7}={}){
  const time=validateInput(input),referenceSupports=result?.supports;
  result=normalizeVerificationResult(result,input,{version});
  if(result?.action==='defer'){
-  if(!exact(result,['action','reason'])||!text(result.reason,[V5,V6].includes(version)?240:1000))fail();
+  if(!exact(result,['action','reason'])||!text(result.reason,[V5,V6,V7].includes(version)?240:1000))fail();
   return {action:'defer',reason:result.reason};
  }
  if(!exact(result,['action','editorial','claims','publicationDate','scopeReason','changeReason','dedupReason'])||result.action!=='approve')fail();
@@ -265,7 +270,7 @@ export async function validateVerificationResult(result,input,{version=V6}={}){
  if(repost){if(selected.length!==1||selected[0].sourceType!=='bluesky'||validateNativeCapture(sources.get(selected[0].id),selected[0],input.now).publicationDate!==publicationDate)fail();}
  else if(selected.some(e=>e.sourceType==='bluesky'))fail();
  for(const item of selected){const source=sources.get(item.id);if(source?.captureKind!==undefined&&validateGithubReleaseCapture(source,item,input.now).publicationDate!==publicationDate)fail('verification_date_invalid');}
- const located=[],referenceProjection=version===V6&&referenceSupports?projectVerificationInput(input,{version}):undefined;
+ const located=[],referenceProjection=[V6,V7].includes(version)&&referenceSupports?projectVerificationInput(input,{version}):undefined;
  for(const [claimIndex,claim] of claims.entries()){
   if(!exact(claim,['claim','evidenceId','url','contentSha256','quote'])||!text(claim.claim)||!text(claim.quote,3000)||!editorial.evidenceIds.includes(claim.evidenceId))fail();
   const source=sources.get(claim.evidenceId);
@@ -278,7 +283,7 @@ export async function validateVerificationResult(result,input,{version=V6}={}){
    quote=JSON.stringify(claim.quote).slice(1,-1);
   }
   let index=source.body.indexOf(quote);
-  if(version===V6&&source.captureKind==='github-release-v1'){
+  if([V6,V7].includes(version)&&source.captureKind==='github-release-v1'){
    const chunks=referenceProjection?.sources.find(s=>s.evidenceId===source.evidenceId)?.bodyChunks,id=Object.values(referenceSupports??{})[claimIndex],selected=chunks?.findIndex(chunk=>chunk.id===id);
    if(selected===undefined||selected<0||chunks[selected].text!==quote)fail();
    index=chunks.slice(0,selected).reduce((offset,chunk)=>offset+chunk.text.length,0);

@@ -160,8 +160,15 @@ test('wire-valid oversized text and empty evidence IDs retain private result and
  const out=await run(f),settlement=f.events.find(e=>e.name==='warpcore_verification_settle').args;assert.equal(out.status,'deferred');assert.equal(out.reason,'unsupported_verification');assert.equal(settlement.p_status,'settled');assert.equal(settlement.p_cost,.01);assert.deepEqual(settlement.p_audit.result,wireResult(f.result,f.projectedInput));assert.equal(settlement.p_audit.validationError,undefined);assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);assert.ok(f.events.findIndex(e=>e.name==='warpcore_verification_settle')<f.events.findIndex(e=>e.name==='warpcore_verification_finish'));
  }
 });
-test('pilot source capacity guard defers over100KB before any paid reservation without truncation',async()=>{
- const f=fixture();f.evidenceFetcher=async()=>new Response(new ReadableStream({start(controller){controller.enqueue(new TextEncoder().encode('x'.repeat(100001)));controller.close();}}),{headers:{'content-type':'text/plain'}});
+test('Cerebras bounded generic capture preserves full108KB and120KB without truncation',async()=>{
+ for(const bytes of [108006,120000]){
+  const f=fixture(),base=f.evidenceFetcher;let raw;
+  f.evidenceFetcher=async(...args)=>{raw=(await(await base(...args)).text()).padEnd(bytes,' ');return new Response(raw,{headers:{'content-type':'text/plain'}});};
+  assert.equal((await run(f)).status,'submitted');assert.equal(new TextEncoder().encode(f.material.sources[0].body).length,bytes);assert.equal(f.material.sources[0].body,raw);assert.equal(f.material.sources[0].contentSha256,hash(raw));assert.equal(f.projectedInput.sources[0].bodyChunks.map(c=>c.text).join(''),raw);assert.equal(f.events.filter(e=>e.name==='model_post').length,1);
+ }
+});
+test('Cerebras source capacity guard defers over120KB before any paid reservation without truncation',async()=>{
+ const f=fixture();f.evidenceFetcher=async()=>new Response(new ReadableStream({start(controller){controller.enqueue(new TextEncoder().encode('x'.repeat(120001)));controller.close();}}),{headers:{'content-type':'text/plain'}});
  const out=await run(f);assert.equal(out.status,'deferred');assert.equal(out.reason,'evidence_or_history_unavailable');assert.equal(f.events.some(e=>['model_post','warpcore_verification_reserve','warpcore_verification_dispatch'].includes(e.name)),false);assert.equal(f.events.at(-1).name,'warpcore_verification_finish');
 });
 
@@ -195,11 +202,13 @@ test('provider source capacity preserves full150KB for NVIDIA and refuses it bef
   else{assert.equal(out.status,'submitted');assert.equal(f.material.sources[0].body,raw);assert.equal(f.material.sources[0].contentSha256,hash(raw));assert.equal(new TextEncoder().encode(raw).length,150000);assert.equal(f.projectedInput.sources[0].bodyChunks.map(c=>c.text).join(''),raw);assert.equal(f.events.filter(e=>e.name==='model_post').length,1);}
  }
 });
-test('NVIDIA larger ordinary-source allowance leaves GitHub API hard100KB before paid work',async()=>{
- const f=fixture(),model='nvidia/nemotron-3.5-super-vl',approved=approvedRuntimeModel(model),releaseUrl='https://github.com/lemonade-sdk/lemonade/releases/tag/v2026.47.1',item={...evidence,url:releaseUrl,sourceLinks:[releaseUrl]},base=f.rpc;
+test('Cerebras and NVIDIA ordinary-source allowances leave GitHub API hard100KB before paid work',async()=>{
+ for(const model of ['openai/gpt-oss-120b','nvidia/nemotron-3.5-super-vl']){
+ const f=fixture(),approved=approvedRuntimeModel(model),releaseUrl='https://github.com/lemonade-sdk/lemonade/releases/tag/v2026.47.1',item={...evidence,url:releaseUrl,sourceLinks:[releaseUrl]},base=f.rpc;
  Object.assign(f.config,{model,allowedModels:[model],expectedProvider:approved.provider,maxCostCredits:approved.maxCostCredits,allowedSourceHosts:['github.com']});f.rpc=async(name,args)=>name==='warpcore_curator_snapshot'?{story_key:story,evidence_hash:evidenceHash,evidence:[item]}:base(name,args);
- f.evidenceFetcher=async()=>Response.json({html_url:releaseUrl,tag_name:'v2026.47.1',draft:false,prerelease:true,published_at:f.now(),body:'x'.repeat(150000)});
+ f.evidenceFetcher=async()=>Response.json({html_url:releaseUrl,tag_name:'v2026.47.1',draft:false,prerelease:true,published_at:f.now(),body:'x'.repeat(100001)});
  assert.equal((await run(f)).reason,'evidence_or_history_unavailable');assert.equal(f.events.some(e=>['model_post','warpcore_verification_reserve','warpcore_verification_dispatch'].includes(e.name)),false);
+ }
 });
 test('V5 accepts meaningful asymmetric prose within real combined post budget, unlike historical half caps',async()=>{
  const {normalizeVerificationResult}=await import('./verification-contract.mjs');

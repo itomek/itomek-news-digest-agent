@@ -22,3 +22,15 @@ A credential-free historical regression rebuilt V6 from the actual held b12416 c
 These constraints establish field provenance at the trusted runtime/model boundary. The SQL receipt layer retains its existing raw-hash/span/date/API-identity proof; it is not a new SQL entailment checker. A release-body passage can still be misinterpreted, overgeneralized, superseded by a later correction or insufficiently meaningful. Independent factual, freshness, deduplication and material-follow-up review remain required for launch acceptance.
 
 Deployment and a fresh bounded actual-model preview are the next checks. Automatic submission remains disabled; no public Bluesky post is claimed by this checkpoint.
+
+## Bounded live follow-up and V7 refinement
+
+Runtime v18 was deployed from `d4c70b6` with all 29 dependencies, JWT enforcement and explicit import map. Its source-manifest SHA-256 is `d20f70339e14a45f91a1ff26b4d3a295470775deedd1fab1f20df15bc5d83060`; bundle SHA-256 is `1010c360b836db1555faa447292e8f353d6e99b72eb43e79d28f3fc3ae91efcb`. Submission and continuation cron remained disabled.
+
+The next normal MLPerf candidate deferred before inference because its full article exceeded the current 100000-byte Cerebras acquisition limit. A subsequent normal Lemonade 47.1 request used release-note quote IDs and a separate publication-date ID, completed and settled 0.01226445 credits, but exceeded the rendered post budget. No receipt was created. Its proposed significance also inferred faster inference from feature additions; this was not accepted as a verified performance claim.
+
+V7 preserves V6's wire grammar, quote roles and exact offsets, and adds a conservative source-specific combined word target plus guidance to make the second sentence another directly supported fact or qualification. It explicitly excludes inferred speed, reliability, compatibility or user benefits and retains prerelease, unreviewed and vendor-reported qualifiers. This is writing guidance, not a semantic guarantee; the existing hard post limits remain enforced.
+
+The Cerebras aggregate full-capture allowance becomes 120000 bytes. The MLPerf primary article was independently retrieved as 108006 bytes; an earlier actual Cerebras V4 request for that article completed with 57108 prompt tokens and 552 completion tokens, settling 0.02040180 credits. The previous blanket 100000-byte mitigation therefore excluded a source the route had already processed. Tests permit full 108006/120000-byte captures and defer 120001 bytes before paid dispatch. GitHub API captures retain their separate 100000-byte ceiling; other model routes retain 200000. This remains a bounded acquisition allowance, not a universal token-context guarantee or an output/spending-cap increase.
+
+Final V7 validation: 531 Node tests, Deno checking and all 37 embedded integration scripts pass, with independent review and explicit V6 canonical-hash regression. The reserve-only V7 admission artifact SHA-256 is `a035c93be1b720f7f1e51fe703d8ca6f46550af6f03bb7eccfdcda87b712c914`.

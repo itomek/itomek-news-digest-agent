@@ -10,11 +10,11 @@ This is the central current reference for Warp Core. The checkpoint below is an 
 |---|---|
 | Collector | Version 17, hourly at minute `:17`, active; 43 configured public sources |
 | Source acquisition health | All 43 sources attempted within the checkpoint’s two-hour window: 37 historical gaps, five partial traversals and one Perplexity HTTP 403 failure; these are distinct outcomes, not 43 collection outages |
-| Existing curator | Version 5, hourly at `:23`, active with the existing Dot pipeline |
+| Existing curator | Version 6, hourly at `:23`, active with the existing Dot pipeline and receipt-aware agent adapter; authenticated empty-queue check passed |
 | Publisher | Version 11, hourly at `:27`, active with its existing account, queue and guards |
-| Autonomous producer | `news-agent` version 3, discovery-stage bundle from commit `82036b5`; producer and minute continuation cron paused after an upstream HTTP 429 |
-| Paused discovery run | First run: 650 captured, 48 reviewed, 0.00762705 credits settled. Second run: 649 captured, 128 reviewed, 0.01642485 credits settled and 0.058983 credits held for unresolved HTTP 429 billing; zero agent inbox submissions |
-| Replacement discovery contract | Reviewed NVIDIA Nemotron 3.5 / DeepInfra profile `2026-11-17.4`, coded keyed schema v4, prepared for full-feed validation. Eight-case development canary completed in 3.219 seconds for 0.0007039 credits; seven provisional label matches, not held-out or owner acceptance |
+| Autonomous producer | `news-agent` version 5, discovery-stage bundle from `d447cf3`; Together profile `2026-11-17.5` full-feed validation in progress. Verification and submission remain off |
+| Paused discovery run | Earlier incomplete runs retain 0.0240519 settled credits and 0.21627 unknown held credits. Both HTTP-429 workflows are quarantined; no holds were released. Current Together run captured 650 candidates; final coverage and quality are not yet accepted |
+| Replacement discovery contract | Reviewed NVIDIA Nemotron 3.5 / Together profile `2026-11-17.5`, coded keyed schema v4. It preserves the `.17.4` prompt and schema while changing the pinned provider; historical profiles remain immutable. Development label agreement is not held-out or owner acceptance |
 | Verification and admission | Receipt, verification-job and shared five-item guard SQL installed; verification disabled and `submit_enabled=false` |
 | Spending policy | Private ledger and existing prepaid OpenRouter credits; recorded limits are 2 credits per UTC day and 19.99 credits lifetime |
 | Exception alerts | Dashboard delivery implemented as a prepared option; disabled. The owner has not selected the delivery channel |

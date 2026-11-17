@@ -48,8 +48,8 @@ async function main(){
     await q("insert into shadow_agent.budgets(day,limit_credits) values ((clock_timestamp() at time zone 'utc')::date,$1)",[plan.reservationUsd]);
     await q('insert into shadow_agent.runs(id,state,limit_credits) values ($1,$2,$3)',[plan.runId,newPagedShadowRun({runId:plan.runId,scanStartedAt:new Date().toISOString()}),plan.reservationUsd]);
     const lease=await value('select shadow_agent.claim($1,1) as value',[plan.runId]);
-    await value('select shadow_agent.paged_append($1,$2,0,$3) as value',[plan.runId,lease,plan.candidates]);
-    await value('select shadow_agent.paged_append($1,$2,1,$3) as value',[plan.runId,lease,[]]);
+    await value('select shadow_agent.paged_append($1,$2,0,$3) as value',[plan.runId,lease,JSON.stringify(plan.candidates)]);
+    await value('select shadow_agent.paged_append($1,$2,1,$3) as value',[plan.runId,lease,JSON.stringify([])]);
     await client.query('commit');
    }catch(error){await client.query('rollback');throw error;}
    const enc=v=>Buffer.from(JSON.stringify(v)).toString('base64url');

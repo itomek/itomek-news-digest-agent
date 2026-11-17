@@ -59,3 +59,21 @@ test('drain does not start another step after10s or replay deferred work',async(
  let calls=0,clock=0;const app=createHostedApplication({...config,drain:true},{now:()=>clock,bootstrapRpc:async name=>name==='warpcore_agent_authorization'?{enabled:true,producerToken:token}:{model:'google/gemma-4-26b-a4b-it',apiKey:'private-test-key',maxOutputTokens:4096,maxCostCredits:.036045,allowedSourceHosts:['example.com']},createDiscoveryService:()=>({selectRun:async()=>'11111111-1111-4111-8111-111111111111',runInvocation:async()=>{calls++;clock=40000;return {status,state:{phase:'review',candidateCount:16,reviewedCount:16}};}})});assert.equal((await app(request())).status,200);assert.equal(calls,1);
  }
 });
+
+function drainingVerifier(results,now=()=>0){
+ let calls=0;const app=createHostedApplication({...config,drain:true},{now,bootstrapRpc:async name=>name==='warpcore_agent_authorization'?{enabled:true,producerToken:token}:{model:'google/gemma-4-26b-a4b-it',apiKey:'private-test-key',maxOutputTokens:4096,maxCostCredits:.036045,allowedSourceHosts:['example.com']},createDiscoveryService:()=>({selectRun:async()=>null}),createVerifierService:()=>({runInvocation:async()=>{calls++;return results[Math.min(calls-1,results.length-1)];}})});return {app,calls:()=>calls};
+}
+test('finished item deferrals advance to the next queued story in the same invocation',async()=>{
+ for(const reason of ['evidence_or_history_unavailable','unapproved_primary_source','model_deferred','billed_invalid_completion','verification_post_unpublishable']){
+  const f=drainingVerifier([{status:'deferred',reason},{status:'submitted'},{status:'idle'}]);const r=await f.app(request()),body=await r.json();assert.equal(r.status,200);assert.equal(f.calls(),3);assert.deepEqual(body.steps.map(s=>s.status),['deferred','submitted','idle']);
+ }
+});
+test('unconfirmed completion, infrastructure errors and handoff holds never advance',async()=>{
+ for(const reason of ['claim_unavailable','invalid_configuration','handoff_deferred','finish_unconfirmed','reservation_unconfirmed','dispatch_unconfirmed','settlement_unconfirmed','paid_outcome_unknown','receipt_unconfirmed'])for(const status of ['deferred','uncertain']){
+  const f=drainingVerifier([{status,reason},{status:'submitted'}]);await f.app(request());assert.equal(f.calls(),1,reason);
+ }
+});
+test('skip-heavy queue still obeys twelve-step and elapsed-time bounds',async()=>{
+ const f=drainingVerifier([{status:'deferred',reason:'evidence_or_history_unavailable'}]);const body=await(await f.app(request())).json();assert.equal(f.calls(),12);assert.equal(body.steps.length,12);
+ let reads=0;const slow=drainingVerifier([{status:'deferred',reason:'evidence_or_history_unavailable'},{status:'submitted'}],()=>reads++?11000:0);await slow.app(request());assert.equal(slow.calls(),1,'Remaining work stays queued when safe admission window ends');
+});

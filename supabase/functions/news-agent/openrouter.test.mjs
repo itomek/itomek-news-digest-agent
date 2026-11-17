@@ -60,10 +60,10 @@ test('caller mutation during fetch cannot change model or cost acceptance',async
   const p=payload();p.model='other';p.usage.cost=0.02;return Response.json(p);
  }),e=>e.code==='reservation_exceeded');
 });
-test('HTTP failure cancels unread body and aborts transport',async()=>{
+test('HTTP failure cancels stalled diagnostic body and aborts transport',async()=>{
  let cancelled=false,signal;
  const request={model:'test/model',max_tokens:100,messages:[{role:'system',content:'Policy'},{role:'user',content:JSON.stringify({candidates:[{id:'one'}]})}],response_format:structuredClone(DISCOVERY_RESPONSE_FORMAT)};
- await assert.rejects(reviewWithOpenRouter(request,{enabled:true,apiKey:'offline',allowedModels:['test/model'],reservation:{id:'r',maxCostCredits:1}},async(_url,options)=>{
+ await assert.rejects(reviewWithOpenRouter(request,{enabled:true,apiKey:'offline',allowedModels:['test/model'],reservation:{id:'r',maxCostCredits:1},timeoutMs:10},async(_url,options)=>{
   signal=options.signal;return new Response(new ReadableStream({cancel(){cancelled=true;}}),{status:429});
  }));
  assert.equal(cancelled,true);assert.equal(signal.aborted,true);
@@ -114,5 +114,83 @@ test('exact none reasoning is serialized while unknown reasoning controls fail b
  for(const reasoning of [null,undefined,{effort:'high'},{effort:'none',exclude:true},{max_tokens:0},{effort:'none',max_tokens:0}]){
   let calls=0;await assert.rejects(reviewWithOpenRouter({...request(),reasoning},config(),async()=>{calls++;return response();}),e=>e.outcome==='not_started');assert.equal(calls,0);
   assert.throws(()=>serializeReviewBody({...request(),reasoning}),e=>e.outcome==='not_started');
+ }
+});
+test('valid upstream provider is retained while absent unconfigured provider preserves result shape',async()=>{
+ const p=payload();p.provider='Test Provider';
+ const result=await reviewWithOpenRouter(request(),config(),async()=>Response.json(p));assert.equal(result.provider,'Test Provider');
+ const unconfigured=await reviewWithOpenRouter(request(),config(),async()=>response());assert.equal(Object.hasOwn(unconfigured,'provider'),false);
+});
+test('expected provider must match upstream exactly and mismatches preserve known usage',async()=>{
+ for(const provider of [undefined,'Other Provider']){
+  const p=payload();if(provider!==undefined)p.provider=provider;
+  await assert.rejects(reviewWithOpenRouter(request(),{...config(),expectedProvider:'Test Provider'},async()=>Response.json(p)),e=>e.code==='invalid_completion'&&e.usage.costCredits===0.001&&e.outcome==='uncertain');
+ }
+ const p=payload();p.provider='Test Provider';
+ assert.equal((await reviewWithOpenRouter(request(),{...config(),expectedProvider:'Test Provider'},async()=>Response.json(p))).provider,'Test Provider');
+});
+test('malformed upstream provider fails completion with known cost',async()=>{
+ for(const provider of [null,1,{},[],true,'','  ',' Leading','Trailing ','x'.repeat(129),'New\nLine','Tab\tName','Nul\u0000Name','Control\u0085Name']){
+  const p=payload();p.provider=provider;
+  await assert.rejects(reviewWithOpenRouter(request(),config(),async()=>Response.json(p)),e=>e.code==='invalid_completion'&&e.usage.costCredits===0.001&&e.outcome==='uncertain');
+ }
+});
+test('invalid expected provider fails before transport and mutation cannot weaken the pinned expectation',async()=>{
+ for(const expectedProvider of [undefined,null,1,'','  ',' Leading','Trailing ','x'.repeat(129),'New\nLine']){
+  let calls=0;await assert.rejects(reviewWithOpenRouter(request(),{...config(),expectedProvider},async()=>{calls++;return response();}),e=>e.outcome==='not_started');assert.equal(calls,0);
+ }
+ const c={...config(),expectedProvider:'Test Provider'};
+ await assert.rejects(reviewWithOpenRouter(request(),c,async()=>{c.expectedProvider='Other Provider';const p=payload();p.provider='Other Provider';return Response.json(p);}),e=>e.code==='invalid_completion'&&e.usage.costCredits===0.001);
+});
+test('HTTP error diagnostics expose only status and fixed code/type classifications without raw content',async()=>{
+ const privateText='synthetic-secret-key-and-private-prompt';let calls=0;
+ await assert.rejects(reviewWithOpenRouter(request(),config(),async()=>{
+  calls++;return Response.json({error:{code:400,message:privateText,metadata:{provider_name:privateText,raw:JSON.stringify({error:{type:'invalid_request_error',code:'unsupported_parameter',message:privateText}})}}},{status:400});
+ }),e=>{
+  assert.equal(e.code,'http_failure');assert.equal(e.outcome,'uncertain');assert.equal(e.httpStatus,400);assert.equal(e.providerErrorCode,400);assert.equal(e.providerErrorType,'invalid_request_error');
+  assert.equal(JSON.stringify(e).includes(privateText),false);assert.equal(e.message.includes(privateText),false);assert.equal(Object.hasOwn(e,'usage'),false);return true;
+ });assert.equal(calls,1);
+});
+test('unknown HTTP error codes/types, malformed bodies and headers never enter diagnostics',async()=>{
+ for(const body of [JSON.stringify({error:{code:'secret-arbitrary-code',type:'secret-type',message:'secret',metadata:{raw:'secret'}}}),'secret plain body','not json',JSON.stringify({error:{code:123456,type:123}})]){
+  await assert.rejects(reviewWithOpenRouter(request(),config(),async()=>new Response(body,{status:502,headers:{'x-private-error':'secret'}})),e=>{assert.equal(e.code,'http_failure');assert.equal(e.httpStatus,502);assert.equal(Object.hasOwn(e,'providerErrorCode'),false);assert.equal(Object.hasOwn(e,'providerErrorType'),false);assert.equal(JSON.stringify(e).includes('secret'),false);return true;});
+ }
+});
+test('recognized string error classification is retained without diagnostic free text',async()=>{
+ await assert.rejects(reviewWithOpenRouter(request(),config(),async()=>Response.json({error:{code:'rate_limit_exceeded',type:'rate_limit_error',message:'secret'}},{status:429})),e=>e.code==='http_failure'&&e.httpStatus===429&&e.providerErrorCode==='rate_limit_exceeded'&&e.providerErrorType==='rate_limit_error');
+});
+test('oversized error diagnostics cancel their body and retain HTTP status',async()=>{
+ let cancelled=false;
+ await assert.rejects(reviewWithOpenRouter(request(),config(),async()=>new Response(new ReadableStream({start(c){c.enqueue(new TextEncoder().encode('x'.repeat(8193)));},cancel(){cancelled=true;}}),{status:413})),e=>e.code==='http_failure'&&e.httpStatus===413);
+ assert.equal(cancelled,true);
+});
+test('slow error body stays within original timeout, is cancelled and retains observed HTTP status',async()=>{
+ let cancelled=false,signal;const start=Date.now();
+ await assert.rejects(reviewWithOpenRouter(request(),{...config(),timeoutMs:10},async(_url,options)=>{signal=options.signal;return new Response(new ReadableStream({cancel(){cancelled=true;}}),{status:503});}),e=>e.code==='timeout'&&e.outcome==='uncertain'&&e.httpStatus===503);
+ assert.equal(cancelled,true);assert.equal(signal.aborted,true);assert.ok(Date.now()-start<1000);
+});
+test('invalid decision diagnostics identify only fixed issue and index while retaining known cost and completion identity',async()=>{
+ const secret='synthetic-private-decision-text';
+ for(const [decision,validationIssue] of [[null,'invalid_shape'],[{id:'a',action:'verify',reason:'x',private:secret},'unexpected_fields'],[{id:'unknown-secret-id',action:'verify',reason:secret},'unknown_id'],[{id:'a',action:'publish-secret',reason:secret},'invalid_action'],[{id:'a',action:'verify',reason:''},'invalid_reason'],[{id:'a',action:'verify',reason:secret.repeat(100)},'invalid_reason']]){
+  const p=payload();p.provider='Test Provider';p.choices[0].message.content=JSON.stringify({decisions:[decision]});
+  await assert.rejects(reviewWithOpenRouter(request(),config(),async()=>Response.json(p)),e=>{
+   assert.equal(e.code,'invalid_decisions');assert.equal(e.validationIssue,validationIssue);assert.equal(e.decisionIndex,0);assert.equal(e.outcome,'uncertain');assert.equal(e.usage.costCredits,0.001);
+   assert.deepEqual(e.completionAudit,{model:'test/model',generationId:'gen-test',provider:'Test Provider'});assert.equal(JSON.stringify(e).includes(secret),false);assert.equal(JSON.stringify(e).includes('unknown-secret-id'),false);return true;
+  });
+ }
+});
+test('duplicate decision diagnostic identifies offending index without retaining model decisions',async()=>{
+ const r=request();r.messages[1].content=JSON.stringify({candidates:[{id:'a'},{id:'b'}]});
+ const p=payload();p.choices[0].message.content=JSON.stringify({decisions:[{id:'a',action:'verify',reason:'private reason one'},{id:'a',action:'skip',reason:'private reason two'}]});
+ await assert.rejects(reviewWithOpenRouter(r,config(),async()=>Response.json(p)),e=>e.code==='invalid_decisions'&&e.validationIssue==='duplicate_id'&&e.decisionIndex===1&&!JSON.stringify(e).includes('private reason'));
+});
+test('completion audit accompanies malformed or incomplete decisions only after completion identity is validated',async()=>{
+ for(const content of ['secret invalid JSON',JSON.stringify({decisions:[]})]){
+  const p=payload();p.choices[0].message.content=content;
+  await assert.rejects(reviewWithOpenRouter(request(),config(),async()=>Response.json(p)),e=>{assert.deepEqual(e.completionAudit,{model:'test/model',generationId:'gen-test'});assert.equal(Object.hasOwn(e,'decisionIndex'),false);assert.equal(JSON.stringify(e).includes('secret invalid JSON'),false);return true;});
+ }
+ for(const change of [p=>p.model='other',p=>p.provider=' Invalid',p=>p.id='bad\nidentity',p=>p.choices[0].finish_reason='length']){
+  const p=payload();change(p);
+  await assert.rejects(reviewWithOpenRouter(request(),config(),async()=>Response.json(p)),e=>e.code==='invalid_completion'&&!Object.hasOwn(e,'completionAudit'));
  }
 });

@@ -162,3 +162,48 @@ upgrade or account topup. This supersedes the earlier pending-approval labels;
 research recommendations still do not prove actual model performance. The new
 project attempt was refused by the free-project quota. No call or charge has
 occurred; see docs/warpcore-hosted-spike.md for the execution checkpoint.
+
+
+## November 16 open-model preference
+
+The owner selected inexpensive American-company open models, specifically Gemma,
+superseding the earlier Haiku/Luna shortlist. Google DeepMind's [Gemma 4 model
+card](https://ai.google.dev/gemma/docs/core/model_card_4) lists Apache 2.0 and
+native system prompts/configurable thinking. The pilot now permits only
+`google/gemma-4-26b-a4b-it` via `primeintellect/bf16` and
+`google/gemma-4-31b-it` via `deepinfra/fp8`. This identifies the model author;
+it is not a claim that inference is geographically restricted to the US.
+
+Specific endpoint and ZDR metadata is frozen in
+[evidence](evidence/2026-11-16-openrouter-canary/open-model-endpoints.json).
+Both routes advertise structured outputs, reasoning controls and max output
+limits; the pilot requests strict JSON Schema and validates locally. They appear in the public ZDR feed with Safety Retention false.
+The controller rechecks exact ZDR membership and sends `provider.zdr:true`,
+without changing account privacy settings. Paid and free endpoints are distinct;
+free routes were not substituted because the required schema/privacy contract
+must be verified for the exact endpoint.
+
+Routing price ceilings are USD per million input/output tokens: 0.06/0.18 for
+26B and 0.20/0.40 for 31B. Full advertised context plus full completion limits,
+at the greater of routing ceilings and published token-class rates, yield
+conservative reservations of 0.021627 and 0.058983 USD. These are reservations,
+not measured per-batch costs or unconditional provider-billing guarantees.
+The existing shared 2 USD/24-attempt approval remains unchanged. No purchases,
+account policy relaxation, production activation or automatic retries are allowed.
+
+The new profile version is `2026-11-16.1`; historical profiles are unchanged.
+These profiles are available to the bounded local pilot only. Binding them into
+the inactive SQL-backed producer and deploying a paid runtime are separate
+integration gates, not implied by a local canary. The prior Strix Halo execution
+used fabricated inference; actual-model canaries use public development fixtures.
+
+
+The completed development pilot selects Gemma 31B/DeepInfra as its default after
+two four-case pages returned valid decisions agreeing with all eight development
+labels, followed by a separate Helion scope-negative check. The eight-case 31B
+request timed out; a four-case 26B request also timed out, so four-case success is
+not a sustained latency guarantee. Reported total spend was 0.002945861 USD across
+nine dispatches, with all uncertainty holds reconciled and no automatic retries.
+Sanitized costs, coverage, failures and limits are recorded in the
+[pilot result](evidence/2026-11-16-openrouter-canary/result.json). The pilot does
+not establish held-out quality or activate the producer.

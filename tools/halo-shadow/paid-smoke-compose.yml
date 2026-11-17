@@ -1,0 +1,29 @@
+# Add with -f compose.yml -f paid-smoke-compose.yml. No listener or automatic run.
+# private.env contains ONLY the API key, service JWT and fixed approved plan.
+services:
+  paid-smoke:
+    image: denoland/deno:2.5.6
+    working_dir: /code
+    command:
+      - run
+      - --no-prompt
+      - --allow-net=postgrest:3000,openrouter.ai:443
+      - --allow-env=HALO_PAID_RUN_ID,HALO_PAID_MODEL,HALO_PAID_REQUEST_HASH,HALO_PAID_RESERVATION_USD,HALO_PAID_SERVICE_JWT,HALO_PAID_LEDGER_ATTEMPT_ID,OPENROUTER_API_KEY
+      - tools/halo-shadow/paid-smoke.ts
+    env_file:
+      - ${HALO_PAID_ENV_FILE:?private smoke env file required}
+    environment:
+      DENO_DIR: /tmp/deno-cache
+    volumes:
+      - ../../:/code:ro
+    networks: [isolated, loopback_ingress]
+    depends_on:
+      postgres: {condition: service_healthy}
+      postgrest: {condition: service_started}
+    read_only: true
+    tmpfs: [/tmp:size=32m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    cpus: 2
+    mem_limit: 512m
+    profiles: [paid-smoke]

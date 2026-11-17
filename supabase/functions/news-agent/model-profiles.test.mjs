@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {requestProfileForModel} from './model-profiles.mjs';
+import {requestProfileForModel,expectedProviderForModel} from './model-profiles.mjs';
 test('research profiles pin one provider and reviewed tier price caps without choosing a default',()=>{
  assert.equal(requestProfileForModel('unknown/model'),undefined);
  for(const [model,provider,prompt,completion] of [['anthropic/claude-haiku-5.5','anthropic',0.5,2.5],['openai/gpt-5.6-luna','openai',0.4,1.8],['google/gemini-3.8-flash','google-ai-studio',0.75,3.75]]){
@@ -22,4 +22,9 @@ test('Gemma pilot profiles pin exact quantized routes, prices and ZDR with no re
   assert.ok(Object.isFrozen(p));assert.ok(Object.isFrozen(p.provider));assert.ok(Object.isFrozen(p.provider.max_price));assert.ok(Object.isFrozen(p.reasoning));
   assert.throws(()=>{p.provider.zdr=false;});assert.throws(()=>{p.provider.max_price.prompt=100;});
  }
+});
+
+test('only new code-owned profiles expose reviewed exact provider display identities',()=>{
+ assert.equal(expectedProviderForModel('google/gemma-4-26b-a4b-it'),'PrimeIntellect');assert.equal(expectedProviderForModel('google/gemma-4-31b-it'),'DeepInfra');
+ for(const model of ['unknown/model','anthropic/claude-haiku-5.5','openai/gpt-5.6-luna','google/gemini-3.8-flash'])assert.equal(expectedProviderForModel(model),undefined);
 });

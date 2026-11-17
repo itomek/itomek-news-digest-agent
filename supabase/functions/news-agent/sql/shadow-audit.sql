@@ -12,6 +12,13 @@ alter table shadow_agent.run_config enable row level security;
 alter table shadow_agent.attempt_audit enable row level security;
 alter table shadow_agent.deferrals enable row level security;
 revoke all on shadow_agent.run_config,shadow_agent.attempt_audit,shadow_agent.deferrals from public,anon,authenticated,service_role;
+-- Human provider identities use the same trim/control rules as the transport.
+create function shadow_agent.valid_provider_name(p_name text) returns boolean
+language sql immutable set search_path='' as $$
+ select p_name is not null and length(p_name) between 1 and 128
+ and p_name=btrim(p_name,U&'\0009\000A\000B\000C\000D\0020\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000\FEFF')
+ and p_name !~ U&'[\0001-\001F\007F-\009F]'
+$$;
 create function shadow_agent.paged_bind_config(p_run uuid,p_lease uuid,p_config jsonb) returns boolean
 language plpgsql security definer set search_path='' as $$
 declare r shadow_agent.runs; existing jsonb; k text; profile jsonb; provider jsonb; prices jsonb;
@@ -19,10 +26,17 @@ begin
  select * into r from shadow_agent.runs where id=p_run for update;
  if not found or p_lease is null or r.lease_token is distinct from p_lease or r.lease_until<=clock_timestamp() then return false; end if;
  if r.state->>'storageKind' is distinct from 'paged-v1' or p_config is null or jsonb_typeof(p_config)<>'object' or octet_length(p_config::text)>8192
- or (p_config-'model'-'maxOutputTokens'-'maxCostCredits'-'timeoutMs'-'maxResponseBytes'-'policyVersion'-'routing'-'requestProfile')<>'{}'::jsonb
+ or (p_config-'model'-'maxOutputTokens'-'maxCostCredits'-'timeoutMs'-'maxResponseBytes'-'policyVersion'-'routing'-'requestProfile'-'expectedProvider'-'reviewBatchSize')<>'{}'::jsonb
  or jsonb_typeof(p_config->'model') is distinct from 'string' or p_config->>'model' !~ '^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$'
  or p_config->'policyVersion' is distinct from r.state->'policyVersion'
  or p_config->'routing' is distinct from '"openrouter-no-fallback"'::jsonb then raise exception 'Invalid runtime config'; end if;
+ if p_config ? 'expectedProvider' and (jsonb_typeof(p_config->'expectedProvider') is distinct from 'string'
+ or not shadow_agent.valid_provider_name(p_config->>'expectedProvider')) then raise exception 'Invalid expected provider'; end if;
+ if p_config ? 'reviewBatchSize' then
+  if jsonb_typeof(p_config->'reviewBatchSize') is distinct from 'number' or p_config->>'reviewBatchSize' !~ '^[0-9]+$'
+  then raise exception 'Invalid review batch size'; end if;
+  if (p_config->>'reviewBatchSize')::numeric not between 1 and 100 then raise exception 'Invalid review batch size'; end if;
+ end if;
  foreach k in array array['maxOutputTokens','timeoutMs','maxResponseBytes'] loop
   if jsonb_typeof(p_config->k) is distinct from 'number' or p_config->>k !~ '^[0-9]+$' then raise exception 'Invalid runtime config'; end if;
  end loop;
@@ -45,13 +59,20 @@ begin
   if profile ? 'reasoning' and profile->'reasoning' is distinct from '{"effort":"none"}'::jsonb
   then raise exception 'Invalid request profile reasoning'; end if;
   provider:=profile->'provider';
-  if (provider-'only'-'order'-'allow_fallbacks'-'require_parameters'-'max_price')<>'{}'::jsonb
+  if (provider-'only'-'order'-'allow_fallbacks'-'require_parameters'-'max_price'-'zdr')<>'{}'::jsonb
   or jsonb_typeof(provider->'only') is distinct from 'array'
   or provider->'order' is distinct from provider->'only'
   or provider->'allow_fallbacks' is distinct from 'false'::jsonb
   or provider->'require_parameters' is distinct from 'true'::jsonb
   or jsonb_typeof(provider->'max_price') is distinct from 'object'
   then raise exception 'Invalid request profile'; end if;
+  -- Match the request contract: a supplied ZDR control is literal true,
+  -- required in the new profile and forbidden in historical code-owned v15.2.
+  -- Existing bound configuration remains immutable across lease/resume.
+  if (provider ? 'zdr' and provider->'zdr' is distinct from 'true'::jsonb)
+  or (profile->>'version'='2026-11-16.1' and provider->'zdr' is distinct from 'true'::jsonb)
+  or (profile->>'version'='2026-11-15.2' and provider ? 'zdr')
+  then raise exception 'Invalid request profile ZDR policy'; end if;
   if jsonb_array_length(provider->'only')<>1
   or jsonb_typeof(provider->'only'->0) is distinct from 'string'
   or provider->'only'->>0 !~ '^[a-z0-9][a-z0-9._/-]{0,127}$'
@@ -112,13 +133,16 @@ begin
  if not found then return false; end if;
  select config into cfg from shadow_agent.run_config where run_id=a.run_id;
  if not found or p_audit is null or jsonb_typeof(p_audit)<>'object' or octet_length(p_audit::text)>4000
- or (p_audit-'model'-'generationId'-'usage'-'errorCode')<>'{}'::jsonb
+ or (p_audit-'model'-'generationId'-'usage'-'errorCode'-'provider')<>'{}'::jsonb
  then raise exception 'Invalid settlement audit'; end if;
  if p_audit ? 'errorCode' then
   if jsonb_typeof(p_audit->'errorCode') is distinct from 'string' or p_audit->>'errorCode' not in
   ('disabled','invalid_transport_configuration','missing_cost_reservation','unsupported_request','invalid_model_or_budget','invalid_messages','invalid_candidates','empty_response','response_too_large','timeout','invalid_json','missing_or_invalid_usage','reservation_exceeded','invalid_completion','invalid_decision_json','incomplete_decisions','invalid_decisions','invalid_limits','http_failure','transport_failure','unknown_failure')
-  or p_audit ? 'model' or p_audit ? 'generationId' then raise exception 'Invalid settlement audit'; end if;
+  or p_audit ? 'model' or p_audit ? 'generationId' or p_audit ? 'provider' then raise exception 'Invalid settlement audit'; end if;
  else
+  if (p_audit ? 'provider' and (jsonb_typeof(p_audit->'provider') is distinct from 'string' or not shadow_agent.valid_provider_name(p_audit->>'provider')))
+  or (cfg ? 'expectedProvider' and p_audit->'provider' is distinct from cfg->'expectedProvider')
+  then raise exception 'Invalid settlement provider'; end if;
   if p_audit->'model' is distinct from cfg->'model' or jsonb_typeof(p_audit->'generationId') is distinct from 'string'
   or length(p_audit->>'generationId') not between 1 and 256 or p_audit->>'generationId' ~ '[[:cntrl:]]'
   then raise exception 'Invalid settlement audit'; end if;
@@ -159,7 +183,7 @@ begin
  return new;
 end $$;
 create trigger paged_require_audit before insert on shadow_agent.decisions for each row execute function shadow_agent.paged_require_audit();
-revoke all on function shadow_agent.paged_bind_config(uuid,uuid,jsonb),shadow_agent.paged_reserve(uuid,uuid,bigint,text,numeric),
+revoke all on function shadow_agent.valid_provider_name(text),shadow_agent.paged_bind_config(uuid,uuid,jsonb),shadow_agent.paged_reserve(uuid,uuid,bigint,text,numeric),
  shadow_agent.paged_settle(uuid,uuid,text,numeric,jsonb),shadow_agent.paged_require_audit() from public,anon,authenticated,service_role;
 grant execute on function shadow_agent.paged_bind_config(uuid,uuid,jsonb),shadow_agent.paged_reserve(uuid,uuid,bigint,text,numeric),
  shadow_agent.paged_settle(uuid,uuid,text,numeric,jsonb) to service_role;

@@ -143,7 +143,7 @@ test('known budget, missing budget or breaker denial defers safely and can resum
 });
 test('immutable narrow configuration binds defaults but excludes API key and caller fields',async()=>{
  const f=fixture();await runPagedShadowInvocation({runId,config:{...config,other:'ignore'},...f});
- assert.deepEqual(f.bindings[0],{model:config.model,maxOutputTokens:100,maxCostCredits:0.1,timeoutMs:100,maxResponseBytes:200000,policyVersion:f.state.policyVersion,routing:'openrouter-no-fallback'});
+ assert.deepEqual(f.bindings[0],{model:config.model,maxOutputTokens:100,maxCostCredits:0.1,timeoutMs:100,maxResponseBytes:200000,reviewBatchSize:25,policyVersion:f.state.policyVersion,routing:'openrouter-no-fallback'});
  const g=fixture({configMismatch:true});await assert.rejects(runPagedShadowInvocation({runId,config,...g}));assert.equal(g.events.includes('page'),false);
 });
 test('success and known or unknown failures persist only bounded model audit metadata',async()=>{
@@ -199,4 +199,28 @@ test('researched model profile is derived server-side, bound immutably and hashe
 });
 test('hosted profile requirement refuses unknown models before database or model work',async()=>{
  const f=fixture();await assert.rejects(()=>runPagedShadowInvocation({runId,config:{...config,requireModelProfile:true},...f}));assert.equal(f.events.length,0);
+});
+test('explicit generic invocation controls bind immutably while all candidates continue across batches',async()=>{
+ const f=fixture({count:9}),cfg={...config,timeoutMs:30000,leaseSeconds:120,maxOutputTokens:2048};
+ const batches=[];
+ const fetcher=async(...args)=>{const body=JSON.parse(args[1].body);batches.push(JSON.parse(body.messages[1].content).candidates.length);assert.equal(body.max_tokens,2048);return f.fetcher(...args);};
+ while(f.state.phase!=='complete')await runPagedShadowInvocation({runId,config:cfg,...f,fetcher},{pageSteps:1,reviewBatchSize:4});
+ assert.deepEqual(batches,[4,4,1]);assert.equal(f.decisions.length,9);
+ for(const binding of f.bindings){assert.equal(binding.timeoutMs,30000);assert.equal(binding.maxOutputTokens,2048);assert.equal(binding.reviewBatchSize,4);assert.equal(Object.hasOwn(binding,'expectedProvider'),false);}
+});
+test('new researched profile freezes expected provider and preserves known cost when caller attempts mismatch',async()=>{
+ const f=fixture({count:1}),model='google/gemma-4-31b-it';
+ const cfg={...config,model,allowedModels:[model],expectedProvider:'Wrong Provider',requestProfile:{provider:{zdr:false,only:['other']}}};
+ await runPagedShadowInvocation({runId,config:cfg,...f},{pageSteps:2});
+ const fetcher=async(...args)=>{cfg.expectedProvider='Other Provider';const response=await f.fetcher(...args);return Response.json({...await response.json(),model,provider:'Other Provider'});};
+ await assert.rejects(runPagedShadowInvocation({runId,config:cfg,...f,fetcher}));
+ assert.equal(f.bindings[1].expectedProvider,'DeepInfra');assert.equal(f.bindings[1].requestProfile.provider.zdr,true);
+ assert.deepEqual(f.audits[0],{usage:{promptTokens:2,completionTokens:3,totalTokens:5,costCredits:0.01},errorCode:'invalid_completion'});assert.equal(f.state.phase,'uncertain');assert.equal(f.decisions.length,0);assert.ok(f.events.includes('settled'));
+});
+test('new researched provider is persisted on successful audit and cannot be weakened by caller metadata',async()=>{
+ const f=fixture({count:1}),model='google/gemma-4-31b-it',cfg={...config,model,allowedModels:[model],expectedProvider:'Wrong Provider'};
+ await runPagedShadowInvocation({runId,config:cfg,...f},{pageSteps:2,reviewBatchSize:4});
+ const fetcher=async(...args)=>{const response=await f.fetcher(...args);return Response.json({...await response.json(),model,provider:'DeepInfra'});};
+ await runPagedShadowInvocation({runId,config:cfg,...f,fetcher},{reviewBatchSize:4});
+ assert.equal(f.decisions.length,1);assert.equal(f.audits[0].provider,'DeepInfra');assert.equal(f.bindings[0].expectedProvider,'DeepInfra');assert.equal(f.bindings[1].reviewBatchSize,4);
 });

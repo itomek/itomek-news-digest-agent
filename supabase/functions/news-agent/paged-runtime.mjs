@@ -1,4 +1,4 @@
-import {requestProfileForModel} from './model-profiles.mjs';
+import {requestProfileForModel,expectedProviderForModel} from './model-profiles.mjs';
 import {POLICY_VERSION} from './policy.mjs';
 import {buildReviewRequest} from './evaluation.mjs';
 import {reviewWithOpenRouter,serializeReviewBody,OpenRouterAttemptError} from './openrouter.mjs';
@@ -37,9 +37,13 @@ export async function runPagedShadowInvocation({runId,config={},query,fetcher,fe
  const cfg=structuredClone(config),{pageSteps=1,reviewBatchSize=25}=options;
  // Profiles are code-owned; source/caller metadata cannot replace routing or prices.
  delete cfg.requestProfile;
+ delete cfg.expectedProvider;
  const requestProfile=requestProfileForModel(cfg.model);
  if(requestProfile)cfg.requestProfile=requestProfile;
  else if(cfg.requireModelProfile===true)throw Error('Researched model profile required');
+ const expectedProvider=expectedProviderForModel(cfg.model);
+ if(requestProfile?.provider.zdr===true&&expectedProvider===undefined)throw Error('Reviewed provider identity required');
+ if(expectedProvider!==undefined)cfg.expectedProvider=expectedProvider;
  const leaseSeconds=cfg.leaseSeconds??60,timeoutMs=cfg.timeoutMs??10000,maxResponseBytes=cfg.maxResponseBytes??200000;
  if(!uuid.test(runId??'')||typeof query!=='function'||typeof fetcher!=='function'||typeof now!=='function'||!Array.isArray(cfg.allowedModels)||!cfg.allowedModels.includes(cfg.model)||!integer(cfg.maxOutputTokens,1,16384)||!Number.isFinite(cfg.maxCostCredits)||cfg.maxCostCredits<=0||cfg.maxCostCredits>=1000000||typeof cfg.apiKey!=='string'||!cfg.apiKey.trim()||/[\r\n]/.test(cfg.apiKey)||!integer(leaseSeconds,1,300)||!integer(timeoutMs,1,30000)||!integer(maxResponseBytes,1,200000)||leaseSeconds*1000<timeoutMs+5000||!integer(pageSteps,1,10)||!integer(reviewBatchSize,1,100))throw Error('Invalid paged runtime configuration');
  let lastTime=now();if(!Number.isFinite(lastTime))throw Error('Invalid monotonic clock');
@@ -54,7 +58,7 @@ export async function runPagedShadowInvocation({runId,config={},query,fetcher,fe
   const lease=await call('claim',[runId,leaseSeconds]);if(lease===null)return {status:'busy',...flags};
   if(typeof lease!=='string'||!lease)throw Error('Invalid lease');
   let state=validateState(await call('load',[runId]),runId);
-  const binding={model:cfg.model,maxOutputTokens:cfg.maxOutputTokens,maxCostCredits:cfg.maxCostCredits,timeoutMs,maxResponseBytes,policyVersion:POLICY_VERSION,routing:'openrouter-no-fallback',...(requestProfile?{requestProfile}: {})};
+  const binding={model:cfg.model,maxOutputTokens:cfg.maxOutputTokens,maxCostCredits:cfg.maxCostCredits,timeoutMs,maxResponseBytes,reviewBatchSize,...(expectedProvider===undefined?{}:{expectedProvider}),policyVersion:POLICY_VERSION,routing:'openrouter-no-fallback',...(requestProfile?{requestProfile}: {})};
   if(await call('paged_bind_config',[runId,lease,binding])!==true)throw Error('Configuration binding unconfirmed');
   const adopt=(value,patch)=>{
    const next=validateState(value,runId),expected={...state,...patch,revision:state.revision+1};
@@ -111,7 +115,7 @@ export async function runPagedShadowInvocation({runId,config={},query,fetcher,fe
       await call('paged_settle',[attempt,lease,Number.isFinite(cost)?'settled':'uncertain',Number.isFinite(cost)?cost:null,Number.isFinite(cost)?{usage,errorCode}:{errorCode}]);
       throw Error('Model attempt unsuccessful');
      }
-     if(await call('paged_settle',[attempt,lease,'settled',result.usage.costCredits,{model:result.model,generationId:result.generationId,usage:result.usage}])!==true)throw Error('Settlement unconfirmed');
+     if(await call('paged_settle',[attempt,lease,'settled',result.usage.costCredits,{model:result.model,generationId:result.generationId,...(result.provider===undefined?{}:{provider:result.provider}),usage:result.usage}])!==true)throw Error('Settlement unconfirmed');
      // Store in frozen candidate order even if the provider reorders decisions.
      const decisions=batch.map(c=>result.decisions.find(d=>d.id===c.id));
      adopt(await call('paged_commit',[runId,lease,state.revision,decisions]),{phase:'review',activeBatch:null,reviewedCount:state.reviewedCount+batch.length});

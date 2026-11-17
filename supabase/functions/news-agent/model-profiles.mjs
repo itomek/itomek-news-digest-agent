@@ -14,3 +14,7 @@ const profiles=freeze({
  'google/gemma-4-31b-it':openProfile('deepinfra/fp8',0.20,0.40),
 });
 export function requestProfileForModel(model){return typeof model==='string'&&Object.hasOwn(profiles,model)?profiles[model]:undefined;}
+
+// Exact reviewed upstream display identities; historical profiles remain optional.
+const expectedProviders=freeze({'google/gemma-4-26b-a4b-it':'PrimeIntellect','google/gemma-4-31b-it':'DeepInfra'});
+export function expectedProviderForModel(model){return typeof model==='string'&&Object.hasOwn(expectedProviders,model)?expectedProviders[model]:undefined;}

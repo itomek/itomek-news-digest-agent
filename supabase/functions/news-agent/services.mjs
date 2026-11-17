@@ -7,7 +7,7 @@ const uuid=/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/;
 export function createAgentService(config={},fetcher=fetch){
  const project=new URL(config.projectUrl);
  if(project.protocol!=='https:'||!project.hostname.endsWith('.supabase.co')||project.username||project.password||project.port||project.pathname!=='/'||project.search||project.hash||typeof config.serviceKey!=='string'||!config.serviceKey||/[\r\n]/.test(config.serviceKey)||typeof fetcher!=='function')throw Error('Invalid agent database configuration');
- const runtime=structuredClone(config.runtimeConfig??{}),key=config.serviceKey;
+ const runtime=structuredClone(config.runtimeConfig??{}),invocationOptions=structuredClone(config.invocationOptions??{}),key=config.serviceKey;
  const rpc=async(name,body)=>{
   const controller=new AbortController();let timer;
   const operation=(async()=>{
@@ -33,6 +33,6 @@ export function createAgentService(config={},fetcher=fetch){
  const fetchPage=createCandidateSource({query:async(_sql,[p_started,p_cursor])=>({rows:await rpc('candidate_page',{p_started,p_cursor})})});
  return {
   selectRun:async()=>{if(runtime.enabled!==true)return null;const run=await rpc('select_run',{});if(run!==null&&(typeof run!=='string'||!uuid.test(run)))throw Error('Invalid selected run');return run;},
-  runInvocation:runId=>runPagedShadowInvocation({runId,config:runtime,query,fetcher,fetchPage},config.invocationOptions??{}),
+  runInvocation:runId=>runPagedShadowInvocation({runId,config:runtime,query,fetcher,fetchPage},invocationOptions),
  };
 }

@@ -70,3 +70,38 @@ Only these disposable volumes may be removed. Keep sanitized results as needed,
 then release the machine reservation. Do not leave this temporary service on a
 shared machine after releasing its exclusive lease. No persistent service,
 firewall change, global package installation, or cloud project is required.
+
+
+## Optional actual-model SQL smoke
+
+The separate `paid-smoke-compose.yml` adds a one-shot Deno CLI, not an HTTP
+service or scheduler. The original synthetic edge service remains synthetic.
+`paid-smoke-prepare.mjs prepare` runs through the existing exercise container
+against a fresh disposable database and creates four sorted public development
+candidates, a one-second setup lease, a private exact-request plan and service JWT.
+Run setup as the host UID/GID so its mode0600 artifacts remain privately readable
+by the host's Compose client. Wait for natural setup-lease expiry and PostgREST
+schema reload before any paid dispatch.
+
+This child does **not** verify the external campaign ledger. The parent must
+independently rebuild/check the plan's exact request hash, refresh pricing/ZDR
+and funding, reserve/count that request in the existing shared pilot ledger,
+and durably mark it dispatched before launching the child. An attempt-ID string
+is correlation, not proof of authorization. Provide only that ID, the fixed
+plan/service JWT and API key in a separate mode0600 `HALO_PAID_ENV_FILE`; never
+put the key in command arguments, Git, reports or an image. No automatic retry.
+
+Invoke the profile-gated `paid-smoke` service once with both Compose files and
+`run --rm --no-deps`; its Deno permissions allow only internal PostgREST and
+OpenRouter. The shared producer runtime binds the effective provider identity,
+ZDR policy, batch size and transport settings. Exactly four frozen candidates
+allow only one paid batch. Repeated triggers remain busy, complete without a
+model request, or stop on uncertainty. Inspect through
+`paid-smoke-prepare.mjs inspect`; settle the same actual charge in the parent's
+ledger only after checking the durable SQL audit. Unknown outcomes keep the
+parent hold even if the CLI process exits. Cleanup both private env files, the
+owned stack/volume and machine reservation after collecting sanitized evidence.
+
+All examples require fresh disposable runs. Existing experimental runs bound
+without the new immutable batch/provider fields intentionally reject an upgraded
+binding; this workflow performs no implicit migration or production activation.

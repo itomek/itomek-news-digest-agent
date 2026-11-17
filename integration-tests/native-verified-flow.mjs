@@ -40,7 +40,7 @@ assert.equal(await scalar('select public.warpcore_verification_claim() value'),n
   for(let n=2;n<=5;n++){const s=await snapshot(key(n));await scalar('select public.warpcore_curator_submit($1,$2,$3,$4,$5,$6) value',[key(n),s.evidence_hash,editorial(s),attest,'real-dot',randomUUID()]);}
  });
  assert.equal(await queueCount(),4);
- const runtimeConfig={enabled:true,model,maxCostCredits:.058983,maxOutputTokens:8192,apiKey:'synthetic-not-a-credential',allowedModels:[model],expectedProvider:'Groq',allowedSourceHosts:['example.com']};
+ const runtimeConfig={enabled:true,model,maxCostCredits:.058983,maxOutputTokens:4096,apiKey:'synthetic-not-a-credential',allowedModels:[model],expectedProvider:'Groq',allowedSourceHosts:['example.com']};
  const lease=await scalar('select shadow_agent.claim($1,120) value',[run]);let state=await scalar('select shadow_agent.load($1) value',[run]);
  const cfg={model,requestProfile:requestProfileForModel(model),expectedProvider:'Groq',maxOutputTokens:100,maxCostCredits:.1,timeoutMs:1000,maxResponseBytes:20000,policyVersion:state.policyVersion,routing:'openrouter-no-fallback'};
  await scalar('select shadow_agent.paged_bind_config($1,$2,$3) value',[run,lease,cfg]);

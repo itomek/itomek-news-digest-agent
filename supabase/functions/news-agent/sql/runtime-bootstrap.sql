@@ -5,9 +5,18 @@ begin;
 do $$begin
  if to_regclass('shadow_agent.producer_settings') is null then raise exception 'Producer contract required';end if;
 end $$;
+-- Private SQL mirror of the code-owned approved runtime registry.
+create function shadow_agent.approved_runtime_model(p_model text) returns jsonb
+language sql immutable security definer set search_path='' as $$
+ select jsonb_build_object('model',model,'provider',provider,'discoveryProfileVersion',profile,'maxCostCredits',cap,'maxOutputTokens',4096,'reviewBatchSize',16)
+ from (values ('openai/gpt-oss-120b','Groq','2026-11-16.4',0.058983::numeric),
+ ('nvidia/nemotron-3.5-super-vl','DeepInfra','2026-11-17.4',0.157287::numeric),
+ ('nvidia/nemotron-3-super-120b-a12b','DeepInfra','2026-11-17.2',0.026215::numeric)) approved(model,provider,profile,cap) where model=p_model
+$$;
+revoke all on function shadow_agent.approved_runtime_model(text) from public,anon,authenticated,service_role;
 create table shadow_agent.runtime_settings(
  singleton boolean primary key default true check(singleton),
- model text not null default 'openai/gpt-oss-120b' check(model='openai/gpt-oss-120b'),
+ model text not null default 'openai/gpt-oss-120b' check(model in ('openai/gpt-oss-120b','nvidia/nemotron-3.5-super-vl','nvidia/nemotron-3-super-120b-a12b')),
  allowed_source_hosts text[] not null default '{}'::text[]
 );
 insert into shadow_agent.runtime_settings(singleton) values(true);
@@ -25,11 +34,12 @@ exception when others then raise exception 'Invalid agent authorization configur
 end $$;
 create function public.warpcore_agent_runtime_config() returns jsonb
 language plpgsql security definer set search_path='' as $$
-declare cfg shadow_agent.runtime_settings;api_key text;n bigint;host text;
+declare cfg shadow_agent.runtime_settings;api_key text;n bigint;host text;approved jsonb;
 begin
  if not coalesce((select enabled from shadow_agent.producer_settings where singleton),false) then return jsonb_build_object('enabled',false);end if;
  select * into cfg from shadow_agent.runtime_settings where singleton;
- if not found or cfg.model is distinct from 'openai/gpt-oss-120b' or cardinality(cfg.allowed_source_hosts) not between 1 and 128
+ approved:=shadow_agent.approved_runtime_model(cfg.model);
+ if not found or approved is null or cardinality(cfg.allowed_source_hosts) not between 1 and 128
  or array_ndims(cfg.allowed_source_hosts)<>1 or array_position(cfg.allowed_source_hosts,null) is not null
  or (select count(*)<>count(distinct value) from unnest(cfg.allowed_source_hosts) value) then raise exception 'Invalid agent runtime configuration';end if;
  foreach host in array cfg.allowed_source_hosts loop
@@ -39,7 +49,7 @@ begin
  end loop;
  select count(*),min(decrypted_secret) into n,api_key from vault.decrypted_secrets where name='warpcore_agent_openrouter_key';
  if n<>1 or api_key is null or length(api_key) not between 16 and 4096 or api_key ~ '[[:space:][:cntrl:]]' then raise exception 'Invalid agent runtime configuration';end if;
- return jsonb_build_object('model',cfg.model,'apiKey',api_key,'maxOutputTokens',4096,'maxCostCredits',0.058983,'allowedSourceHosts',to_jsonb(cfg.allowed_source_hosts));
+ return jsonb_build_object('model',cfg.model,'apiKey',api_key,'maxOutputTokens',4096,'maxCostCredits',(approved->>'maxCostCredits')::numeric,'allowedSourceHosts',to_jsonb(cfg.allowed_source_hosts));
 exception when others then raise exception 'Invalid agent runtime configuration';
 end $$;
 revoke all on function public.warpcore_agent_authorization(),public.warpcore_agent_runtime_config() from public,anon,authenticated,service_role;

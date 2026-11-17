@@ -1,9 +1,10 @@
+import {approvedRuntimeModel} from './approved-runtime-models.mjs';
 import {OpenRouterAttemptError} from './openrouter.mjs';
 import {VERIFICATION_RESPONSE_FORMAT,buildVerificationRequest} from './verification-contract.mjs';
 import {requestProfileForModel} from './model-profiles.mjs';
 // A separate response contract; discovery versions and paid history stay intact.
 export const VERIFICATION_REQUEST_PROFILE_VERSION='2026-11-16.verify.1';
-const MODEL='openai/gpt-oss-120b',ENDPOINT='https://openrouter.ai/api/v1/chat/completions';
+const ENDPOINT='https://openrouter.ai/api/v1/chat/completions';
 const encoder=new TextEncoder();
 const plain=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
 const keys=(x,ks)=>plain(x)&&Object.keys(x).length===ks.length&&ks.every(k=>Object.hasOwn(x,k));
@@ -25,14 +26,15 @@ function matchesSchema(value,schema){
 }
 function validate(request,config,fetcher){
  if(config.enabled!==true)fail('disabled');
- if(typeof fetcher!=='function'||typeof config.apiKey!=='string'||!config.apiKey.trim()||/[\r\n]/.test(config.apiKey)||config.expectedProvider!=='Groq'||!Array.isArray(config.allowedModels)||!config.allowedModels.includes(MODEL))fail('invalid_transport_configuration');
- if(!keys(config.reservation,['id','maxCostCredits'])||!validIdentity(config.reservation.id,256)||!Number.isFinite(config.reservation.maxCostCredits)||config.reservation.maxCostCredits<=0)fail('missing_cost_reservation');
- const profile=requestProfileForModel(MODEL,'2026-11-16.3');
- if(!keys(request,['model','max_tokens','provider','reasoning','response_format','messages'])||request.model!==MODEL||!integer(request.max_tokens,8192)||!equal(request.provider,profile.provider)||!equal(request.reasoning,profile.reasoning)||!equal(request.response_format,VERIFICATION_RESPONSE_FORMAT))fail('unsupported_request');
+ const approved=approvedRuntimeModel(request?.model);if(!approved)fail('unsupported_request');
+ if(typeof fetcher!=='function'||typeof config.apiKey!=='string'||!config.apiKey.trim()||/[\r\n]/.test(config.apiKey)||config.expectedProvider!==approved.provider||!Array.isArray(config.allowedModels)||!config.allowedModels.includes(approved.model))fail('invalid_transport_configuration');
+ if(!keys(config.reservation,['id','maxCostCredits'])||!validIdentity(config.reservation.id,256)||!Number.isFinite(config.reservation.maxCostCredits)||config.reservation.maxCostCredits!==approved.maxCostCredits)fail('missing_cost_reservation');
+ const profile=requestProfileForModel(approved.model,approved.discoveryProfileVersion);
+ if(!keys(request,['model','max_tokens','provider','reasoning','response_format','messages'])||request.model!==approved.model||!integer(request.max_tokens,approved.maxOutputTokens)||!equal(request.provider,profile.provider)||!equal(request.reasoning,profile.reasoning)||!equal(request.response_format,VERIFICATION_RESPONSE_FORMAT))fail('unsupported_request');
  if(!Array.isArray(request.messages)||request.messages.length!==2||request.messages[0]?.role!=='system'||request.messages[1]?.role!=='user'||request.messages.some(m=>!keys(m,['role','content'])||typeof m.content!=='string'||!m.content))fail('invalid_messages');
  let input;try{input=JSON.parse(request.messages[1].content);}catch{fail('invalid_messages');}
  if(!keys(input,['storyKey','evidenceHash','evidence','sources','history','now']))fail('invalid_messages');
- let canonical;try{canonical=buildVerificationRequest(input,{model:MODEL,maxOutputTokens:request.max_tokens});}catch{fail('invalid_messages');}
+ let canonical;try{canonical=buildVerificationRequest(input,{model:approved.model,maxOutputTokens:request.max_tokens});}catch{fail('invalid_messages');}
  if(!equal(request.messages,canonical.messages))fail('invalid_messages');
  const body=JSON.stringify({...request,stream:false});if(encoder.encode(body).length>750000)fail('request_too_large');
  return body;
@@ -45,14 +47,14 @@ async function readBounded(response,maxBytes,signal){
  try{for(;;){const {done,value}=await reader.read();if(signal.aborted)fail('timeout','uncertain');if(done)break;size+=value.byteLength;if(size>maxBytes)fail('response_too_large','uncertain');chunks.push(value);}const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));}catch{fail('invalid_json','uncertain');}}
  finally{signal.removeEventListener('abort',cancel);cancel();}
 }
-function parse(data,reservation,schema){
+function parse(data,reservation,schema,approved){
  const u=data?.usage;
  if(!u||!['prompt_tokens','completion_tokens','total_tokens'].every(k=>Number.isSafeInteger(u[k])&&u[k]>=0)||u.total_tokens!==u.prompt_tokens+u.completion_tokens||!Number.isFinite(u.cost)||u.cost<0)fail('missing_or_invalid_usage','uncertain');
  const usage={promptTokens:u.prompt_tokens,completionTokens:u.completion_tokens,totalTokens:u.total_tokens,costCredits:u.cost};
- const audit={...(validIdentity(data?.id,256)?{generationId:data.id}:{}),...(typeof data?.model==='string'&&data.model===MODEL?{model:data.model}:{}),...(validIdentity(data?.provider,128)?{provider:data.provider}:{})};
+ const audit={...(validIdentity(data?.id,256)?{generationId:data.id}:{}),...(typeof data?.model==='string'&&data.model===approved.model?{model:data.model}:{}),...(validIdentity(data?.provider,128)?{provider:data.provider}:{})};
  const billedFail=code=>fail(code,'uncertain',usage,audit);
  if(u.cost>reservation.maxCostCredits)billedFail('reservation_exceeded');
- if(data.model!==MODEL||!validIdentity(data.id,256)||data.provider!=='Groq'||!Array.isArray(data.choices)||data.choices.length!==1||data.choices[0]?.finish_reason!=='stop')billedFail('invalid_completion');
+ if(data.model!==approved.model||!validIdentity(data.id,256)||data.provider!==approved.provider||!Array.isArray(data.choices)||data.choices.length!==1||data.choices[0]?.finish_reason!=='stop')billedFail('invalid_completion');
  let parsed;try{parsed=JSON.parse(data.choices[0].message.content);}catch{billedFail('invalid_verification_json');}
  if(!matchesSchema(parsed,schema))billedFail('invalid_verification_schema');
  return {generationId:data.id,model:data.model,provider:data.provider,usage,result:parsed.result};
@@ -60,7 +62,7 @@ function parse(data,reservation,schema){
 export async function verifyWithOpenRouter(request,config={},fetcher){
  const body=validate(request,config,fetcher),timeoutMs=config.timeoutMs??10000,maxResponseBytes=config.maxResponseBytes??200000;
  if(!integer(timeoutMs,30000)||!integer(maxResponseBytes,200000))fail('invalid_limits');
- const key=config.apiKey,reservation={maxCostCredits:config.reservation.maxCostCredits},schema=structuredClone(VERIFICATION_RESPONSE_FORMAT.json_schema.schema);
+ const approved=approvedRuntimeModel(request.model),key=config.apiKey,reservation={maxCostCredits:config.reservation.maxCostCredits},schema=structuredClone(VERIFICATION_RESPONSE_FORMAT.json_schema.schema);
  const controller=new AbortController();let timer;
  const deadline=new Promise((_resolve,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new OpenRouterAttemptError('timeout','uncertain'));},timeoutMs);});
  const operation=(async()=>{
@@ -68,7 +70,7 @@ export async function verifyWithOpenRouter(request,config={},fetcher){
   if(!(response instanceof Response))fail('http_failure','uncertain');
   if(!response.ok||response.redirected){if(response.body)void response.body.cancel().catch(()=>{});throw Object.assign(new OpenRouterAttemptError('http_failure','uncertain'),{httpStatus:response.status});}
   if(controller.signal.aborted){if(response.body)void response.body.cancel().catch(()=>{});fail('timeout','uncertain');}
-  return parse(await readBounded(response,maxResponseBytes,controller.signal),reservation,schema);
+  return parse(await readBounded(response,maxResponseBytes,controller.signal),reservation,schema,approved);
  })();
  try{return await Promise.race([operation,deadline]);}catch(e){if(e instanceof OpenRouterAttemptError)throw e;throw new OpenRouterAttemptError('transport_failure','uncertain');}finally{clearTimeout(timer);controller.abort();}
 }

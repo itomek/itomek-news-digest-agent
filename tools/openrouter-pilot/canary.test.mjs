@@ -24,3 +24,17 @@ test('invalid decision report retains precise issue and audited identity with kn
  assert.deepEqual(report.completionAudit,{model,generationId:'synthetic-generation',provider:'Anthropic'});
  assert.equal(JSON.stringify(report).includes('private-model-reason'),false);assert.deepEqual(f.events,['dispatch','failure']);
 });
+test('both NVIDIA trials dispatch the same neutral eight IDs once with a 30s timeout and keyed decoding',async()=>{
+ const {selectDevelopmentBatch}=await import('./batches.mjs');
+ const trialCases=selectDevelopmentBatch(cases.concat(Array(7).fill(cases[0])),'scope-challenge');
+ for(const trialModel of ['nvidia/nemotron-3.5-super-vl','nvidia/nemotron-3-super-120b-a12b']){
+ const f=fixture();let calls=0;
+ const trialRequest=buildReviewRequest(trialCases,{model:trialModel,allowedModels:[trialModel],maxOutputTokens:2048,requestProfile:requestProfileForModel(trialModel)});
+ const result=await executeCanary({...args(f),request:trialRequest,model:trialModel,cases:trialCases,expectedProvider:'DeepInfra',maxCostCredits:trialModel.includes('3.5')?.157287:.026215,fetcher:async(_url,options)=>{
+ calls++;assert.ok(options.signal instanceof AbortSignal);assert.equal(options.signal.aborted,false);
+ const sent=JSON.parse(options.body);assert.equal(sent.max_tokens,2048);assert.deepEqual(sent.reasoning,{effort:'none'});assert.equal(sent.provider.allow_fallbacks,false);
+ return Response.json({id:'synthetic-nvidia-generation',model:trialModel,provider:'DeepInfra',usage:{prompt_tokens:100,completion_tokens:200,total_tokens:300,cost:.001},choices:[{finish_reason:'stop',message:{content:JSON.stringify({decisions:Object.fromEntries([...trialCases].reverse().map(c=>[c.id,trialModel.includes('3.5')?{rating:'skip',reason:'Synthetic fixture decision'}:{action:'skip',reason:'Synthetic fixture decision',importance:0,relevance:0}]))})}}]});
+ }});
+ assert.equal(calls,1);assert.deepEqual(result.decisions.map(d=>d.id),trialCases.map(c=>c.id));assert.deepEqual(f.events,['dispatch','success']);assert.equal(result.modelQualityProven,false);
+ }
+});

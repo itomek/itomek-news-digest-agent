@@ -7,8 +7,8 @@ import {reservationEnvelope,fundingReady,campaignBlockReason,requireZdrEndpoint}
 import {openPilotLedger} from './ledger.mjs';
 import {executeCanary} from './canary.mjs';
 import {selectDevelopmentBatch} from './batches.mjs';
-const allowedModels=['openai/gpt-oss-120b','google/gemma-4-31b-it','google/gemma-4-26b-a4b-it'];
-const MODEL=process.argv[3]??allowedModels[0];
+const allowedModels=['nvidia/nemotron-3.5-super-vl','nvidia/nemotron-3-super-120b-a12b','openai/gpt-oss-120b','google/gemma-4-31b-it','google/gemma-4-26b-a4b-it'];
+const MODEL=process.argv[3]??'openai/gpt-oss-120b';
 const batch=process.argv[4]??'all';
 const mode=process.argv[2]??'--preflight';
 const stateDir=path.join(os.homedir(),'.local/state/warpcore/openrouter-pilot-20261115');
@@ -32,7 +32,8 @@ async function loadKey(){
 async function save(name,data){await fs.writeFile(path.join(stateDir,name),JSON.stringify(data,null,2)+'\n',{mode:0o600,flag:'wx'});}
 try{
  if(!['--preflight','--canary'].includes(mode))stop('use_preflight_or_canary');
- if(!allowedModels.includes(MODEL)||process.argv.length>5||!['all','first-half','second-half','helion-scope'].includes(batch))stop('unsupported_pilot_model_or_arguments');
+ if(!allowedModels.includes(MODEL)||process.argv.length>5||!['all','first-half','second-half','helion-scope','scope-challenge'].includes(batch))stop('unsupported_pilot_model_or_arguments');
+ if(MODEL.startsWith('nvidia/')&&batch!=='scope-challenge')stop('nvidia_requires_scope_challenge');
  const key=await loadKey();
  ledger=openPilotLedger(path.join(stateDir,'campaign.sqlite3'));
  const keyData=(await jsonGet('https://openrouter.ai/api/v1/key',key)).data;

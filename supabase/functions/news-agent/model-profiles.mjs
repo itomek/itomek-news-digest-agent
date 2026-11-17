@@ -7,7 +7,10 @@ const freeze=value=>{if(value&&typeof value==='object'){for(const item of Object
 const profile=(provider,prompt,completion,disableReasoning=false)=>freeze({version:'2026-11-15.2',...(disableReasoning?{reasoning:{effort:'none'}}:{}),responseFormat:'discovery-json-schema-v1',provider:{only:[provider],order:[provider],allow_fallbacks:false,require_parameters:true,max_price:{prompt,completion,request:0}}});
 // New open-model profiles are pilot candidates only; SQL binding/activation is separate.
 const openProfile=(provider,prompt,completion)=>freeze({version:'2026-11-16.1',reasoning:{effort:'none'},responseFormat:'discovery-json-schema-v1',provider:{only:[provider],order:[provider],allow_fallbacks:false,require_parameters:true,max_price:{prompt,completion,request:0},zdr:true}});
+const nvidiaProfile=(version,tag,prompt,completion)=>freeze({...openProfile(tag,prompt,completion),version,responseFormat:'discovery-keyed-ranked-json-schema-v3',rankingRubricVersion:RANKING_RUBRIC_VERSION});
 const profiles=freeze({
+ 'nvidia/nemotron-3.5-super-vl':nvidiaProfile('2026-11-17.1','deepinfra/fp4',.15,.50),
+ 'nvidia/nemotron-3-super-120b-a12b':nvidiaProfile('2026-11-17.2','deepinfra/bf16',.075,.40),
  'anthropic/claude-haiku-5.5':profile('anthropic',0.5,2.5,true),
  'openai/gpt-5.6-luna':profile('openai',0.4,1.8,true),
  'google/gemini-3.8-flash':profile('google-ai-studio',0.75,3.75),
@@ -17,14 +20,17 @@ const profiles=freeze({
 });
 const rankedGptOss=freeze({...profiles['openai/gpt-oss-120b'],version:'2026-11-16.3',responseFormat:'discovery-ranked-json-schema-v2',rankingRubricVersion:RANKING_RUBRIC_VERSION});
 const keyedGptOss=freeze({...rankedGptOss,version:'2026-11-16.4',responseFormat:'discovery-keyed-ranked-json-schema-v3'});
+const stageAwareNvidia=freeze({...profiles['nvidia/nemotron-3.5-super-vl'],version:'2026-11-17.3'});
+const codedNvidia=freeze({...stageAwareNvidia,version:'2026-11-17.4',responseFormat:'discovery-keyed-coded-ranking-json-schema-v4'});
 export function requestProfileForModel(model,version){
  if(typeof model!=='string'||!Object.hasOwn(profiles,model))return undefined;
- const current=model==='openai/gpt-oss-120b'?keyedGptOss:profiles[model];
+ const current=model==='openai/gpt-oss-120b'?keyedGptOss:model==='nvidia/nemotron-3.5-super-vl'?codedNvidia:profiles[model];
  if(version===undefined||version===current.version)return current;
+ if(model==='nvidia/nemotron-3.5-super-vl'&&version===stageAwareNvidia.version)return stageAwareNvidia;
  if(model==='openai/gpt-oss-120b'&&version===rankedGptOss.version)return rankedGptOss;
  return version===profiles[model].version?profiles[model]:undefined;
 }
 
 // Exact reviewed upstream display identities; historical profiles remain optional.
-const expectedProviders=freeze({'google/gemma-4-26b-a4b-it':'PrimeIntellect','google/gemma-4-31b-it':'DeepInfra','openai/gpt-oss-120b':'Groq'});
+const expectedProviders=freeze({'nvidia/nemotron-3.5-super-vl':'DeepInfra','nvidia/nemotron-3-super-120b-a12b':'DeepInfra','google/gemma-4-26b-a4b-it':'PrimeIntellect','google/gemma-4-31b-it':'DeepInfra','openai/gpt-oss-120b':'Groq'});
 export function expectedProviderForModel(model){return typeof model==='string'&&Object.hasOwn(expectedProviders,model)?expectedProviders[model]:undefined;}

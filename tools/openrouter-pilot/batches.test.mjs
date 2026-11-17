@@ -14,3 +14,39 @@ test('scope regression removes the published-summary shortcut without exposing t
  assert.equal(c.sourceType,'rss');assert.equal(new URL(c.sourceUrl).hostname,'pytorch.org');
  assert.equal(c.sourceCreatedAt,'2026-11-12');assert.equal(cases[7].sourceType,'published-summary');
 });
+test('scope challenge uses the same eight captured cases and never forwards provisional labels',async()=>{
+ const {buildReviewRequest}=await import('../../supabase/functions/news-agent/evaluation.mjs');
+ const {requestProfileForModel}=await import('../../supabase/functions/news-agent/model-profiles.mjs');
+ const input=Array.from({length:8},(_,i)=>({id:'old-'+i})),cases=selectDevelopmentBatch(input,'scope-challenge');
+ assert.equal(cases.length,8);assert.equal(new Set(cases.map(c=>c.id)).size,8);assert.equal(cases.filter(c=>c.expectedAction==='verify').length,5);
+ for(const model of ['nvidia/nemotron-3.5-super-vl','nvidia/nemotron-3-super-120b-a12b']){
+ const r=buildReviewRequest(cases,{model,allowedModels:[model],maxOutputTokens:2048,requestProfile:requestProfileForModel(model)});
+ const data=JSON.parse(r.messages[1].content);assert.deepEqual(data.candidates.map(c=>c.id),cases.map(c=>c.id));assert.equal(r.max_tokens,2048);assert.match(r.messages[0].content,/AMD or Lemonade connection is not (?:a prerequisite|required)/);assert.equal(/expectedAction|rationale|ownerRationale|labelStatus|capturedCandidateId|rankingRunId/.test(r.messages[1].content),false);
+ }
+ const old=buildReviewRequest(cases,{model:'openai/gpt-oss-120b',allowedModels:['openai/gpt-oss-120b'],maxOutputTokens:2048,requestProfile:requestProfileForModel('openai/gpt-oss-120b')});assert.equal(old.messages[0].content.includes('POLICY CLARIFICATION:'),false);
+});
+test('trial profile validation rejects reasoning, ZDR and schema downgrades',async()=>{
+ const {validateRequestProfile}=await import('../../supabase/functions/news-agent/review-contract.mjs');
+ const {requestProfileForModel}=await import('../../supabase/functions/news-agent/model-profiles.mjs');
+ const p=requestProfileForModel('nvidia/nemotron-3.5-super-vl');
+ for(const patch of [{reasoning:{effort:'low'}},{responseFormat:'discovery-json-schema-v1'},{rankingRubricVersion:'other'},{provider:{...p.provider,zdr:false}}])assert.throws(()=>validateRequestProfile({...p,...patch}));
+});
+test('stage-aware current NVIDIA wrapper preserves historical billed bytes and later verification guards',async()=>{
+ const {buildReviewRequest}=await import('../../supabase/functions/news-agent/evaluation.mjs');
+ const {requestProfileForModel}=await import('../../supabase/functions/news-agent/model-profiles.mjs');
+ const {createHash}=await import('node:crypto');
+ const cases=selectDevelopmentBatch(Array(8).fill({id:'unused'}),'scope-challenge');
+ const model='nvidia/nemotron-3.5-super-vl';
+ const build=version=>buildReviewRequest(cases,{model,allowedModels:[model],maxOutputTokens:2048,requestProfile:requestProfileForModel(model,version)});
+ const old=build('2026-11-17.1');
+ assert.equal(createHash('sha256').update(JSON.stringify(old)).digest('hex'),'45c8359d4db55e645b386fe6d4ba1190f2bd5e3c13bacd08cbb3b00fbc2b303d');
+ const profile=requestProfileForModel(model,'2026-11-17.3');assert.equal(profile.version,'2026-11-17.3');
+ const current=build('2026-11-17.3');assert.deepEqual(current.provider,old.provider);assert.deepEqual(current.response_format,old.response_format);assert.deepEqual(current.messages[1],old.messages[1]);
+ const system=current.messages[0].content;
+ for(const phrase of ['trusted discovery query','Time eligibility','potential native repost','identity, dates, facts and deduplication','preview lacks','plausibly meaningful capability','Every named interest category','batch winners','absent from the excerpt'])assert.ok(system.includes(phrase),phrase);
+ assert.equal(old.messages[0].content.includes('STAGE-AWARE DISCOVERY'),false);
+ assert.equal(requestProfileForModel('nvidia/nemotron-3-super-120b-a12b').version,'2026-11-17.2');
+ assert.equal(requestProfileForModel('openai/gpt-oss-120b').version,'2026-11-16.4');
+});
+
+test('billed 17.3 body remains exact after coded protocol upgrade',async()=>{const {createHash}=await import('node:crypto'),{buildReviewRequest}=await import('../../supabase/functions/news-agent/evaluation.mjs'),{requestProfileForModel}=await import('../../supabase/functions/news-agent/model-profiles.mjs');const model='nvidia/nemotron-3.5-super-vl',cases=selectDevelopmentBatch(Array(8).fill({id:'unused'}),'scope-challenge');const old=buildReviewRequest(cases,{model,allowedModels:[model],maxOutputTokens:2048,requestProfile:requestProfileForModel(model,'2026-11-17.3')});assert.equal(createHash('sha256').update(JSON.stringify(old)).digest('hex'),'544450a378b2f1f0cdc984cd4fb4872f6f5f0c5c1ee8f3eadabad06f30d7f245');assert.equal(requestProfileForModel(model).version,'2026-11-17.4');});

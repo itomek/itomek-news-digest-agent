@@ -12,7 +12,7 @@ try{
  const claim=()=>value('select public.warpcore_verification_claim() v');assert.equal(await claim(),null);assert.equal((await q('select count(*)::int n from shadow_agent.budgets'))[0].n,0);
  assert.equal((await q('select submit_enabled from shadow_agent.verification_settings'))[0].submit_enabled,false,'Live verification defaults to nonpublishing preview');
  await db.exec('update shadow_agent.verification_settings set enabled=true,submit_enabled=true,job_limit_credits=0.2');const job=await claim();assert.equal(job.storyKey,key);assert.equal(job.rankingRunId,root);assert.equal(await claim(),null);
- const reserve=(lease=job.lease,metadata={model:'openai/gpt-oss-120b',profileVersion:'2026-11-16.verify.1',expectedProvider:'Groq'})=>value('select public.warpcore_verification_reserve($1,$2,$3,0.1,$4) v',[job.jobId,lease,hash,metadata]);
+ const reserve=(lease=job.lease,metadata={model:'openai/gpt-oss-120b',profileVersion:'2026-11-16.verify.1',expectedProvider:'Groq'})=>value('select public.warpcore_verification_reserve($1,$2,$3,0.058983,$4) v',[job.jobId,lease,hash,metadata]);
  await assert.rejects(()=>reserve(),/Missing daily budget/);await db.exec("insert into shadow_agent.budgets(day,limit_credits) values((now() at time zone 'utc')::date,1)");
  await assert.rejects(()=>reserve(job.lease,{model:'other',profileVersion:'2026-11-16.verify.1',expectedProvider:'Groq'}),/metadata/);
  const attempt=await reserve();assert.ok(attempt);await assert.rejects(()=>reserve(),/already reserved/);
@@ -30,7 +30,7 @@ try{
  async function nextStory(char,ordinal){await q('insert into shadow_agent.candidates values($1,$2,$3)',[root,ordinal,char.repeat(64)]);await q('insert into shadow_agent.selection_items values($1,$2,$3)',[root,ordinal,ordinal+1]);return claim();}
  const fresh=await nextStory('c',1);assert.equal(fresh.storyKey,'c'.repeat(64));
  const meta={model:'openai/gpt-oss-120b',profileVersion:'2026-11-16.verify.1',expectedProvider:'Groq'};
- await value('select public.warpcore_verification_reserve($1,$2,$3,0.1,$4) v',[fresh.jobId,fresh.lease,'d'.repeat(64),meta]);
+ await value('select public.warpcore_verification_reserve($1,$2,$3,0.058983,$4) v',[fresh.jobId,fresh.lease,'d'.repeat(64),meta]);
  await db.exec('update shadow_agent.verification_settings set enabled=false');assert.equal(await value('select public.warpcore_verification_dispatch($1,$2) v',[fresh.jobId,fresh.lease]),false);await db.exec('update shadow_agent.verification_settings set enabled=true');
  await value('select public.warpcore_verification_dispatch($1,$2) v',[fresh.jobId,fresh.lease]);
  await assert.rejects(()=>value("select public.warpcore_verification_settle($1,$2,'settled',0.01,$3) v",[fresh.jobId,fresh.lease,{...audit,apiKey:'forbidden'}]),/audit/);
@@ -48,8 +48,16 @@ try{
  assert.equal(await value('select public.warpcore_verification_handoff($1,$2) v',[fresh.jobId,fresh.lease]),null,'Old handoff lease cannot submit');
  const handed=await value('select public.warpcore_verification_handoff($1,$2) v',[fresh.jobId,recovered.lease]);assert.ok(handed);assert.equal(await value('select public.warpcore_verification_handoff($1,$2) v',[fresh.jobId,recovered.lease]),handed);
  const fetchFail=await nextStory('e',2);await q("update shadow_agent.runs set lease_until=now()-interval '1 second' where id=(select child_run_id from shadow_agent.verification_jobs where id=$1)",[fetchFail.jobId]);const resumed=await claim();assert.equal(resumed.jobId,fetchFail.jobId);assert.notEqual(resumed.lease,fetchFail.lease);
+ for(const [model,cap] of [['nvidia/nemotron-3.5-super-vl',.157287],['nvidia/nemotron-3-super-120b-a12b',.026215]]){
+  const nm={model,profileVersion:meta.profileVersion,expectedProvider:'DeepInfra'};
+  await assert.rejects(()=>value('select public.warpcore_verification_reserve($1,$2,$3,$4,$5) v',[resumed.jobId,resumed.lease,hash,.058983,nm]),/metadata/);
+  await assert.rejects(()=>value('select public.warpcore_verification_reserve($1,$2,$3,$4,$5) v',[resumed.jobId,resumed.lease,hash,cap,{...nm,expectedProvider:'Groq'}]),/metadata/);
+  await db.exec('begin');await value('select public.warpcore_verification_reserve($1,$2,$3,$4,$5) v',[resumed.jobId,resumed.lease,hash,cap,nm]);assert.equal(await value('select public.warpcore_verification_dispatch($1,$2) v',[resumed.jobId,resumed.lease]),true);
+  assert.equal(await value("select public.warpcore_verification_settle($1,$2,'settled',.01,$3) v",[resumed.jobId,resumed.lease,{...audit,model,provider:'DeepInfra'}]),true);
+  const nr=await value('insert into agent_verification.receipts values(gen_random_uuid(),$1) returning id v',[{runId:root,storyKey:resumed.storyKey,requestSha256:hash,model,requestProfileVersion:meta.profileVersion}]);assert.equal(await value("select public.warpcore_verification_finish($1,$2,'verified',$3) v",[resumed.jobId,resumed.lease,nr]),true);await db.exec('rollback');
+ }
  assert.equal(await value("select public.warpcore_verification_finish($1,$2,'deferred',null) v",[resumed.jobId,resumed.lease]),true,'Fetch failure needs no paid attempt');
- const billedBad=await nextStory('9',3);await value('select public.warpcore_verification_reserve($1,$2,$3,0.1,$4) v',[billedBad.jobId,billedBad.lease,'8'.repeat(64),meta]);await value('select public.warpcore_verification_dispatch($1,$2) v',[billedBad.jobId,billedBad.lease]);
+ const billedBad=await nextStory('9',3);await value('select public.warpcore_verification_reserve($1,$2,$3,0.058983,$4) v',[billedBad.jobId,billedBad.lease,'8'.repeat(64),meta]);await value('select public.warpcore_verification_dispatch($1,$2) v',[billedBad.jobId,billedBad.lease]);
  for(const diagnostic of [{body:'forbidden'},{message:'forbidden'},{headers:{Authorization:'forbidden'}},{apiKey:'forbidden'},{generationId:'x'.repeat(257)},{model:'x'.repeat(129)},{provider:'bad\nprovider'},{provider:'bad\u0085provider'},{httpStatus:99},{httpStatus:600},{httpStatus:429.5},{validationIssue:'private error text'},{decisionIndex:-1},{decisionIndex:100},{decisionIndex:0.5},{}])await assert.rejects(()=>value("select public.warpcore_verification_settle($1,$2,'uncertain',null,$3) v",[billedBad.jobId,billedBad.lease,{errorCode:'http_failure',diagnostic}]),/diagnostic/);
  await db.exec('begin');
  const identityIncomplete={usage:audit.usage,errorCode:'invalid_completion',diagnostic:{generationId:'gen-valid-despite-invalid-provider',model:meta.model}};
@@ -62,10 +70,10 @@ try{
  assert.equal(await value("select public.warpcore_verification_finish($1,$2,'deferred',null) v",[billedBad.jobId,billedBad.lease]),true,'Known model validation failure can defer');
  // Separate synthetic campaign fixture; administrative unblock only for unknown-hold test.
  await db.exec('update shadow_agent.budgets set blocked=false');
- const unknown=await nextStory('f',4);await value('select public.warpcore_verification_reserve($1,$2,$3,0.1,$4) v',[unknown.jobId,unknown.lease,'1'.repeat(64),meta]);await value('select public.warpcore_verification_dispatch($1,$2) v',[unknown.jobId,unknown.lease]);
- for(const httpStatus of [400,402,429,500,503]){await db.exec('begin');assert.equal(await value("select public.warpcore_verification_settle($1,$2,'uncertain',null,$3) v",[unknown.jobId,unknown.lease,{errorCode:'http_failure',diagnostic:{httpStatus}}]),true);assert.equal((await q('select held_credits::float8 n from shadow_agent.budgets'))[0].n,.1);await db.exec('rollback');}
+ const unknown=await nextStory('f',4);await value('select public.warpcore_verification_reserve($1,$2,$3,0.058983,$4) v',[unknown.jobId,unknown.lease,'1'.repeat(64),meta]);await value('select public.warpcore_verification_dispatch($1,$2) v',[unknown.jobId,unknown.lease]);
+ for(const httpStatus of [400,402,429,500,503]){await db.exec('begin');assert.equal(await value("select public.warpcore_verification_settle($1,$2,'uncertain',null,$3) v",[unknown.jobId,unknown.lease,{errorCode:'http_failure',diagnostic:{httpStatus}}]),true);assert.equal((await q('select held_credits::float8 n from shadow_agent.budgets'))[0].n,.058983);await db.exec('rollback');}
  await value("select public.warpcore_verification_settle($1,$2,'uncertain',null,$3) v",[unknown.jobId,unknown.lease,{errorCode:'http_failure',diagnostic:{httpStatus:429}}]);
- assert.equal((await q('select held_credits::float8 n from shadow_agent.budgets'))[0].n,0.1);assert.equal(await claim(),null);
+ assert.equal((await q('select held_credits::float8 n from shadow_agent.budgets'))[0].n,0.058983);assert.equal(await claim(),null);
  assert.equal(await value("select public.warpcore_verification_finish($1,$2,'deferred',null) v",[unknown.jobId,unknown.lease]),false,'Unknown outcome cannot become deferred');
  // Authoritatively stale recovered receipts stop handoff, preserving paid audit.
  await q("update shadow_agent.verification_jobs set status='verified',receipt_id=$2 where id=$1",[job.jobId,receipt]);

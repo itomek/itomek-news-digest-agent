@@ -1,3 +1,4 @@
+import {approvedRuntimeModel} from './approved-runtime-models.mjs';
 import {handleAgent} from './handler.mjs';
 import {createAgentService} from './services.mjs';
 const flags={publishing_enabled:false};
@@ -45,10 +46,11 @@ export function createHostedApplication(config,dependencies={}){
    let settings,discovery,verifier;
    const getSettings=()=>settings??=(async()=>{
     const value=await rpc('warpcore_agent_runtime_config');
-    if(value?.model!=='openai/gpt-oss-120b'||typeof value.apiKey!=='string'||!value.apiKey||value.maxOutputTokens!==4096||value.maxCostCredits!==0.058983||!Array.isArray(value.allowedSourceHosts)||!value.allowedSourceHosts.length)throw Error();
-    return {...value,enabled:true,requireModelProfile:true,allowedModels:[value.model],expectedProvider:'Groq',timeoutMs:30000,leaseSeconds:120};
+    const approved=approvedRuntimeModel(value?.model);
+    if(!approved||Object.keys(value).length!==5||typeof value.apiKey!=='string'||!value.apiKey||value.maxOutputTokens!==approved.maxOutputTokens||value.maxCostCredits!==approved.maxCostCredits||!Array.isArray(value.allowedSourceHosts)||!value.allowedSourceHosts.length)throw Error();
+    return {...value,enabled:true,requireModelProfile:true,allowedModels:[approved.model],expectedProvider:approved.provider,reviewBatchSize:approved.reviewBatchSize,timeoutMs:30000,leaseSeconds:120};
    })();
-   const getDiscovery=async()=>discovery??=discoveryFactory({...config,invocationOptions:{pageSteps:1,reviewBatchSize:16,releaseLeaseOnSuccess:true},runtimeConfig:await getSettings()});
+   const getDiscovery=async()=>{const settings=await getSettings();return discovery??=discoveryFactory({...config,invocationOptions:{pageSteps:1,reviewBatchSize:settings.reviewBatchSize,releaseLeaseOnSuccess:true},runtimeConfig:settings});};
    const getVerifier=async()=>{
     if(typeof verifierFactory!=='function')throw Error('Verification service not installed');
     return verifier??=verifierFactory({...config,runtimeConfig:await getSettings()});

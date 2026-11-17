@@ -5,8 +5,8 @@ import {
   validatePassword,
 } from "../lib/auth";
 import { isToday } from "../lib/dates";
-import { fetchDigests, fetchMissedDigests, fetchTopics } from "../lib/supabase";
-import type { Digest, MissedDigest } from "../lib/types";
+import { fetchAgentAlerts, fetchDigests, fetchMissedDigests, fetchTopics } from "../lib/supabase";
+import type { AgentAlert, Digest, MissedDigest } from "../lib/types";
 import { buildAppNav } from "../views/app-nav";
 import { renderAuthGate } from "../views/auth-gate";
 import { renderDigestList } from "../views/digest-list";
@@ -134,10 +134,25 @@ export async function renderHome(root: HTMLElement, client: SupabaseClient): Pro
   main.setAttribute("data-testid", "digest-content");
   const loading = document.createElement("p");
   loading.textContent = "Loading digests…";
-  main.appendChild(loading);
+  const agentStatus = document.createElement("div");
+  agentStatus.setAttribute("data-testid", "agent-status");
+  main.append(agentStatus, loading);
   root.appendChild(main);
 
   root.appendChild(renderAccount(client));
+
+  // Independent status delivery: an unavailable or slow alert RPC must never
+  // hold up digest rendering, reader controls, or text-to-speech.
+  void fetchAgentAlerts(client).then((alerts) => {
+    if (alerts.length > 0) agentStatus.replaceChildren(renderAgentAlertBanner(alerts));
+  }).catch(() => {
+    const unavailable = document.createElement("p");
+    unavailable.className = "missed-digest-banner";
+    unavailable.setAttribute("role", "status");
+    unavailable.setAttribute("data-testid", "agent-status-unavailable");
+    unavailable.textContent = "News agent status unavailable";
+    agentStatus.replaceChildren(unavailable);
+  });
 
   try {
     // Fetch digests, topics, and missed-digest alerts in parallel.
@@ -151,7 +166,7 @@ export async function renderHome(root: HTMLElement, client: SupabaseClient): Pro
     // Show only today's publishable digests on the home screen. History has the full set.
     const digests = filterTodayDigests(allDigests);
 
-    main.replaceChildren();
+    main.replaceChildren(agentStatus);
 
     if (missed.length > 0) {
       main.appendChild(renderMissedDigestBanner(missed));
@@ -159,7 +174,7 @@ export async function renderHome(root: HTMLElement, client: SupabaseClient): Pro
 
     main.appendChild(renderDigestList(digests, topics));
   } catch (err) {
-    main.replaceChildren();
+    main.replaceChildren(agentStatus);
     const msg = document.createElement("p");
     msg.className = "error-state";
     msg.textContent = `Could not load digests: ${(err as Error).message}`;
@@ -198,5 +213,26 @@ function renderMissedDigestBanner(missed: MissedDigest[]): HTMLElement {
   note.appendChild(document.createTextNode("."));
   banner.appendChild(note);
 
+  return banner;
+}
+
+/** Active exceptions only; all server copy is rendered as inert text. */
+function renderAgentAlertBanner(alerts: AgentAlert[]): HTMLElement {
+  const banner = document.createElement("aside");
+  banner.className = "missed-digest-banner";
+  banner.setAttribute("role", "alert");
+  banner.setAttribute("data-testid", "agent-alert-banner");
+  const heading = document.createElement("strong");
+  heading.textContent = "News agent alerts";
+  const list = document.createElement("ul");
+  list.className = "missed-digest-list";
+  for (const alert of alerts) {
+    const item = document.createElement("li");
+    item.textContent = alert.affectedCount > 1
+      ? `${alert.message} (${alert.affectedCount} affected)`
+      : alert.message;
+    list.appendChild(item);
+  }
+  banner.append(heading, list);
   return banner;
 }

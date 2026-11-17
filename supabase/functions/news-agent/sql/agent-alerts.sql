@@ -49,7 +49,7 @@ begin
 end $$;
 create function shadow_agent.refresh_alerts() returns void
 language plpgsql security definer set search_path='' as $$
-declare settings shadow_agent.alert_settings;health jsonb;req shadow_agent.alert_requests;response record;latest shadow_agent.alert_requests;n bigint;missing_response boolean;bad_http boolean;
+declare settings shadow_agent.alert_settings;health jsonb;req shadow_agent.alert_requests;response record;latest shadow_agent.alert_requests;n bigint;missing_response boolean;bad_http boolean;minimum_required numeric;
 begin
  if not pg_try_advisory_xact_lock(hashtextextended('warpcore_agent_alerts_v1',0)) then return;end if;
  select * into settings from shadow_agent.alert_settings where singleton;
@@ -75,6 +75,11 @@ begin
    response_unavailable_at=case when missing_response then clock_timestamp() else null end where request_id=req.request_id;
  end loop;
  health:=public.warpcore_agent_health();
+ if health->'activeModel'->>'model' is not null then
+  minimum_required:=case health->'activeModel'->>'model' when 'openai/gpt-oss-120b' then 0.058983 when 'nvidia/nemotron-3.5-super-vl' then 0.157287 when 'nvidia/nemotron-3-super-120b-a12b' then 0.026215 else null end;
+  if minimum_required is null or (health->'activeModel'->>'maxCostCredits')::numeric is distinct from minimum_required then raise exception 'Invalid active model health';end if;
+ elsif to_regclass('shadow_agent.runtime_settings') is null then minimum_required:=0.058983;
+ else raise exception 'Active runtime model health required';end if;
  n:=0;
  if coalesce((health->>'producerEnabled')::boolean,false) then
   select count(*) into n from shadow_agent.runs r join shadow_agent.producer_slots s on s.run_id=r.id
@@ -96,7 +101,7 @@ begin
  if coalesce((health->>'producerEnabled')::boolean,false) and coalesce((health->'spendingPolicy'->>'enabled')::boolean,false) and
   (health->'currentDayBudget' is null or health->'currentDayBudget'='null'::jsonb or
    coalesce((health->'currentDayBudget'->>'blocked')::boolean,false) or
-   (health->'currentDayBudget'->>'limitCredits')::numeric-(health->'currentDayBudget'->>'spentCredits')::numeric-(health->'currentDayBudget'->>'heldCredits')::numeric<0.058983 or
+   (health->'currentDayBudget'->>'limitCredits')::numeric-(health->'currentDayBudget'->>'spentCredits')::numeric-(health->'currentDayBudget'->>'heldCredits')::numeric<minimum_required or
    coalesce((health->'costs'->>'blockedBudgetCount')::bigint,0)>0) then n:=1;end if;
  perform shadow_agent.set_alert('budget_unavailable',n,settings.resolution_info);
  perform shadow_agent.set_alert('accounting_uncertain',coalesce((health->'verification'->>'uncertainAttempts')::bigint,0),settings.resolution_info);

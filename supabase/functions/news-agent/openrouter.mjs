@@ -1,4 +1,4 @@
-import {isKeyedRankedDiscoveryFormat,isRankedDiscoveryFormat,matchesDiscoveryFormat,validateProviderPolicy,validateReasoningControl} from './review-contract.mjs';
+import {DISCOVERY_RATING_CODES,isKeyedCodedRankingFormat,isKeyedRankedDiscoveryFormat,isRankedDiscoveryFormat,matchesDiscoveryFormat,validateProviderPolicy,validateReasoningControl} from './review-contract.mjs';
 // OpenRouter Chat Completions contract:
 // https://openrouter.ai/docs/api_reference/overview
 // This adapter owns one HTTP attempt, NOT spend authorization or a durable ledger.
@@ -82,11 +82,19 @@ function parseResult(data,request,ids,reservation){
  };
  let parsed;
  try{parsed=JSON.parse(data.choices[0].message.content);}catch{decisionFailure('invalid_decision_json');}
- const keyed=isKeyedRankedDiscoveryFormat(request.response_format,[...ids]);
+ const coded=isKeyedCodedRankingFormat(request.response_format,[...ids]);
+ const keyed=coded||isKeyedRankedDiscoveryFormat(request.response_format,[...ids]);
  let decisions;
  if(keyed){
   if(!parsed||Array.isArray(parsed)||Object.keys(parsed).length!==1||!Object.hasOwn(parsed,'decisions')||!parsed.decisions||typeof parsed.decisions!=='object'||Array.isArray(parsed.decisions)||Object.keys(parsed.decisions).length!==ids.size||[...ids].some(id=>!Object.hasOwn(parsed.decisions,id)))decisionFailure('incomplete_decisions');
-  decisions=[...ids].map((id,index)=>{const d=parsed.decisions[id];if(!d||typeof d!=='object'||Array.isArray(d)||Object.keys(d).length!==4||['action','reason','importance','relevance'].some(k=>!Object.hasOwn(d,k)))decisionFailure('invalid_decisions','unexpected_fields',index);return {id,...d};});
+  decisions=[...ids].map((id,index)=>{const d=parsed.decisions[id];
+   if(coded){
+    if(!d||typeof d!=='object'||Array.isArray(d)||Object.keys(d).length!==2||!Object.hasOwn(d,'rating')||!Object.hasOwn(d,'reason'))decisionFailure('invalid_decisions','unexpected_fields',index);
+    if(!DISCOVERY_RATING_CODES.includes(d.rating))decisionFailure('invalid_decisions','invalid_scores',index);
+    const skip=d.rating==='skip';
+    return {id,action:skip?'skip':'verify',reason:d.reason,importance:skip?0:Number(d.rating[8]),relevance:skip?0:Number(d.rating[11])};
+   }
+   if(!d||typeof d!=='object'||Array.isArray(d)||Object.keys(d).length!==4||['action','reason','importance','relevance'].some(k=>!Object.hasOwn(d,k)))decisionFailure('invalid_decisions','unexpected_fields',index);return {id,...d};});
  }else{
   if(!parsed||Object.keys(parsed).length!==1||!Array.isArray(parsed.decisions)||parsed.decisions.length!==ids.size)decisionFailure('incomplete_decisions');
   decisions=parsed.decisions;

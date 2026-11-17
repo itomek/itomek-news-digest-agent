@@ -13,6 +13,7 @@ try{
  create table public.warpcore_publications(story_key text,state text,prepared_at timestamptz default now(),last_checked_at timestamptz);
  create table public.warpcore_source_sync(outcome text,coverage_gap boolean,last_success_at timestamptz,last_attempt_at timestamptz,covered_through timestamptz);
  grant select,insert,update on public.warpcore_curator_inbox to service_role;`);
+ await db.exec(await fs.readFile(new URL('../supabase/functions/news-agent/sql/runtime-bootstrap.sql',import.meta.url),'utf8'));
  await db.exec(await fs.readFile(new URL('../supabase/functions/news-agent/sql/operations.sql',import.meta.url),'utf8'));
  const ensure=()=>value('select shadow_agent.ensure_daily_budget() v');const health=()=>value('select public.warpcore_agent_health() v');
  assert.equal(await value('select shadow_agent.budgeted_enqueue() v'),null);assert.equal((await q('select count(*)::int n from shadow_agent.fixture_queue'))[0].n,0);
@@ -20,8 +21,9 @@ try{
  await q("insert into public.warpcore_curator_inbox(id,story_key,actor_kind,state) values(0,'default-dot','dot','pending')");
  await db.exec('update shadow_agent.spending_policy set enabled=true');assert.equal(await ensure(),false);await db.exec('update shadow_agent.producer_settings set enabled=true');
  await db.exec("insert into shadow_agent.budgets values((now() at time zone 'utc')::date-1,2,.05,19.9,false)");assert.equal(await ensure(),false,'Outstanding holds consume lifetime headroom');
- await db.exec('update shadow_agent.budgets set held_credits=0');assert.equal(await ensure(),true);
+ await db.exec("update shadow_agent.budgets set held_credits=0;update shadow_agent.runtime_settings set model='nvidia/nemotron-3.5-super-vl'");assert.equal(await ensure(),false,'Latest NVIDIA requires its .157287 ceiling');await db.exec("update shadow_agent.runtime_settings set model='nvidia/nemotron-3-super-120b-a12b'");assert.equal(await ensure(),true,'Older NVIDIA .026215 ceiling fits lifetime headroom');await db.exec("update shadow_agent.runtime_settings set model='openai/gpt-oss-120b'");
  assert.ok(await value('select shadow_agent.budgeted_enqueue() v'));assert.equal((await q('select count(*)::int n from shadow_agent.fixture_queue'))[0].n,1);
+ await db.exec("update shadow_agent.runtime_settings set model='nvidia/nemotron-3.5-super-vl'");assert.equal(await ensure(),false,'Existing daily limit is never raised to fit a selected model');assert.equal((await health()).activeModel.maxCostCredits,.157287);await db.exec("update shadow_agent.runtime_settings set model='openai/gpt-oss-120b'");
  const day=(await q("select * from shadow_agent.budgets where day=(now() at time zone 'utc')::date"))[0];assert.equal(Number(day.limit_credits),.1,'Rollover bounded by lifetime remaining');
  await db.exec("update shadow_agent.budgets set spent_credits=0 where day<(now() at time zone 'utc')::date");assert.equal(await ensure(),true);assert.equal(Number((await q("select limit_credits from shadow_agent.budgets where day=(now() at time zone 'utc')::date"))[0].limit_credits),.1,'Never expand an existing daily budget');
  await assert.rejects(()=>q('update shadow_agent.spending_policy set daily_limit_credits=2.01'),/check constraint/);await assert.rejects(()=>q('update shadow_agent.spending_policy set lifetime_limit_credits=20.01'),/check constraint/);

@@ -159,3 +159,11 @@ export interface TokenUsageDay {
   output_tokens: number;
   total_duration_s: number;
 }
+
+/** Safe authenticated projection; never the private operator alert state. */
+export interface AgentAlert {
+  code: string;
+  message: string;
+  changedAt: string;
+  affectedCount: number;
+}

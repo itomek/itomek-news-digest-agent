@@ -9,6 +9,7 @@ import {
   type LogsFilterExtended,
 } from "./query";
 import type {
+  AgentAlert,
   Digest,
   ErrorsPerDay,
   MissedDigest,
@@ -257,4 +258,25 @@ export async function rejectSourceCandidate(
 ): Promise<string | null> {
   const { error } = await client.rpc("reject_source_candidate", { candidate_id: id });
   return error?.message ?? null;
+}
+
+/** Fixed authenticated RPC; uses the existing browser session and publishable key. */
+export async function fetchAgentAlerts(client: SupabaseClient): Promise<AgentAlert[]> {
+  const { data, error } = await client
+    .rpc("warpcore_agent_active_alerts")
+    .abortSignal(AbortSignal.timeout(10000));
+  if (error) throw error;
+  if (!Array.isArray(data) || data.length > 15) throw new Error("Invalid agent status");
+  for (const item of data) {
+    if (!item || typeof item !== "object" || Array.isArray(item)
+      || Object.keys(item).length !== 4
+      || !["code", "message", "changedAt", "affectedCount"].every((key) => Object.hasOwn(item, key))
+      || typeof item.code !== "string" || !/^[a-z_]{1,64}$/.test(item.code)
+      || typeof item.message !== "string" || item.message.length < 1 || item.message.length > 240
+      || typeof item.changedAt !== "string" || !Number.isFinite(Date.parse(item.changedAt))
+      || !Number.isSafeInteger(item.affectedCount) || item.affectedCount < 0) {
+      throw new Error("Invalid agent status");
+    }
+  }
+  return data as AgentAlert[];
 }

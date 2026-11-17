@@ -1,11 +1,12 @@
+import {approvedRuntimeModel,DEFAULT_RUNTIME_MODEL} from './approved-runtime-models.mjs';
 import {OpenRouterAttemptError} from './openrouter.mjs';
 import {buildVerificationRequest,validateVerificationResult} from './verification-contract.mjs';
 import {verifyWithOpenRouter,VERIFICATION_REQUEST_PROFILE_VERSION} from './verification-openrouter.mjs';
 import {fetchNativeEvidence} from './native-verification.mjs';
 import {fetchCapturedEvidence} from './source-verification.mjs';
 import {POLICY_VERSION} from './policy.mjs';
-export const VERIFICATION_RESERVATION_CREDITS=0.058983;
-const MODEL='openai/gpt-oss-120b',AGENT='warpcore-news-agent-v1';
+export const VERIFICATION_RESERVATION_CREDITS=approvedRuntimeModel(DEFAULT_RUNTIME_MODEL).maxCostCredits;
+const AGENT='warpcore-news-agent-v1';
 const uuid=x=>typeof x==='string'&&/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(x);
 const sha=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
 const plain=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
@@ -46,9 +47,10 @@ async function readHistory(rpc,started){
  throw Error('Incomplete history');
 }
 function configured(config){
- return config?.enabled===true&&config.model===MODEL&&config.expectedProvider==='Groq'&&Array.isArray(config.allowedModels)&&config.allowedModels.includes(MODEL)
- &&typeof config.apiKey==='string'&&config.apiKey.trim()&&!/[\r\n]/.test(config.apiKey)&&Number.isFinite(config.maxCostCredits)&&config.maxCostCredits>=VERIFICATION_RESERVATION_CREDITS
- &&Number.isSafeInteger(config.maxOutputTokens)&&config.maxOutputTokens>0&&config.maxOutputTokens<=8192
+ const approved=approvedRuntimeModel(config?.model);
+ return approved&&config?.enabled===true&&config.expectedProvider===approved.provider&&Array.isArray(config.allowedModels)&&config.allowedModels.includes(approved.model)
+ &&typeof config.apiKey==='string'&&config.apiKey.trim()&&!/[\r\n]/.test(config.apiKey)&&Number.isFinite(config.maxCostCredits)&&config.maxCostCredits===approved.maxCostCredits
+ &&Number.isSafeInteger(config.maxOutputTokens)&&config.maxOutputTokens>0&&config.maxOutputTokens<=approved.maxOutputTokens
  &&Array.isArray(config.allowedSourceHosts)&&config.allowedSourceHosts.length>0&&config.allowedSourceHosts.length<=100
  &&config.allowedSourceHosts.every(h=>typeof h==='string'&&h===h.toLowerCase()&&h.length<=253)
  &&(config.maxResponseBytes===undefined||Number.isSafeInteger(config.maxResponseBytes)&&config.maxResponseBytes>0&&config.maxResponseBytes<=200000)
@@ -70,6 +72,7 @@ function attemptDiagnostic(error,secret){
 export async function runVerificationInvocation({config={},rpc,modelFetcher,evidenceFetcher,now=()=>new Date().toISOString()}={}){
  if(config.enabled!==true)return {status:'disabled',publishingEnabled:false};
  if(!configured(config)||typeof rpc!=='function'||typeof modelFetcher!=='function'||typeof evidenceFetcher!=='function')return {status:'deferred',reason:'invalid_configuration',publishingEnabled:false};
+ const approved=approvedRuntimeModel(config.model);
  let job;
  try{job=await rpc('warpcore_verification_claim',{});}catch{return {status:'deferred',reason:'claim_unavailable',publishingEnabled:false};}
  if(job===null)return {status:'idle',publishingEnabled:false};
@@ -110,13 +113,13 @@ export async function runVerificationInvocation({config={},rpc,modelFetcher,evid
  }catch{return finishDeferred('evidence_or_history_unavailable');}
  let reservation;
  try{
-  reservation=await rpc('warpcore_verification_reserve',{...ids,p_hash:requestSha256,p_max:VERIFICATION_RESERVATION_CREDITS,p_metadata:{model:MODEL,profileVersion:VERIFICATION_REQUEST_PROFILE_VERSION,expectedProvider:'Groq'}});
+  reservation=await rpc('warpcore_verification_reserve',{...ids,p_hash:requestSha256,p_max:approved.maxCostCredits,p_metadata:{model:approved.model,profileVersion:VERIFICATION_REQUEST_PROFILE_VERSION,expectedProvider:approved.provider}});
   if(!uuid(reservation))throw Error();
  }catch{return {status:'uncertain',reason:'reservation_unconfirmed',...flags};}
  try{if(await rpc('warpcore_verification_dispatch',ids)!==true)throw Error();}
  catch{return {status:'uncertain',reason:'dispatch_unconfirmed',...flags};}
  let result;
- try{result=await verifyWithOpenRouter(request,{...config,reservation:{id:reservation,maxCostCredits:VERIFICATION_RESERVATION_CREDITS}},modelFetcher);}
+ try{result=await verifyWithOpenRouter(request,{...config,reservation:{id:reservation,maxCostCredits:approved.maxCostCredits}},modelFetcher);}
  catch(error){
   const billed=error instanceof OpenRouterAttemptError&&validUsage(error?.usage)&&billedCodes.has(error.code);
   const diagnostic=attemptDiagnostic(error,config.apiKey),usage=billed?project(error.usage,['promptTokens','completionTokens','totalTokens','costCredits']):undefined;
@@ -134,7 +137,7 @@ export async function runVerificationInvocation({config={},rpc,modelFetcher,evid
  if(validated.action==='defer')return finishDeferred('model_deferred');
  const material={version:'agent-verification-v1',agentId:AGENT,runId:job.rankingRunId,storyKey:job.storyKey,evidenceHash:input.evidenceHash,
  editorial:{...validated.editorial,verification:{checkedAt:input.now,sourceUrls:input.sources.filter(s=>validated.editorial.evidenceIds.includes(s.evidenceId)).map(s=>s.url),reason:'Model-supported primary-evidence judgment with validated exact quote bindings.'}},
- model:MODEL,policyVersion:POLICY_VERSION,requestProfileVersion:VERIFICATION_REQUEST_PROFILE_VERSION,requestSha256,judgment:validated.judgment,sources:input.sources};
+ model:approved.model,policyVersion:POLICY_VERSION,requestProfileVersion:VERIFICATION_REQUEST_PROFILE_VERSION,requestSha256,judgment:validated.judgment,sources:input.sources};
  let receipt;
  try{receipt=await rpc('warpcore_agent_issue_receipt',{p_material:material});if(!uuid(receipt))throw Error();}
  catch{return {status:'uncertain',reason:'receipt_unconfirmed',...flags};}

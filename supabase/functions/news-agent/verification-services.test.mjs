@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {createHash} from 'node:crypto';
 import {createVerificationService} from './verification-services.mjs';
 const id=n=>`${String(n).padStart(8,'0')}-1111-4111-8111-111111111111`,story='a'.repeat(64),url='https://example.com/release';
-const config={projectUrl:'https://fixture.supabase.co',serviceKey:'synthetic-service-key',runtimeConfig:{enabled:true,apiKey:'synthetic-model-key',model:'openai/gpt-oss-120b',allowedModels:['openai/gpt-oss-120b'],expectedProvider:'Groq',maxOutputTokens:8192,maxCostCredits:.058983,allowedSourceHosts:['example.com']}};
+const config={projectUrl:'https://fixture.supabase.co',serviceKey:'synthetic-service-key',runtimeConfig:{enabled:true,apiKey:'synthetic-model-key',model:'openai/gpt-oss-120b',allowedModels:['openai/gpt-oss-120b'],expectedProvider:'Groq',maxOutputTokens:4096,maxCostCredits:.058983,allowedSourceHosts:['example.com']}};
 test('separate transports receive only their own credentials and fixed RPC bodies',async()=>{
  const events=[];let requestHash;
  const service=createVerificationService(config,{

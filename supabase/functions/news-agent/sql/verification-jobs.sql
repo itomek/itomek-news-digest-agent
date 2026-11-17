@@ -75,7 +75,11 @@ declare j shadow_agent.verification_jobs;attempt uuid;
 begin
  perform shadow_agent.verification_lock();
  if not coalesce((select enabled from shadow_agent.verification_settings where singleton),false) then raise exception 'Verification disabled';end if;
- if p_metadata is distinct from '{"model":"openai/gpt-oss-120b","profileVersion":"2026-11-16.verify.1","expectedProvider":"Groq"}'::jsonb then raise exception 'Invalid verification metadata';end if;
+ if p_metadata is null or jsonb_typeof(p_metadata) is distinct from 'object' or (p_metadata-'model'-'profileVersion'-'expectedProvider')<>'{}'::jsonb
+ or p_metadata->>'profileVersion' is distinct from '2026-11-16.verify.1'
+ or not coalesce((p_metadata->>'model'='openai/gpt-oss-120b' and p_metadata->>'expectedProvider'='Groq' and p_max=0.058983)
+ or (p_metadata->>'model'='nvidia/nemotron-3.5-super-vl' and p_metadata->>'expectedProvider'='DeepInfra' and p_max=0.157287)
+ or (p_metadata->>'model'='nvidia/nemotron-3-super-120b-a12b' and p_metadata->>'expectedProvider'='DeepInfra' and p_max=0.026215),false) then raise exception 'Invalid verification metadata';end if;
  select * into j from shadow_agent.verification_jobs where id=p_job;
  if not found or j.status<>'pending' then raise exception 'Verification job unavailable';end if;
  if j.metadata is not null and j.metadata is distinct from p_metadata then raise exception 'Immutable verification metadata';end if;

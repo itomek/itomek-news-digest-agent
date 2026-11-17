@@ -226,3 +226,15 @@ test('sixteen-candidate keyed schema requires the candidate omitted by the histo
  await assert.rejects(reviewWithOpenRouter(r,cfg,async()=>reply(15)),e=>e.code==='incomplete_decisions'&&e.usage.costCredits===.0019665&&e.completionAudit.provider==='Groq');
  assert.equal((await reviewWithOpenRouter(r,cfg,async()=>reply(16))).decisions.length,16);
 });
+test('coded ranking has exactly seventeen valid states and normalizes all in candidate order',async()=>{
+ const {buildKeyedCodedRankingFormat,DISCOVERY_RATING_CODES}=await import('./review-contract.mjs');assert.equal(typeof buildKeyedCodedRankingFormat,'function');
+ const codes=['skip',...Array.from({length:4},(_,i)=>Array.from({length:4},(_,r)=>`verify_i${i+1}_r${r+1}`)).flat()];assert.deepEqual(DISCOVERY_RATING_CODES,codes);
+ const ids=codes.map((_,i)=>'coded-'+i),r={...request(),messages:[request().messages[0],{role:'user',content:JSON.stringify({candidates:ids.map(id=>({id}))})}],response_format:buildKeyedCodedRankingFormat(ids)};
+ const reply=decisions=>{const p=payload();p.choices[0].message.content=JSON.stringify({decisions});return Response.json(p);};
+ const decisions=Object.fromEntries(ids.map((id,i)=>[id,{rating:codes[i],reason:'Fixture.'}]).reverse());
+ const out=await reviewWithOpenRouter(r,config(),async()=>reply(decisions));
+ assert.deepEqual(out.decisions,ids.map((id,i)=>({id,action:i?'verify':'skip',reason:'Fixture.',importance:i?Math.floor((i-1)/4)+1:0,relevance:i?(i-1)%4+1:0})));
+ for(const patch of [{rating:'verify_i0_r1',reason:'Fixture.'},{rating:'verify_i1_r5',reason:'Fixture.'},{rating:'skip',reason:'Fixture.',action:'verify'},{rating:'skip',reason:'Fixture.',importance:1}])await assert.rejects(reviewWithOpenRouter(r,config(),async()=>reply({...decisions,[ids[0]]:patch})),e=>e.usage.costCredits===.001&&e.completionAudit.generationId==='gen-test');
+ const missing={...decisions};delete missing[ids[0]];await assert.rejects(reviewWithOpenRouter(r,config(),async()=>reply(missing)),e=>e.code==='incomplete_decisions'&&e.usage.costCredits===.001);
+ const bad=structuredClone(r);bad.response_format.json_schema.schema.properties.decisions.properties[ids[0]].properties.rating.enum.push('verify_i0_r1');let calls=0;await assert.rejects(reviewWithOpenRouter(bad,config(),async()=>{calls++;return reply(decisions);}),e=>e.outcome==='not_started');assert.equal(calls,0);
+});

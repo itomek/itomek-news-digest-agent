@@ -45,15 +45,17 @@ begin
  or (p_config->>'maxResponseBytes')::numeric not between 1 and 200000
  or jsonb_typeof(p_config->'maxCostCredits') is distinct from 'number' then raise exception 'Invalid runtime config'; end if;
  if not((p_config->>'maxCostCredits')::numeric>0 and (p_config->>'maxCostCredits')::numeric<1000000) then raise exception 'Invalid runtime config'; end if;
+ if p_config->>'model' in ('nvidia/nemotron-3.5-super-vl','nvidia/nemotron-3-super-120b-a12b') and not(p_config ? 'requestProfile') then raise exception 'Invalid approved runtime profile';end if;
  -- Optional immutable routing/structured-output profile. Keep only the
  -- reviewed public contract, never arbitrary transport parameters or secrets.
  if p_config ? 'requestProfile' then
   profile:=p_config->'requestProfile';
+  if (p_config->>'model'='nvidia/nemotron-3.5-super-vl' and profile->>'version' not in ('2026-11-17.1','2026-11-17.3','2026-11-17.4')) or (p_config->>'model'='nvidia/nemotron-3-super-120b-a12b' and profile->>'version'<>'2026-11-17.2') then raise exception 'Invalid approved runtime profile';end if;
   if jsonb_typeof(profile) is distinct from 'object'
   or (profile-'version'-'provider'-'responseFormat'-'reasoning'-'rankingRubricVersion')<>'{}'::jsonb
   or jsonb_typeof(profile->'version') is distinct from 'string'
   or profile->>'version' !~ '^[A-Za-z0-9._-]{1,64}$'
-  or not coalesce((profile->>'responseFormat'='discovery-json-schema-v1' and profile->>'version' not in ('2026-11-16.3','2026-11-16.4') and not(profile ? 'rankingRubricVersion') or profile->>'responseFormat'='discovery-ranked-json-schema-v2' and profile->>'version'='2026-11-16.3' and profile->>'rankingRubricVersion'='2026-11-16.1' or profile->>'responseFormat'='discovery-keyed-ranked-json-schema-v3' and profile->>'version'='2026-11-16.4' and profile->>'rankingRubricVersion'='2026-11-16.1'),false)
+  or not coalesce((profile->>'responseFormat'='discovery-json-schema-v1' and profile->>'version' not in ('2026-11-16.3','2026-11-16.4','2026-11-17.1','2026-11-17.2','2026-11-17.3','2026-11-17.4') and not(profile ? 'rankingRubricVersion') or profile->>'responseFormat'='discovery-ranked-json-schema-v2' and profile->>'version'='2026-11-16.3' and profile->>'rankingRubricVersion'='2026-11-16.1' or profile->>'responseFormat'='discovery-keyed-ranked-json-schema-v3' and profile->>'version' in ('2026-11-16.4','2026-11-17.1','2026-11-17.2','2026-11-17.3') and profile->>'rankingRubricVersion'='2026-11-16.1' or profile->>'responseFormat'='discovery-keyed-coded-ranking-json-schema-v4' and profile->>'version'='2026-11-17.4' and profile->>'rankingRubricVersion'='2026-11-16.1'),false)
   or jsonb_typeof(profile->'provider') is distinct from 'object'
   then raise exception 'Invalid request profile'; end if;
   if (profile->>'version' in ('2026-11-16.2','2026-11-16.3','2026-11-16.4') and profile->'reasoning' is distinct from '{"effort":"low"}'::jsonb)
@@ -72,13 +74,16 @@ begin
   -- required in v16.1/v16.2 and forbidden in historical code-owned v15.2.
   -- Existing bound configuration remains immutable across lease/resume.
   if (provider ? 'zdr' and provider->'zdr' is distinct from 'true'::jsonb)
-  or (profile->>'version' in ('2026-11-16.1','2026-11-16.2','2026-11-16.3','2026-11-16.4') and provider->'zdr' is distinct from 'true'::jsonb)
+  or (profile->>'version' in ('2026-11-16.1','2026-11-16.2','2026-11-16.3','2026-11-16.4','2026-11-17.1','2026-11-17.2','2026-11-17.3','2026-11-17.4') and provider->'zdr' is distinct from 'true'::jsonb)
   or (profile->>'version'='2026-11-15.2' and provider ? 'zdr')
   then raise exception 'Invalid request profile ZDR policy'; end if;
   if jsonb_array_length(provider->'only')<>1
   or jsonb_typeof(provider->'only'->0) is distinct from 'string'
   or provider->'only'->>0 !~ '^[a-z0-9][a-z0-9._/-]{0,127}$'
   then raise exception 'Invalid request profile'; end if;
+  if profile->>'version' in ('2026-11-17.1','2026-11-17.2','2026-11-17.3','2026-11-17.4') and (profile->'reasoning' is distinct from '{"effort":"none"}'::jsonb or p_config->'maxOutputTokens' is distinct from '4096'::jsonb or p_config->'reviewBatchSize' is distinct from '16'::jsonb or not coalesce(
+   (profile->>'version' in ('2026-11-17.1','2026-11-17.3','2026-11-17.4') and p_config->>'model'='nvidia/nemotron-3.5-super-vl' and p_config->>'expectedProvider'='DeepInfra' and provider->'only'='["deepinfra/fp4"]'::jsonb and provider->'max_price'='{"prompt":0.15,"completion":0.50,"request":0}'::jsonb and p_config->'maxCostCredits'='0.157287'::jsonb)
+   or (profile->>'version'='2026-11-17.2' and p_config->>'model'='nvidia/nemotron-3-super-120b-a12b' and p_config->>'expectedProvider'='DeepInfra' and provider->'only'='["deepinfra/bf16"]'::jsonb and provider->'max_price'='{"prompt":0.075,"completion":0.40,"request":0}'::jsonb and p_config->'maxCostCredits'='0.026215'::jsonb),false)) then raise exception 'Invalid approved runtime profile';end if;
   prices:=provider->'max_price';
   if (prices-'prompt'-'completion'-'request')<>'{}'::jsonb
   or jsonb_typeof(prices->'prompt') is distinct from 'number'
@@ -86,7 +91,7 @@ begin
   or prices->'request' is distinct from '0'::jsonb then raise exception 'Invalid request profile'; end if;
   if (prices->>'prompt')::numeric<=0 or (prices->>'completion')::numeric<=0 then raise exception 'Invalid request profile'; end if;
  end if;
- if profile->>'responseFormat' in ('discovery-ranked-json-schema-v2','discovery-keyed-ranked-json-schema-v3') and to_regprocedure('shadow_agent.ranking_bind(uuid)') is null then raise exception 'Ranking contract required'; end if;
+ if profile->>'responseFormat' in ('discovery-ranked-json-schema-v2','discovery-keyed-ranked-json-schema-v3','discovery-keyed-coded-ranking-json-schema-v4') and to_regprocedure('shadow_agent.ranking_bind(uuid)') is null then raise exception 'Ranking contract required'; end if;
  select config into existing from shadow_agent.run_config where run_id=p_run;
  if found then
   if existing is distinct from p_config then raise exception 'Immutable runtime config'; end if;
@@ -94,7 +99,7 @@ begin
  end if;
  if r.lease_until<=clock_timestamp() then return false; end if;
  insert into shadow_agent.run_config(run_id,config) values(p_run,p_config);
- if profile->>'responseFormat' in ('discovery-ranked-json-schema-v2','discovery-keyed-ranked-json-schema-v3') then perform shadow_agent.ranking_bind(p_run); end if;
+ if profile->>'responseFormat' in ('discovery-ranked-json-schema-v2','discovery-keyed-ranked-json-schema-v3','discovery-keyed-coded-ranking-json-schema-v4') then perform shadow_agent.ranking_bind(p_run); end if;
  if r.lease_until<=clock_timestamp() then raise exception 'Lease lost during config binding'; end if;
  return true;
 end $$;

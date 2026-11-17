@@ -8,6 +8,7 @@ create table shadow_agent.verification_settings(
  singleton boolean primary key default true check(singleton),enabled boolean not null default false,
  submit_enabled boolean not null default false,
  backfill_enabled boolean not null default false,
+ ranking_finalized_since timestamptz, -- Owner-only new-job cohort; NULL preserves all history.
  job_limit_credits numeric check(job_limit_credits>0 and job_limit_credits<=1)
 );
 insert into shadow_agent.verification_settings(singleton) values(true);
@@ -48,6 +49,7 @@ language sql stable security definer set search_path='' as $$
  left join shadow_agent.decisions d on d.run_id=c.run_id and d.ordinal=c.ordinal
  cross join shadow_agent.verification_settings cfg
  where cfg.singleton and cfg.enabled and k.finalized_at is not null
+ and (cfg.ranking_finalized_since is null or k.finalized_at>=cfg.ranking_finalized_since)
  and (select count(distinct v.story_key) from shadow_agent.verification_jobs v where v.ranking_run_id=k.run_id and v.status='verified')<5
  and not exists(select 1 from shadow_agent.verification_jobs v where v.ranking_run_id=c.run_id and v.story_key=c.candidate_id)
  and (selected.ordinal is not null or (cfg.backfill_enabled

@@ -184,3 +184,19 @@ test('reviewed GitHub release uses full fixed API capture and trusted date befor
  assert.equal((await run(f)).status,'submitted');assert.equal(f.material.sources[0].captureKind,'github-release-v1');assert.equal(f.material.sources[0].url,releaseUrl);assert.equal(f.material.sources[0].body,JSON.stringify(data));assert.equal(f.material.judgment.publicationDate,data.published_at.slice(0,10));
  const rejected=fixture();rejected.config.allowedSourceHosts=['github.com'];const rpc=rejected.rpc;rejected.rpc=async(name,args)=>name==='warpcore_curator_snapshot'?{story_key:story,evidence_hash:evidenceHash,evidence:[item]}:rpc(name,args);rejected.evidenceFetcher=async()=>Response.json({...data,draft:true});assert.equal((await run(rejected)).reason,'evidence_or_history_unavailable');assert.equal(rejected.events.some(e=>e.name==='warpcore_verification_reserve'||e.name==='model_post'),false);
 });
+test('provider source capacity preserves full150KB for NVIDIA and refuses it before paid Cerebras work',async()=>{
+ for(const model of ['nvidia/nemotron-3.5-super-vl','openai/gpt-oss-120b']){
+  const f=fixture(),approved=approvedRuntimeModel(model),base=f.evidenceFetcher;
+  Object.assign(f.config,{model,allowedModels:[model],expectedProvider:approved.provider,maxCostCredits:approved.maxCostCredits});
+  let raw;f.evidenceFetcher=async(...args)=>{raw=(await(await base(...args)).text()).padEnd(150000,' ');return new Response(raw,{headers:{'content-type':'text/plain'}});};
+  const out=await run(f);
+  if(approved.provider==='Cerebras'){assert.equal(out.reason,'evidence_or_history_unavailable');assert.equal(f.events.some(e=>['model_post','warpcore_verification_reserve','warpcore_verification_dispatch'].includes(e.name)),false);}
+  else{assert.equal(out.status,'submitted');assert.equal(f.material.sources[0].body,raw);assert.equal(f.material.sources[0].contentSha256,hash(raw));assert.equal(new TextEncoder().encode(raw).length,150000);assert.equal(f.projectedInput.sources[0].bodyChunks.map(c=>c.text).join(''),raw);assert.equal(f.events.filter(e=>e.name==='model_post').length,1);}
+ }
+});
+test('NVIDIA larger ordinary-source allowance leaves GitHub API hard100KB before paid work',async()=>{
+ const f=fixture(),model='nvidia/nemotron-3.5-super-vl',approved=approvedRuntimeModel(model),releaseUrl='https://github.com/lemonade-sdk/lemonade/releases/tag/v2026.47.1',item={...evidence,url:releaseUrl,sourceLinks:[releaseUrl]},base=f.rpc;
+ Object.assign(f.config,{model,allowedModels:[model],expectedProvider:approved.provider,maxCostCredits:approved.maxCostCredits,allowedSourceHosts:['github.com']});f.rpc=async(name,args)=>name==='warpcore_curator_snapshot'?{story_key:story,evidence_hash:evidenceHash,evidence:[item]}:base(name,args);
+ f.evidenceFetcher=async()=>Response.json({html_url:releaseUrl,tag_name:'v2026.47.1',draft:false,prerelease:true,published_at:f.now(),body:'x'.repeat(150000)});
+ assert.equal((await run(f)).reason,'evidence_or_history_unavailable');assert.equal(f.events.some(e=>['model_post','warpcore_verification_reserve','warpcore_verification_dispatch'].includes(e.name)),false);
+});

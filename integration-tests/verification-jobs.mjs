@@ -10,6 +10,7 @@ try{
  await db.exec(`create function public.warpcore_agent_submit(p_id uuid) returns uuid language sql as 'insert into public.warpcore_curator_inbox(verification_receipt_id,story_key,run_id,actor_kind) select p_id,material->>''storyKey'',(material->>''runId'')::uuid,''agent'' from agent_verification.receipts where id=p_id returning id';`);
  await db.exec(await fs.readFile(new URL('../supabase/functions/news-agent/sql/verification-jobs.sql',import.meta.url),'utf8'));
  const claim=()=>value('select public.warpcore_verification_claim() v');assert.equal(await claim(),null);assert.equal((await q('select count(*)::int n from shadow_agent.budgets'))[0].n,0);
+ assert.equal((await q('select ranking_finalized_since from shadow_agent.verification_settings'))[0].ranking_finalized_since,null,'New-job cohort boundary defaults NULL');
  assert.equal((await q('select backfill_enabled from shadow_agent.verification_settings'))[0].backfill_enabled,false,'Backfill is admin-disabled by default');
  assert.equal((await q('select submit_enabled from shadow_agent.verification_settings'))[0].submit_enabled,false,'Live verification defaults to nonpublishing preview');
  await db.exec('update shadow_agent.verification_settings set enabled=true,submit_enabled=true,job_limit_credits=0.2');const job=await claim();assert.equal(job.storyKey,key);assert.equal(job.rankingRunId,root);assert.equal(await claim(),null);
@@ -129,12 +130,32 @@ try{
  await db.exec("update shadow_agent.verification_jobs set status='deferred' where status='uncertain'");const sixth=await claim();assert.equal(sixth.storyKey,'6'.padStart(64,'0'),'Claim shares exact live-excluded helper candidate');
  assert.deepEqual(await next(),[],'Finite live-eligible unattempted candidate pool is exhausted independently of qualified cap');
  assert.equal((await q("select count(*)::int n from shadow_agent.verification_jobs where ranking_run_id=$1 and status='verified'",[backfillRun]))[0].n,0,'Exhaustion is not five-qualified completion');
+ await q('update shadow_agent.verification_settings set ranking_finalized_since=(select finalized_at from shadow_agent.ranking_runs where run_id=$1)',[backfillRun]);
  await q("update shadow_agent.verification_jobs set status='verified',handoff_status='deferred' where ranking_run_id=$1 and story_key<>$2",[backfillRun,sixth.storyKey]);
- assert.deepEqual(await next(),[],'Five verified stories including stale historical handoffs consume the full run cap');
+ assert.deepEqual(await next(),[],'With cohort pinned, five verified stories including stale historical handoffs still consume the full run cap');
  await db.exec('savepoint cap_check');await assert.rejects(()=>value("select public.warpcore_verification_finish($1,$2,'verified',$3) v",[sixth.jobId,sixth.lease,receipt]),/qualified limit/);await db.exec('rollback to cap_check');
  assert.equal((await q('select count(*)::int n from shadow_agent.selection_items where run_id=$1',[backfillRun]))[0].n,5,'Original proposals remain five unchanged');
  await db.exec('rollback');
- for(const role of ['anon','authenticated','service_role']){await db.exec(`set role ${role}`);await assert.rejects(()=>q('select * from shadow_agent.next_verification_candidate()'),/permission/);for(const table of ['verification_settings','verification_jobs','verification_audit','budgets'])await assert.rejects(()=>q('select * from shadow_agent.'+table),/permission/);
+ // Cohort filtering affects only new jobs; durable historical work survives.
+ await db.exec('begin');
+ const cohortRuns=['00000000-0000-4000-8000-000000000060','00000000-0000-4000-8000-000000000061','00000000-0000-4000-8000-000000000062'],boundary='2026-11-17T07:10:11.123456Z';
+ for(const [n,id] of cohortRuns.entries()){await q("insert into shadow_agent.runs(id,state,limit_credits) values($1,'{\"phase\":\"complete\"}',1)",[id]);await q("insert into shadow_agent.ranking_runs values($1,$2::timestamptz+($3::int-1)*interval '1 microsecond')",[id,boundary,n]);await q('insert into shadow_agent.candidates values($1,0,$2)',[id,(100+n).toString(16).padStart(64,'0')]);await q('insert into shadow_agent.selection_items values($1,0,1)',[id]);}
+ const cohortNext=()=>q('select * from shadow_agent.next_verification_candidate()');
+ assert.equal((await cohortNext())[0].ranking_run_id,cohortRuns[0],'NULL preserves oldest historical eligible run');
+ await q('update shadow_agent.verification_settings set ranking_finalized_since=(select finalized_at from shadow_agent.ranking_runs where run_id=$1)',[cohortRuns[1]]);
+ assert.equal((await cohortNext())[0].ranking_run_id,cohortRuns[1],'Exact stored microsecond boundary includes current run and excludes older history');
+ await q("update shadow_agent.verification_settings set ranking_finalized_since=$1::timestamptz+interval '1 microsecond'",[boundary]);assert.equal((await cohortNext())[0].ranking_run_id,cohortRuns[2],'Future finalized complete cohort remains eligible');
+ await q("update shadow_agent.runs set state='{\"phase\":\"review\"}' where id=$1",[cohortRuns[2]]);assert.deepEqual(await cohortNext(),[],'Future incomplete work cannot enter cohort verification');await q("update shadow_agent.runs set state='{\"phase\":\"complete\"}' where id=$1",[cohortRuns[2]]);
+ await q('update shadow_agent.verification_settings set ranking_finalized_since=(select finalized_at from shadow_agent.ranking_runs where run_id=$1)',[cohortRuns[1]]);
+ const financialBefore=await q('select * from shadow_agent.budgets');assert.equal(await claim(),null,'Historical unknown job still blocks new cohort work');assert.deepEqual(await q('select * from shadow_agent.budgets'),financialBefore);
+ await q("update shadow_agent.verification_jobs set quarantined=true where status='uncertain'");
+ const oldChild='00000000-0000-4000-8000-000000000063';await q("insert into shadow_agent.runs(id,state,limit_credits) values($1,$2,1)",[oldChild,{storageKind:'verification-v1',runId:oldChild,phase:'reviewing',revision:0,activeBatch:['64'.padStart(64,'0')],publishingEnabled:false}]);
+ const oldJob=(await q("insert into shadow_agent.verification_jobs(ranking_run_id,story_key,child_run_id) values($1,$2,$3) returning id",[cohortRuns[0],'64'.padStart(64,'0'),oldChild]))[0].id;
+ const resumedOld=await claim();assert.equal(resumedOld.jobId,oldJob,'Existing old unattempted pending job retains priority despite cutoff');assert.equal(resumedOld.rankingRunId,cohortRuns[0]);
+ await q("update shadow_agent.verification_jobs set status='verified',receipt_id=$2 where id=$1",[oldJob,receipt]);await q("update shadow_agent.runs set lease_until=now()-interval '1 second' where id=$1",[oldChild]);const recoveredOld=await claim();assert.equal(recoveredOld.jobId,oldJob);assert.equal(recoveredOld.handoffReceiptId,receipt,'Historical receipt recovery is never filtered by cutoff');
+ await q("update shadow_agent.verification_jobs set handoff_status='deferred' where id=$1",[oldJob]);const cohortJob=await claim();assert.equal(cohortJob.rankingRunId,cohortRuns[1],'Only new job allocation uses the current cohort');assert.deepEqual(await q('select * from shadow_agent.budgets'),financialBefore,'Cohort selection never changes money');
+ await db.exec('rollback');
+ for(const role of ['anon','authenticated','service_role']){await db.exec(`set role ${role}`);await assert.rejects(()=>q('select * from shadow_agent.next_verification_candidate()'),/permission/);await assert.rejects(()=>q('select ranking_finalized_since from shadow_agent.verification_settings'),/permission/);await assert.rejects(()=>q('update shadow_agent.verification_settings set ranking_finalized_since=now()'),/permission/);for(const table of ['verification_settings','verification_jobs','verification_audit','budgets'])await assert.rejects(()=>q('select * from shadow_agent.'+table),/permission/);
  if(role!=='service_role')assert.equal((await q(`select count(*)::int n from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname like 'warpcore_verification_%' and has_function_privilege(current_user,p.oid,'execute')`))[0].n,0);if(role!=='service_role')await assert.rejects(()=>claim(),/permission/);await db.exec('reset role');}
  console.log('PASS: selected-only durable verifier job, disabled defaults, shared budgets, exact metadata, no paid replay and late accounting/finish fencing');
 }finally{await db.close();}

@@ -35,3 +35,15 @@ The reviewed Together profile `2026-11-17.5` was deployed in discovery-stage `ne
 ## Complete live-feed discovery
 
 The Together run completed at 2026-11-17 06:17:07 UTC: 650 captured and assessed candidates, 184 investigation-eligible assessments, five globally ranked proposals, finalized revision 91. All 41 paid batches settled for 0.06916930 credits; the run has no held credits. Existing earlier unknown reservations remain untouched. The producer and continuation cron were paused after completion while nonpublishing verification was prepared. These are investigation proposals, not five verified or publishable stories.
+
+## Initial nonpublishing verification and diagnostic correction
+
+The full runtime was deployed as `news-agent` v6 from `d447cf3` (source manifest SHA-256 `2b3fdd36a6a2450eca04e6eab18fb772cabb4ed0abba9737afe285d6bebf7b09`, deployment bundle SHA-256 `7b31fe95d7edd256a309fcf172460d2efee750bda387563bb71d83038d2f656f`). Verification was enabled with a 0.5-credit job limit while submission stayed false. The completed shortlist was processed through the normal authenticated endpoint after the reviewed selector-precedence correction.
+
+All five jobs deferred, with zero receipts or inbox submissions. Three model calls settled 0.02189120 credits total; two stopped before inference. No new unknown hold arose. Historical code discarded semantic results and fixed final deferral reasons, so these three jobs cannot retrospectively be classified as intentional model rejection versus semantic validation failure. Later instrumentation must not fabricate those missing outcomes.
+
+Independent review identified a previously published EPYC event, a likely previously published Gemini launch, an older unreviewed Lemonade release candidate, and a Fable event whose primary announcement falls outside the seven-day window. AMD's World Labs acquisition has official November 16 primary support. These source/history findings do not reconstruct the missing model decisions.
+
+The GitHub source failure was reproduced with actual Deno acquisition: repeated normal `Set-Cookie` response headers were rejected. Ignoring these unused headers now permits a bounded 193184-byte capture; framing, cookie nonpersistence, DNS/TLS and size checks remain enforced. The captured Ars original has matching URI/CID/author but empty record text; the current native proof contract deliberately rejects that card-only original. Neither exclusion authorized a post.
+
+The diagnostic correction optionally retains bounded structured model results only in private settlement audits. Archival omissions cannot prevent known-usage settlement; NUL/lone-surrogate cases are explicitly omitted for PostgreSQL JSONB compatibility. Public responses expose only fixed reason codes. This changes observation, not the model request or receipt approval rules.

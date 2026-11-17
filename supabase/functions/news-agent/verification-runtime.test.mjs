@@ -70,7 +70,7 @@ test('known billed invalid schema records real audit with validationError and de
  const audit=f.events.find(e=>e.name==='warpcore_verification_settle').args;assert.equal(audit.p_status,'settled');assert.equal(audit.p_cost,.01);assert.equal(audit.p_audit.validationError,'invalid_verification_schema');assert.equal(audit.p_audit.generationId,'fixture-generation');assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);
 });
 test('billed unsupported quote settles real cost but cannot issue a receipt',async()=>{
- const f=fixture();f.result.claims[0].quote='invented';assert.equal((await run(f)).reason,'unsupported_verification');assert.equal(f.events.find(e=>e.name==='warpcore_verification_settle').args.p_cost,.01);assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);
+ const f=fixture();f.result.claims[0].quote='invented';assert.equal((await run(f)).reason,'verification_quote_missing');assert.equal(f.events.find(e=>e.name==='warpcore_verification_settle').args.p_cost,.01);assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);
 });
 test('lost reservation, dispatch, settlement, receipt, finish or submission responses never retry downstream',async()=>{
  for(const lost of ['warpcore_verification_reserve','warpcore_verification_dispatch','warpcore_verification_settle','warpcore_agent_issue_receipt','warpcore_verification_finish','warpcore_verification_handoff']){
@@ -113,4 +113,21 @@ test('reviewed NVIDIA runtime reserves only its code-owned cap and records the s
 test('verification429 diagnostics survive durable uncertain settlement without paid replay',async()=>{
  const f=fixture();let calls=0;f.modelFetcher=async()=>{calls++;return Response.json({error:{code:429,message:'private text',metadata:{provider_code:'rate_limited',error_type:'rate_limit_exceeded',provider_name:'DeepInfra',limit_source:'upstream_provider_shared_pool'}}},{status:429,headers:{'retry-after':'30','x-request-id':'req-verify_123'}});};
  assert.equal((await run(f)).status,'uncertain');const settlement=f.events.find(e=>e.name==='warpcore_verification_settle').args;assert.equal(settlement.p_cost,null);assert.equal(settlement.p_status,'uncertain');assert.deepEqual(settlement.p_audit,{errorCode:'http_failure',diagnostic:{httpStatus:429,providerErrorCode:'rate_limited',providerErrorType:'rate_limit_exceeded',errorProvider:'DeepInfra',limitSource:'upstream_provider_shared_pool',retryAfterSeconds:30,requestId:'req-verify_123'}});assert.equal(JSON.stringify(settlement).includes('private text'),false);assert.equal((await run(f)).status,'idle');assert.equal(calls,1);
+});
+test('parsed verifier result is privately retained before semantic validation and cannot authorize a receipt',async()=>{
+ const f=fixture();f.result.claims[0].quote='unsupported quoted statement';const out=await run(f);const audit=f.events.find(e=>e.name==='warpcore_verification_settle').args;
+ assert.equal(audit.p_cost,.01);assert.deepEqual(audit.p_audit.result,f.result);assert.equal(out.reason,'verification_quote_missing');assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);assert.ok(f.events.findIndex(e=>e.name==='warpcore_verification_settle')<f.events.findIndex(e=>e.name==='warpcore_verification_finish'));
+});
+test('optional archival rejection cannot strand known billed usage or leak a credential-bearing model result',async()=>{
+ for(const reason of ['x'.repeat(1001),'Model echoed '+cfg.apiKey]){
+ const f=fixture();f.result={action:'defer',reason};const out=await run(f);const settled=f.events.find(e=>e.name==='warpcore_verification_settle').args;
+ assert.equal(settled.p_status,'settled');assert.equal(settled.p_cost,.01);assert.equal(Object.hasOwn(settled.p_audit,'result'),false);assert.equal(JSON.stringify(settled).includes(cfg.apiKey),false);assert.equal(out.status,'deferred');assert.equal(JSON.stringify(out).includes(reason),false);assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);
+ }
+});
+test('NUL and lone-surrogate model output cannot block settlement of known usage',async()=>{
+ for(const reason of ['nul\u0000text','lone\ud800high','lone\udffflow']){
+ const f=fixture();f.result={action:'defer',reason};const originalRpc=f.rpc;
+ f.rpc=async(name,args)=>{if(name==='warpcore_verification_settle')assert.equal(Object.hasOwn(args.p_audit,'result'),false,'PostgreSQL-incompatible result must be omitted before RPC');return originalRpc(name,args);};
+ const out=await run(f);assert.equal(out.status,'deferred');assert.equal(out.reason,'model_deferred');const settlement=f.events.find(e=>e.name==='warpcore_verification_settle').args;assert.equal(settlement.p_status,'settled');assert.equal(settlement.p_cost,.01);assert.equal(Object.hasOwn(settlement.p_audit,'result'),false);assert.equal(f.events.some(e=>e.name==='warpcore_agent_issue_receipt'),false);
+ }
 });

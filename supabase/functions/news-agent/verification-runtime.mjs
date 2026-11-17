@@ -1,6 +1,6 @@
 import {approvedRuntimeModel,DEFAULT_RUNTIME_MODEL} from './approved-runtime-models.mjs';
 import {OpenRouterAttemptError,sanitizedHttpDiagnostics} from './openrouter.mjs';
-import {buildVerificationRequest,validateVerificationResult} from './verification-contract.mjs';
+import {buildVerificationRequest,validateVerificationResult,boundedVerificationAuditResult,VerificationValidationError,VERIFICATION_PUBLIC_REASONS} from './verification-contract.mjs';
 import {verifyWithOpenRouter,VERIFICATION_REQUEST_PROFILE_VERSION} from './verification-openrouter.mjs';
 import {fetchNativeEvidence} from './native-verification.mjs';
 import {fetchCapturedEvidence} from './source-verification.mjs';
@@ -130,10 +130,11 @@ export async function runVerificationInvocation({config={},rpc,modelFetcher,evid
   return billed?finishDeferred('billed_invalid_completion'):{status:'uncertain',reason:'paid_outcome_unknown',...flags};
  }
  // Settle known usage before semantic validation or any receipt/inbox mutation.
- try{if(await rpc('warpcore_verification_settle',{...ids,p_status:'settled',p_cost:result.usage.costCredits,p_audit:{model:result.model,provider:result.provider,generationId:result.generationId,usage:result.usage}})!==true)throw Error();}
+ const archivedResult=boundedVerificationAuditResult(result.result,config.apiKey);
+ try{if(await rpc('warpcore_verification_settle',{...ids,p_status:'settled',p_cost:result.usage.costCredits,p_audit:{model:result.model,provider:result.provider,generationId:result.generationId,usage:result.usage,...(archivedResult===undefined?{}:{result:archivedResult})}})!==true)throw Error();}
  catch{return {status:'uncertain',reason:'settlement_unconfirmed',...flags};}
  let validated;
- try{validated=await validateVerificationResult(result.result,input);}catch{return finishDeferred('unsupported_verification');}
+ try{validated=await validateVerificationResult(result.result,input);}catch(error){return finishDeferred(error instanceof VerificationValidationError&&VERIFICATION_PUBLIC_REASONS.includes(error.code)?error.code:'unsupported_verification');}
  if(validated.action==='defer')return finishDeferred('model_deferred');
  const material={version:'agent-verification-v1',agentId:AGENT,runId:job.rankingRunId,storyKey:job.storyKey,evidenceHash:input.evidenceHash,
  editorial:{...validated.editorial,verification:{checkedAt:input.now,sourceUrls:input.sources.filter(s=>validated.editorial.evidenceIds.includes(s.evidenceId)).map(s=>s.url),reason:'Model-supported primary-evidence judgment with validated exact quote bindings.'}},

@@ -6,7 +6,9 @@ import {requestProfileForModel} from './model-profiles.mjs';
 // natural-language entailment. Unsupported, conflicting or inaccessible sources
 // must defer. No discovery decision or fetched page alone authorizes a receipt.
 const sha=/^[a-f0-9]{64}$/;
-const fail=()=>{throw Error('Invalid or unsupported verification');};
+export class VerificationValidationError extends Error {constructor(code='unsupported_verification'){super('Invalid or unsupported verification');this.name='VerificationValidationError';this.code=code;}}
+const fail=(code)=>{throw new VerificationValidationError(code);};
+export const VERIFICATION_PUBLIC_REASONS=Object.freeze(['invalid_configuration','claim_unavailable','invalid_claim','handoff_deferred','handoff_unconfirmed','invalid_handoff_claim','finish_unconfirmed','evidence_or_history_unavailable','reservation_unconfirmed','dispatch_unconfirmed','settlement_unconfirmed','billed_invalid_completion','paid_outcome_unknown','unsupported_verification','model_deferred','receipt_unconfirmed','verification_quote_missing','verification_source_hash_mismatch','verification_date_invalid','verification_claim_coverage_missing']);
 const exact=(x,keys)=>x&&typeof x==='object'&&!Array.isArray(x)&&Object.keys(x).length===keys.length&&keys.every(k=>Object.hasOwn(x,k));
 const text=(x,max=3000)=>typeof x==='string'&&x.trim().length>0&&x.length<=max;
 const hash=async s=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s))),b=>b.toString(16).padStart(2,'0')).join('');
@@ -66,9 +68,9 @@ export async function validateVerificationResult(result,input){
  if(!exact(editorial,repost?['mode','political','change','evidenceIds']:['political','summary','whyItMatters','change','evidenceIds'])||editorial.political!==false||!(repost?['change']:['summary','whyItMatters','change']).every(k=>text(editorial[k]))||!Array.isArray(editorial.evidenceIds)||!editorial.evidenceIds.length||new Set(editorial.evidenceIds).size!==editorial.evidenceIds.length||!Array.isArray(claims)||claims.length<(repost?2:4)||claims.length>20||!['scopeReason','changeReason','dedupReason'].every(k=>text(result[k],1000)))fail();
  const date=Date.parse(publicationDate+'T00:00:00Z');
  const today=Date.parse(new Date(time).toISOString().slice(0,10)+'T00:00:00Z');
- if(!/^\d{4}-\d{2}-\d{2}$/.test(publicationDate)||!Number.isFinite(date)||new Date(date).toISOString().slice(0,10)!==publicationDate||date>today||date<today-7*86400000)fail();
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(publicationDate)||!Number.isFinite(date)||new Date(date).toISOString().slice(0,10)!==publicationDate||date>today||date<today-7*86400000)fail('verification_date_invalid');
  const sources=new Map(input.sources.map(s=>[s.evidenceId,s]));
- for(const source of sources.values())if(await hash(source.body)!==source.contentSha256)fail();
+ for(const source of sources.values())if(await hash(source.body)!==source.contentSha256)fail('verification_source_hash_mismatch');
  if(editorial.evidenceIds.some(id=>!sources.has(id)))fail();
  const selected=input.evidence.filter(e=>editorial.evidenceIds.includes(e.id));
  if(repost){if(selected.length!==1||selected[0].sourceType!=='bluesky'||validateNativeCapture(sources.get(selected[0].id),selected[0],input.now).publicationDate!==publicationDate)fail();}
@@ -86,10 +88,31 @@ export async function validateVerificationResult(result,input){
    quote=JSON.stringify(claim.quote).slice(1,-1);
   }
   const index=source.body.indexOf(quote);
-  if(claim.url!==source.url||claim.contentSha256!==source.contentSha256||index<0)fail();
+  if(claim.url!==source.url||claim.contentSha256!==source.contentSha256||index<0)fail('verification_quote_missing');
   const quoteStart=Array.from(source.body.slice(0,index)).length;
   located.push({...claim,...(repost?{originalQuote:claim.quote}:{}),quote,quoteStart,quoteEnd:quoteStart+Array.from(quote).length});
  }
- if((repost?[editorial.change,publicationDate]:[editorial.summary,editorial.whyItMatters,editorial.change,publicationDate]).some(value=>!claims.some(c=>c.claim===value)))fail();
+ if((repost?[editorial.change,publicationDate]:[editorial.summary,editorial.whyItMatters,editorial.change,publicationDate]).some(value=>!claims.some(c=>c.claim===value)))fail('verification_claim_coverage_missing');
  return {action:'approve',editorial:structuredClone(editorial),judgment:{method:'model-supported-primary-evidence',factsSupported:true,scopeApproved:true,meaningfulChange:true,dedupClear:true,checkedAt:input.now,historyHash:input.history.snapshotHash,claims:located,publicationDate,scopeReason:result.scopeReason,changeReason:result.changeReason,dedupReason:result.dedupReason}};
+}
+
+// Private diagnostic archive only, never an approval. Optional omission must not
+// prevent settlement of known usage. Retain semantic failures for diagnosis.
+export function boundedVerificationAuditResult(result,secret){
+ try{
+  const str=(value,max)=>typeof value==='string'&&value.length<=max&&!/[\u0000\uD800-\uDFFF]/u.test(value);
+  const list=(value,max)=>Array.isArray(value)&&value.length<=20&&value.every(v=>str(v,max));
+  if(result?.action==='defer'){
+   if(!exact(result,['action','reason'])||!str(result.reason,1000))return undefined;
+  }else if(result?.action==='approve'){
+   if(!exact(result,['action','editorial','claims','publicationDate','scopeReason','changeReason','dedupReason'])||!str(result.publicationDate,64)||!['scopeReason','changeReason','dedupReason'].every(k=>str(result[k],1000)))return undefined;
+   const e=result.editorial,repost=e?.mode==='repost';
+   if(!exact(e,repost?['mode','political','change','evidenceIds']:['political','summary','whyItMatters','change','evidenceIds'])||typeof e.political!=='boolean'||!(repost?['change']:['summary','whyItMatters','change']).every(k=>str(e[k],3000))||!list(e.evidenceIds,2048)||!Array.isArray(result.claims)||result.claims.length>20)return undefined;
+   for(const c of result.claims)if(!exact(c,['claim','evidenceId','url','contentSha256','quote'])||!str(c.claim,3000)||!str(c.quote,3000)||!str(c.evidenceId,2048)||!str(c.url,2048)||!str(c.contentSha256,64))return undefined;
+  }else return undefined;
+  // Leave room for PostgreSQL JSONB whitespace expansion under its 65536-byte cap.
+  const encoded=JSON.stringify(result);
+  if(new TextEncoder().encode(encoded).length>60000||typeof secret==='string'&&secret&&encoded.includes(secret))return undefined;
+  return structuredClone(result);
+ }catch{return undefined;}
 }

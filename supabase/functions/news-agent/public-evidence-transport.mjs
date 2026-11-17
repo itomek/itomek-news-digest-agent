@@ -36,7 +36,7 @@ function parseHeaders(text){
  const lines=text.split('\r\n'),status=/^HTTP\/1\.[01] (\d{3}) [\x20-\x7e]*$/.exec(lines.shift());
  if(!status||Number(status[1])<200||Number(status[1])>=300)fail();
  const headers=new Headers(),seen=new Set();
- for(const line of lines){const m=/^([!#$%&'*+.^_`|~0-9A-Za-z-]+):[ \t]*([\x20-\x7e\t]*)$/.exec(line);if(!m)fail();const name=m[1].toLowerCase();if(seen.has(name)&&name!=='server')fail();seen.add(name);if(name!=='server')headers.set(name,m[2].trim());}
+ for(const line of lines){const m=/^([!#$%&'*+.^_`|~0-9A-Za-z-]+):[ \t]*([\x20-\x7e\t]*)$/.exec(line);if(!m)fail();const name=m[1].toLowerCase(),ignored=name==='server'||name==='set-cookie';if(seen.has(name)&&!ignored)fail();seen.add(name);if(!ignored)headers.set(name,m[2].trim());}
  const length=headers.get('content-length'),transfer=headers.get('transfer-encoding'),encoding=headers.get('content-encoding');
  if(encoding&&encoding!=='identity'||transfer&&transfer.toLowerCase()!=='chunked'||transfer&&length!==null||length!==null&&(!/^\d{1,6}$/.test(length)||Number(length)>MAX_BODY))fail();
  return {status:Number(status[1]),headers,length:length===null?null:Number(length),chunked:transfer!==null};

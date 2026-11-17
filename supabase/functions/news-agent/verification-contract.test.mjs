@@ -48,3 +48,22 @@ test('native original approves only exact native repost with actual post date an
   const bad=structuredClone(result);mutate(bad);await assert.rejects(()=>validateVerificationResult(bad,input));
  }
 });
+test('private result archival is bounded, structurally strict and omits credentials while preserving semantic failures',async()=>{
+ const {boundedVerificationAuditResult}=await import('./verification-contract.mjs');assert.equal(typeof boundedVerificationAuditResult,'function');
+ const {result}=await fixture();assert.deepEqual(boundedVerificationAuditResult(result),result);assert.deepEqual(boundedVerificationAuditResult({action:'defer',reason:'Model reasoning.'}),{action:'defer',reason:'Model reasoning.'});
+ for(const bad of [{...result,extra:'unknown'}, {...result,claims:[{...result.claims[0],quote:'x'.repeat(3001)}]}, {action:'defer',reason:'x'.repeat(1001)},{action:'defer',reason:'secret credential'}])assert.equal(boundedVerificationAuditResult(bad,'secret'),undefined);
+ const semantic=structuredClone(result);semantic.editorial.political=true;semantic.publicationDate='not a date';semantic.claims=[];assert.deepEqual(boundedVerificationAuditResult(semantic),semantic);
+});
+test('result archive aggregate byte ceiling and typed semantic reasons are independent',async()=>{
+ const {boundedVerificationAuditResult,VerificationValidationError}=await import('./verification-contract.mjs');
+ const {input,result}=await fixture();const large=structuredClone(result);large.claims=Array.from({length:20},()=>({...large.claims[0],claim:'x'.repeat(3000),quote:'x'.repeat(3000)}));assert.equal(boundedVerificationAuditResult(large),undefined);
+ for(const [mutate,code] of [[r=>r.publicationDate='not-date','verification_date_invalid'],[r=>r.claims[0].quote='not captured','verification_quote_missing'],[r=>r.claims[0].claim='different supported assertion','verification_claim_coverage_missing']]){const bad=structuredClone(result);mutate(bad);await assert.rejects(validateVerificationResult(bad,input),e=>e instanceof VerificationValidationError&&e.code===code&&!e.message.includes('not captured'));}
+});
+test('private audit omits PostgreSQL-invalid strings while preserving newlines and astral emoji',async()=>{
+ const {boundedVerificationAuditResult}=await import('./verification-contract.mjs');const {result}=await fixture();
+ for(const invalid of ['nul\u0000text','lone\ud800high','lone\udffflow']){
+ assert.equal(boundedVerificationAuditResult({action:'defer',reason:invalid}),undefined);
+ for(const mutate of [r=>r.editorial.summary=invalid,r=>r.editorial.evidenceIds=[invalid],r=>r.claims[0].url=invalid,r=>r.claims[0].quote=invalid,r=>r.scopeReason=invalid]){const bad=structuredClone(result);mutate(bad);assert.equal(boundedVerificationAuditResult(bad),undefined);}
+ }
+ const good={action:'defer',reason:'Normal newline\nAstral emoji 🦀 preserved.'};assert.deepEqual(boundedVerificationAuditResult(good),good);
+});

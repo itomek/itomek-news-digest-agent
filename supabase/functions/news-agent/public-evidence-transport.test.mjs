@@ -64,3 +64,12 @@ test('duplicate informational Server headers do not change framing or returned m
  const {createPublicEvidenceTransport}=await mod();const f=fixture({wire:'HTTP/1.1 200 OK\r\nServer: deno\r\nServer: deployd\r\nContent-Type: text/plain\r\nContent-Length: 5\r\n\r\nhello'});
  const r=await createPublicEvidenceTransport({runtime:f.runtime})('https://example.com/',options());assert.equal(await r.text(),'hello');assert.equal(r.headers.has('server'),false);
 });
+test('repeated Set-Cookie headers are ignored without accepting ambiguous framing or persisting cookies',async()=>{
+ const {createPublicEvidenceTransport}=await mod();
+ const cookies='Set-Cookie: first=one; Secure\r\nSet-Cookie: second=two; Secure\r\n';
+ const f=fixture({wire:'HTTP/1.1 200 OK\r\n'+cookies+'Content-Type: text/plain\r\nContent-Length: 5\r\n\r\nhello'});
+ const r=await createPublicEvidenceTransport({runtime:f.runtime})('https://example.com/',options());
+ assert.equal(await r.text(),'hello');assert.equal(r.headers.has('set-cookie'),false);assert.doesNotMatch(f.sent,/\r\nCookie:/i);
+ const ambiguous=fixture({wire:'HTTP/1.1 200 OK\r\n'+cookies+'Content-Length: 1\r\nContent-Length: 1\r\n\r\nx'});
+ await assert.rejects(createPublicEvidenceTransport({runtime:ambiguous.runtime})('https://example.com/',options()));
+});

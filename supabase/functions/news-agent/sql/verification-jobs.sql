@@ -100,12 +100,51 @@ begin
 end $$;
 create function public.warpcore_verification_settle(p_job uuid,p_lease uuid,p_status text,p_cost numeric,p_audit jsonb) returns boolean
 language plpgsql security definer set search_path='' as $$
-declare j shadow_agent.verification_jobs;a uuid;u jsonb;k text;prior jsonb;d jsonb;
+declare j shadow_agent.verification_jobs;a uuid;u jsonb;k text;prior jsonb;d jsonb;result jsonb;editorial jsonb;item jsonb;
 begin
  perform shadow_agent.verification_lock();select * into j from shadow_agent.verification_jobs where id=p_job;
  if not found then return false;end if;
  select id into a from shadow_agent.attempts where run_id=j.child_run_id;if a is null then return false;end if;
- if j.metadata is null or p_audit is null or jsonb_typeof(p_audit)<>'object' or octet_length(p_audit::text)>4000 then raise exception 'Invalid verification audit';end if;
+ if j.metadata is null or p_audit is null or jsonb_typeof(p_audit)<>'object' or octet_length(p_audit::text)>(case when p_audit ? 'result' then 70000 else 4000 end) then raise exception 'Invalid verification audit';end if;
+ -- Archival wire result only, never approval authorization. Semantically bad
+ -- dates/hashes/coverage remain visible; receipt validation independently gates approval.
+ if p_audit ? 'result' then
+  if p_status is distinct from 'settled' or p_audit ? 'errorCode' or p_audit ? 'validationError' then raise exception 'Invalid verification audit';end if;
+  result:=p_audit->'result';
+  if jsonb_typeof(result) is distinct from 'object' or octet_length(result::text)>65536 then raise exception 'Invalid verification result';end if;
+  if result->>'action'='defer' then
+   if (result-'action'-'reason')<>'{}'::jsonb or jsonb_typeof(result->'reason') is distinct from 'string' or length(result->>'reason')>1000 then raise exception 'Invalid verification result';end if;
+  elsif result->>'action'='approve' then
+   if (result-'action'-'editorial'-'claims'-'publicationDate'-'scopeReason'-'changeReason'-'dedupReason')<>'{}'::jsonb then raise exception 'Invalid verification result';end if;
+   foreach k in array array['publicationDate','scopeReason','changeReason','dedupReason'] loop
+    if jsonb_typeof(result->k) is distinct from 'string' or length(result->>k)>(case when k='publicationDate' then 64 else 1000 end) then raise exception 'Invalid verification result';end if;
+   end loop;
+   editorial:=result->'editorial';
+   if jsonb_typeof(editorial) is distinct from 'object' or jsonb_typeof(editorial->'political') is distinct from 'boolean' then raise exception 'Invalid verification result';end if;
+   if editorial ? 'mode' then
+    if editorial->>'mode' is distinct from 'repost' or (editorial-'mode'-'political'-'change'-'evidenceIds')<>'{}'::jsonb then raise exception 'Invalid verification result';end if;
+   else
+    if (editorial-'political'-'summary'-'whyItMatters'-'change'-'evidenceIds')<>'{}'::jsonb then raise exception 'Invalid verification result';end if;
+    foreach k in array array['summary','whyItMatters'] loop
+     if jsonb_typeof(editorial->k) is distinct from 'string' or length(editorial->>k)>3000 then raise exception 'Invalid verification result';end if;
+    end loop;
+   end if;
+   if jsonb_typeof(editorial->'change') is distinct from 'string' or length(editorial->>'change')>3000
+   or jsonb_typeof(editorial->'evidenceIds') is distinct from 'array' then raise exception 'Invalid verification result';end if;
+   if jsonb_array_length(editorial->'evidenceIds')>20 then raise exception 'Invalid verification result';end if;
+   for item in select value from jsonb_array_elements(editorial->'evidenceIds') loop
+    if jsonb_typeof(item) is distinct from 'string' or length(item#>>'{}')>2048 then raise exception 'Invalid verification result';end if;
+   end loop;
+   if jsonb_typeof(result->'claims') is distinct from 'array' then raise exception 'Invalid verification result';end if;
+   if jsonb_array_length(result->'claims')>20 then raise exception 'Invalid verification result';end if;
+   for item in select value from jsonb_array_elements(result->'claims') loop
+    if jsonb_typeof(item) is distinct from 'object' or (item-'claim'-'evidenceId'-'url'-'contentSha256'-'quote')<>'{}'::jsonb then raise exception 'Invalid verification result';end if;
+    foreach k in array array['claim','evidenceId','url','contentSha256','quote'] loop
+     if jsonb_typeof(item->k) is distinct from 'string' or length(item->>k)>(case when k in ('claim','quote') then 3000 when k='contentSha256' then 64 else 2048 end) then raise exception 'Invalid verification result';end if;
+    end loop;
+   end loop;
+  else raise exception 'Invalid verification result';end if;
+ end if;
  if p_audit ? 'diagnostic' then
   d:=p_audit->'diagnostic';
   if jsonb_typeof(d) is distinct from 'object' or d='{}'::jsonb or octet_length(d::text)>3000
@@ -133,7 +172,7 @@ begin
   if p_audit ? 'errorCode' then
    if (p_audit-'usage'-'errorCode'-'diagnostic')<>'{}'::jsonb or not coalesce(p_audit->>'errorCode' in ('reservation_exceeded','invalid_completion','invalid_verification_json','invalid_verification_schema'),false) then raise exception 'Invalid verification audit';end if;
   else
-   if (p_audit-'model'-'provider'-'generationId'-'usage'-'validationError'-'diagnostic')<>'{}'::jsonb
+   if (p_audit-'model'-'provider'-'generationId'-'usage'-'validationError'-'diagnostic'-'result')<>'{}'::jsonb
    or jsonb_typeof(p_audit->'model') is distinct from 'string' or length(btrim(p_audit->>'model')) not between 1 and 128 or p_audit->>'model' ~ '[[:cntrl:]]'
    or jsonb_typeof(p_audit->'provider') is distinct from 'string' or length(btrim(p_audit->>'provider')) not between 1 and 128 or p_audit->>'provider' ~ '[[:cntrl:]]'
    or jsonb_typeof(p_audit->'generationId') is distinct from 'string' or length(btrim(p_audit->>'generationId')) not between 1 and 256

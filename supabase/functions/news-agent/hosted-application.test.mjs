@@ -77,3 +77,10 @@ test('skip-heavy queue still obeys twelve-step and elapsed-time bounds',async()=
  const f=drainingVerifier([{status:'deferred',reason:'evidence_or_history_unavailable'}]);const body=await(await f.app(request())).json();assert.equal(f.calls(),12);assert.equal(body.steps.length,12);
  let reads=0;const slow=drainingVerifier([{status:'deferred',reason:'evidence_or_history_unavailable'},{status:'submitted'}],()=>reads++?11000:0);await slow.app(request());assert.equal(slow.calls(),1,'Remaining work stays queued when safe admission window ends');
 });
+
+test('failure notification is delivered once per invocation and cannot stop queue processing',async()=>{
+ for(const delivery of ['sent','failed','throws']){
+  let notified=0,calls=0;const app=createHostedApplication({...config,drain:true},{bootstrapRpc:async name=>name==='warpcore_agent_authorization'?{enabled:true,producerToken:token}:{model:'google/gemma-4-26b-a4b-it',apiKey:'private-test-key',maxOutputTokens:4096,maxCostCredits:.036045,allowedSourceHosts:['example.com']},createDiscoveryService:()=>({selectRun:async()=>null}),createVerifierService:()=>({runInvocation:async()=>++calls===1?{status:'deferred',reason:'evidence_or_history_unavailable'}:{status:'idle'}}),notifyFailure:async report=>{notified++;assert.equal(report.steps.length,2);if(delivery==='throws')throw Error('private-password');return {status:delivery};}});
+  const response=await app(request()),body=await response.json();assert.equal(response.status,200);assert.equal(calls,2);assert.equal(notified,1);assert.equal(body.status,'idle');assert.equal(body.notification.status,delivery==='throws'?'failed':delivery);assert.ok(!JSON.stringify(body).includes('private-password'));
+ }
+});

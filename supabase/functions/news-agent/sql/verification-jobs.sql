@@ -122,7 +122,6 @@ begin
   token:=shadow_agent.claim(j.child_run_id,180);if token is null then return null;end if;
   return jsonb_build_object('jobId',j.id,'rankingRunId',j.ranking_run_id,'storyKey',j.story_key,'lease',token,'handoffReceiptId',j.receipt_id);
  end if;
- if exists(select 1 from shadow_agent.verification_jobs where status='uncertain' and not quarantined) then return null;end if;
  if not shadow_agent.verification_queue_has_capacity() then return null;end if;
  select * into j from shadow_agent.verification_jobs where status='pending' and not quarantined order by id limit 1;
  if not found then

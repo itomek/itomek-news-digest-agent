@@ -54,7 +54,7 @@ try{
  const second=await select();assert.notEqual(second,first);assert.equal(await select(),second);
  await db.exec('reset role');
  await q("update shadow_agent.runs set state=jsonb_set(state,'{phase}','\"uncertain\"'::jsonb) where id=$1",[second]);
- await db.exec('set role service_role');assert.equal(await select(),null,'Unreconciled outcome holds fresh scans');
+ await db.exec('set role service_role');assert.ok(await select(),'An uncertain batch does not block unrelated discovery');
  await db.exec('reset role');
  const stamp='2026-11-14T20:00:00Z';
  await q(`insert into public.warpcore_stories select lpad(to_hex(n),64,'0'),'unverified_review_required',$1::timestamptz from generate_series(1,305)n`,[stamp]);

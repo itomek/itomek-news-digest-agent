@@ -1,3 +1,4 @@
+import {collectGithubPR,collectGithubPRPage} from './github-pr.mjs';
 import {collectOfficialHTML,collectOfficialHTMLPage} from './official-html.mjs';
 import {collectRSS,collectRSSPage} from './rss.mjs';
 import {collectHN,collectHNPage} from './hn.mjs';
@@ -18,6 +19,7 @@ export function createBlueskyAdapter(collector=collect){return {collect:async co
  });
 }};}
 export const registry={
+ github_pr:{collect:collectGithubPR,collectPage:(config,window)=>collectGithubPRPage(config,fetch,window)},
  official_html:{collect:collectOfficialHTML,collectPage:(config,window)=>collectOfficialHTMLPage(config,fetch,window)},
  bluesky:{...createBlueskyAdapter(),collectPage:(config,window)=>collectBlueskyPage(config,fetch,window)},
  rss:{collect:collectRSS,collectPage:(config,window)=>collectRSSPage(config,fetch,window)},

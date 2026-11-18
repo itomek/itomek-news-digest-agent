@@ -137,7 +137,7 @@ test('NUL and lone-surrogate model output cannot block settlement of known usage
  }
 });
 test('unsupported non-native provenance defers before any acquisition, reservation or model call',async()=>{
- const f=fixture(),base=f.rpc;f.config.allowedSourceHosts=['www.techpowerup.com'];f.rpc=async(name,args)=>{const result=await base(name,args);if(name==='warpcore_curator_snapshot')result.evidence=result.evidence.map(e=>({...e,url:'https://www.techpowerup.com/354657/fixture',sourceLinks:[]}));return result;};
+ const f=fixture(),base=f.rpc;f.config.allowedSourceHosts=['example.com'];f.rpc=async(name,args)=>{const result=await base(name,args);if(name==='warpcore_curator_snapshot')result.evidence=result.evidence.map(e=>({...e,url:'https://example.com/354657/fixture',sourceLinks:[]}));return result;};
  const out=await run(f);assert.equal(out.reason,'unapproved_primary_source');assert.equal(f.events.some(e=>['model_post','warpcore_verification_reserve','source_get'].includes(e.name)),false);
 });
 test('pure publishing preflight rejects editorial that would be rejected as a raw repost, after cost settlement',async()=>{
@@ -232,4 +232,16 @@ test('V6 API metadata or date chunks cannot support substantive claims and known
 });
 test('verification accepts60s model calls while retaining10s source acquisition deadlines',async t=>{
  const f=fixture(),delays=[],timer=setTimeout;t.mock.method(globalThis,'setTimeout',(fn,delay,...args)=>{delays.push(delay);return timer(fn,delay,...args);});f.config.timeoutMs=60000;assert.equal((await run(f)).status,'submitted');assert.ok(delays.includes(10000));assert.ok(delays.includes(60000));const bad=fixture();bad.config.timeoutMs=60001;assert.equal((await run(bad)).reason,'invalid_configuration');assert.equal(bad.events.length,0);
+});
+
+
+test('reviewed news report can complete verification with retained attribution',async()=>{
+ const f=fixture(),base=f.rpc,source=f.evidenceFetcher,news='https://www.theverge.com/science/voyager';f.config.allowedSourceHosts=['www.theverge.com'];
+ f.rpc=async(name,args)=>{const r=await base(name,args);if(name==='warpcore_curator_snapshot')r.evidence=r.evidence.map(e=>({...e,url:news,sourceLinks:[news]}));return r;};
+ f.evidenceFetcher=(_url,options)=>source(url,options);for(const claim of f.result.claims)claim.url=news;
+ assert.equal((await run(f)).status,'submitted');assert.match(f.material.editorial.summary,/^The Verge reports: /);
+});
+test('source failures retain a sanitized reason and never reserve model spend',async()=>{
+ const f=fixture();f.evidenceFetcher=async()=>{throw Object.assign(Error('private-secret'),{code:'timeout'});};
+ const out=await run(f);assert.equal(out.status,'deferred');const finished=f.events.find(e=>e.name==='warpcore_verification_finish');assert.equal(finished.args.p_reason,'source_transport_failure');assert.equal(f.events.some(e=>e.name==='model_post'),false);assert.equal(JSON.stringify(finished).includes('private-secret'),false);
 });

@@ -4,7 +4,7 @@ import {validateConfig} from '../bluesky-collect/core.mjs';
 import {MAX_SOURCES} from '../_shared/pipeline.mjs';
 test('roster retains existing sources plus official frontier sources',async()=>{
  const roster=JSON.parse(await fs.readFile(new URL('./initial-sources.json',import.meta.url),'utf8'));
- assert.equal(roster.length,42);assert.ok(roster.length<=MAX_SOURCES);assert.equal(new Set(roster.map(s=>s.id)).size,42);
+ assert.equal(roster.length,46);assert.ok(roster.length<=MAX_SOURCES);assert.equal(new Set(roster.map(s=>s.id)).size,46);
  assert.equal(roster.some(s=>s.id==='perplexity_blog'),false,'Disabled Perplexity must not be fetched');
  for(const source of roster)assert.equal(typeof registry[source.adapter]?.collect,'function');
  const native=roster.filter(s=>s.adapter==='bluesky');assert.equal(native.length,4);
@@ -15,5 +15,5 @@ test('roster retains existing sources plus official frontier sources',async()=>{
   let captured;const adapter=createBlueskyAdapter(async config=>{captured=config;return {sources:[{status:'ok'}],candidates:[]};});
   assert.deepEqual(await adapter.collect(source.config),[]);assert.deepEqual(captured.actorDids,source.config.actorDids);
  }
- assert.equal(roster.filter(s=>s.adapter!=='bluesky').length,38);
+ assert.equal(roster.filter(s=>s.adapter!=='bluesky').length,42);
 });

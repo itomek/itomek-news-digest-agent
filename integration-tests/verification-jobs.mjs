@@ -118,8 +118,7 @@ try{
  for(const httpStatus of [400,402,429,500,503]){await db.exec('begin');assert.equal(await value("select public.warpcore_verification_settle($1,$2,'uncertain',null,$3) v",[unknown.jobId,unknown.lease,{errorCode:'http_failure',diagnostic:{httpStatus}}]),true);assert.equal((await q('select held_credits::float8 n from shadow_agent.budgets'))[0].n,.058983);await db.exec('rollback');}
  await value("select public.warpcore_verification_settle($1,$2,'uncertain',null,$3) v",[unknown.jobId,unknown.lease,{errorCode:'http_failure',diagnostic:{httpStatus:429}}]);
  assert.equal((await q('select held_credits::float8 n from shadow_agent.budgets'))[0].n,0.058983);assert.equal(await claim(),null);
- await db.exec('begin');await q('update shadow_agent.verification_jobs set quarantined=true where id=$1',[unknown.jobId]);
- const successor=await nextStory('8',99);assert.ok(successor,'Only owner-quarantined unknown jobs stop blocking different durable work');
+ await db.exec('begin');const successor=await nextStory('8',99);assert.ok(successor,'An uncertain request cannot block the next unrelated story');
  assert.equal((await q('select status from shadow_agent.verification_jobs where id=$1',[unknown.jobId]))[0].status,'uncertain');
  assert.equal((await q('select held_credits::float8 n from shadow_agent.budgets'))[0].n,.058983,'Ignoring quarantined work never releases its hold');await db.exec('rollback');
  assert.equal(await value("select public.warpcore_verification_finish($1,$2,'deferred',null) v",[unknown.jobId,unknown.lease]),false,'Unknown outcome cannot become deferred');
@@ -164,7 +163,7 @@ try{
  await q("update shadow_agent.verification_settings set ranking_finalized_since=$1::timestamptz+interval '1 microsecond'",[boundary]);assert.equal((await cohortNext())[0].ranking_run_id,cohortRuns[2],'Future finalized complete cohort remains eligible');
  await q("update shadow_agent.runs set state='{\"phase\":\"review\"}' where id=$1",[cohortRuns[2]]);assert.deepEqual(await cohortNext(),[],'Future incomplete work cannot enter cohort verification');await q("update shadow_agent.runs set state='{\"phase\":\"complete\"}' where id=$1",[cohortRuns[2]]);
  await q('update shadow_agent.verification_settings set ranking_finalized_since=(select finalized_at from shadow_agent.ranking_runs where run_id=$1)',[cohortRuns[1]]);
- const financialBefore=await q('select * from shadow_agent.budgets');assert.equal(await claim(),null,'Historical unknown job still blocks new cohort work');assert.deepEqual(await q('select * from shadow_agent.budgets'),financialBefore);
+ const financialBefore=await q('select * from shadow_agent.budgets');await db.exec('savepoint unrelated_cohort');const unrelated=await claim();assert.ok(unrelated,'A historical unknown request cannot block unrelated cohort work');assert.deepEqual(await q('select * from shadow_agent.budgets'),financialBefore);await db.exec('rollback to unrelated_cohort');
  await q("update shadow_agent.verification_jobs set quarantined=true where status='uncertain'");
  const oldChild='00000000-0000-4000-8000-000000000063';await q("insert into shadow_agent.runs(id,state,limit_credits) values($1,$2,1)",[oldChild,{storageKind:'verification-v1',runId:oldChild,phase:'reviewing',revision:0,activeBatch:['64'.padStart(64,'0')],publishingEnabled:false}]);
  const oldJob=(await q("insert into shadow_agent.verification_jobs(ranking_run_id,story_key,child_run_id) values($1,$2,$3) returning id",[cohortRuns[0],'64'.padStart(64,'0'),oldChild]))[0].id;

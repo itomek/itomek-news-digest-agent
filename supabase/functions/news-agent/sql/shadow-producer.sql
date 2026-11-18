@@ -89,7 +89,7 @@ begin
  if to_regprocedure('shadow_agent.advance_verification_rate_limits()') is not null then
   perform shadow_agent.advance_verification_rate_limits();end if;
  perform shadow_agent.advance_gemma_discovery_failures();
- if exists(select 1 from shadow_agent.runs where state->>'storageKind'='paged-v1' and state->>'phase' in ('reviewing','uncertain')) then return null; end if;
+ if exists(select 1 from shadow_agent.runs where state->>'storageKind'='paged-v1' and state->>'phase'='reviewing' and lease_until>clock_timestamp()) then return null; end if;
  select * into r from shadow_agent.runs where state->>'storageKind'='paged-v1'
  and state->>'phase'='scan' order by (state->>'scanStartedAt')::timestamptz,id limit 1;
  if found then
@@ -117,9 +117,9 @@ begin
      exists(select 1 from shadow_agent.verification_jobs v join shadow_agent.runs r on r.id=v.child_run_id
       where v.status='pending' and not v.quarantined and r.lease_until<=clock_timestamp()
       and exists(select 1 from shadow_agent.attempts a where a.run_id=r.id))
-     or (not exists(select 1 from shadow_agent.verification_jobs where status='uncertain' and not quarantined)
+     or (
      -- Claim converts expired attempted pending jobs to uncertain before selection.
-     and not exists(select 1 from shadow_agent.verification_jobs v join shadow_agent.runs r on r.id=v.child_run_id
+     not exists(select 1 from shadow_agent.verification_jobs v join shadow_agent.runs r on r.id=v.child_run_id
       where v.status='pending' and not v.quarantined and r.lease_until<=clock_timestamp()
       and exists(select 1 from shadow_agent.attempts a where a.run_id=r.id))
      and (exists(select 1 from pending p join shadow_agent.runs r on r.id=p.child_run_id

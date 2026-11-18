@@ -78,8 +78,15 @@ export function createHostedApplication(config,dependencies={}){
    let response=await handleAgent(req,authorization,service);
    if(config.drain!==true)return response;
    const steps=[];
+   const finish=async response=>{
+    if(typeof dependencies.notifyFailure!=='function'||response.status===400||response.status===401)return response;
+    let status='failed';
+    try{const report=await dependencies.notifyFailure({steps,httpStatus:response.status});if(['sent','failed','timeout','unconfigured','suppressed'].includes(report?.status))status=report.status;}catch{}
+    if(status==='suppressed')return response;
+    return Response.json({...await response.json(),notification:{status}},{status:response.status});
+   };
    for(let i=0;i<12;i++){
-    if(response.status!==200)return response;
+    if(response.status!==200)return finish(response);
     const result=await response.clone().json();
     steps.push(result);
     const progressed=['advanced','verified','submitted'].includes(result.status)
@@ -87,7 +94,7 @@ export function createHostedApplication(config,dependencies={}){
     if(!progressed||now()-started>=10000||i===11)break;
     response=await handleAgent(new Request(req.url,{method:'POST',headers:req.headers,body:'{}'}),authorization,service);
    }
-   return Response.json({...await response.json(),steps});
+   return finish(Response.json({...await response.json(),steps}));
   }catch{return Response.json({error:'hosted_agent_unavailable',...flags},{status:502});}
  };
 }

@@ -1,4 +1,4 @@
--- Workflow continuation only: an unknown 429 remains fully held, never retried.
+-- Workflow continuation only: an unknown timeout/429 remains fully held, never retried.
 -- Install after verification-quarantine.sql. No activation or budget changes.
 begin;
 create table shadow_agent.verification_rate_limit_audit(
@@ -19,7 +19,7 @@ for each row execute function shadow_agent.verification_quarantine_immutable();
 create function shadow_agent.advance_verification_rate_limits() returns integer
 language plpgsql security definer set search_path='' as $$
 declare j shadow_agent.verification_jobs;r shadow_agent.runs;a shadow_agent.attempts;b shadow_agent.budgets;
- x jsonb;d jsonb;approved jsonb;model_id text;deadline timestamptz;retry_seconds integer;continued integer:=0;daily_count integer;
+ x jsonb;d jsonb;approved jsonb;model_id text;deadline timestamptz;retry_seconds integer;continued integer:=0;
 begin
  perform shadow_agent.verification_lock();
  if not pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended('warpcore_shared_admission_v1',0)) then
@@ -29,20 +29,17 @@ begin
  if model_id is distinct from 'google/gemma-4-26b-a4b-it'
  or approved->>'model' is distinct from model_id or approved->>'provider' is distinct from 'PrimeIntellect'
  or approved->'maxCostCredits' is distinct from '0.036045'::jsonb then return 0;end if;
- select count(*) into daily_count from shadow_agent.verification_rate_limit_audit
- where (performed_at at time zone 'utc')::date=(clock_timestamp() at time zone 'utc')::date;
- if daily_count>=10 then return 0;end if;
  -- Bounded scan, serialized with claim and other continuation workers.
  for j in select * from shadow_agent.verification_jobs where status='uncertain' and not quarantined order by id limit 10 loop
   if j.metadata is distinct from '{"model":"google/gemma-4-26b-a4b-it","profileVersion":"2026-11-17.verify.8","expectedProvider":"PrimeIntellect"}'::jsonb then continue;end if;
   select audit into x from shadow_agent.verification_audit where job_id=j.id and status='uncertain';d:=x->'diagnostic';
-  if jsonb_typeof(x) is distinct from 'object' or (x-'errorCode'-'diagnostic')<>'{}'::jsonb
+  if x is distinct from '{"errorCode":"timeout"}'::jsonb and (jsonb_typeof(x) is distinct from 'object' or (x-'errorCode'-'diagnostic')<>'{}'::jsonb
   or x->>'errorCode' is distinct from 'http_failure' or jsonb_typeof(d) is distinct from 'object'
   or (d-'httpStatus'-'limitSource'-'errorProvider'-'providerErrorCode'-'retryAfterSeconds'-'cloudflareRay'-'requestId'-'providerErrorType')<>'{}'::jsonb
   or d->'httpStatus' is distinct from '429'::jsonb or d->>'limitSource' is distinct from 'upstream_provider_shared_pool'
   or d->>'errorProvider' is distinct from 'PrimeIntellect' or d->>'providerErrorCode' is distinct from 'rate_limited'
   or (d ? 'providerErrorType' and not coalesce(d->>'providerErrorType' in ('rate_limit_error','rate_limit_exceeded'),false))
-  then continue;end if;
+  ) then continue;end if;
   retry_seconds:=300;
   if d ? 'retryAfterSeconds' then
    if jsonb_typeof(d->'retryAfterSeconds') is distinct from 'number' or coalesce(d->>'retryAfterSeconds','') !~ '^[0-9]{1,5}$' then continue;end if;
@@ -75,7 +72,6 @@ begin
   values(j.id,a.id,r.id,a.request_hash,to_jsonb(j),to_jsonb(r),to_jsonb(a),to_jsonb(b),x,a.reserved,deadline);
   update shadow_agent.verification_jobs set quarantined=true where id=j.id;
   continued:=continued+1;
-  if daily_count+continued>=10 then exit;end if;
  end loop;
  return continued;
 end $$;

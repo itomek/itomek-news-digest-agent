@@ -8,7 +8,7 @@ import {handleAgent} from './handler.mjs';
 const token='x'.repeat(40);
 async function entry(flag,{bootstrap=false}={}){
  const env={WARPCORE_AGENT_ENABLED:flag,WARPCORE_AGENT_CRON_TOKEN:bootstrap?undefined:token};let handler,calls=0,hostedDependencies;
- const source=(await fs.readFile(new URL('./index.ts',import.meta.url),'utf8')).replace(/^import .*;\n/gm,'').replace(/:ReturnType<typeof createAgentService>/g,'').replace(/:Request/g,'').replace(/:string/g,'');
+ const source=(await fs.readFile(new URL('./index.ts',import.meta.url),'utf8')).replace(/^import .*;\n/gm,'').replace(/:ReturnType<typeof createAgentService>/g,'').replace(/:Request/g,'').replace(/:string/g,'').replace(/:unknown/g,'');
  vm.runInNewContext(source,{Deno:{env:{get:k=>env[k]},serve:fn=>handler=fn},handleAgent,runOwnerFeedbackInvocation:()=>{throw Error('unexpected feedback polling');},createVerificationService:()=>{throw Error("unexpected verifier construction");},createHostedApplication:(_config,dependencies)=>{hostedDependencies=dependencies;calls++;return async()=>Response.json({mode:'disabled'});},createAgentService:()=>{calls++;return {selectRun:async()=>null};}});
  return {request:body=>handler(new Request('https://example.test',{method:'POST',headers:{'x-warpcore-agent-token':token},body})),bad:()=>handler(new Request('https://example.test',{method:'POST',headers:{'x-warpcore-agent-token':'wrong'},body:'{}'})),calls:()=>calls,dependencies:()=>hostedDependencies};
 }

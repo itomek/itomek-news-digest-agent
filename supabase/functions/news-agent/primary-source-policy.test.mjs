@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {isApprovedPrimarySourceUrl,PRIMARY_SOURCE_POLICY_VERSION,primarySourceAttributionLabel} from './primary-source-policy.mjs';
 
 test('reviewed first-party origins and exact official project releases are supported',()=>{
- assert.equal(PRIMARY_SOURCE_POLICY_VERSION,'2026-11-17.1');
+ assert.equal(PRIMARY_SOURCE_POLICY_VERSION,'2026-11-18.1');
  for(const url of [
   'https://rocm.blogs.amd.com/software-tools-optimization/example/index.html','https://ir.amd.com/news-events/press-releases/detail/1305/example',
   'https://openai.com/index/example/','https://www.anthropic.com/news/example','https://blog.google/products-and-platforms/products/search/example/',
@@ -26,9 +26,9 @@ test('reviewed first-party origins and exact official project releases are suppo
 
 test('secondary and unsupported publishers cannot become primary via an arbitrary project link',()=>{
  for(const url of [
-  'https://www.techpowerup.com/1/anthropic-fable','https://arstechnica.com/ai/2026/11/example/',
-  'https://www.theverge.com/news/example','https://www.technologyreview.com/example','https://www.servethehome.com/example',
-  'https://example.com/primary-announcement','https://nvidia.com/example','https://developer.nvidia.com/blog/example',
+  'https://arstechnica.com/ai/2026/11/example/',
+  
+  'https://example.com/primary-announcement','https://nvidia.com/example',
   'https://github.com/unknown/project/releases/tag/v1','https://github.com/lemonade-sdk/unknown/releases/tag/v1',
   'https://github.com/unknown/lemonade/releases/tag/v1','https://github.com/lemonade-sdk/lemonade-fork/releases/tag/v1',
   'https://github.com/lemonade-sdk/lemonade/issues/1','https://github.com/lemonade-sdk/lemonade/pull/1',
@@ -73,7 +73,12 @@ test('every approved publisher and release repository has one deterministic frie
 });
 
 test('unsupported publishers and URL lookalikes never receive an attribution label',()=>{
- for(const url of [null,{},'https://www.techpowerup.com/announcement','https://arstechnica.com/announcement','https://openai.com.evil.example/announcement','https://openai.com:443/announcement','https://user@openai.com/announcement','https://github.com/unknown/lemonade/releases/tag/v1','https://github.com/lemonade-sdk/lemonade/issues/1','https://github.com/lemonade-sdk/lemonade%2funknown/releases/tag/v1','https://huggingface.co/blog/community/announcement','https://devblogs.microsoft.com/unknown/announcement']){
+ for(const url of [null,{},'https://arstechnica.com/announcement','https://openai.com.evil.example/announcement','https://openai.com:443/announcement','https://user@openai.com/announcement','https://github.com/unknown/lemonade/releases/tag/v1','https://github.com/lemonade-sdk/lemonade/issues/1','https://github.com/lemonade-sdk/lemonade%2funknown/releases/tag/v1','https://huggingface.co/blog/community/announcement','https://devblogs.microsoft.com/unknown/announcement']){
   assert.equal(isApprovedPrimarySourceUrl(url),false);assert.equal(primarySourceAttributionLabel(url),undefined,String(url));
  }
+});
+
+test('configured reporting, GAIA releases and the exact Lemonade PR API can support attributed news',()=>{
+ for(const url of ['https://www.theverge.com/science/voyager','https://www.technologyreview.com/2026/11/18/model','https://www.techpowerup.com/123/new-gpu','https://github.com/amd/gaia/releases/tag/v1','https://api.github.com/repos/lemonade-sdk/lemonade/pulls/4000'])assert.equal(isApprovedPrimarySourceUrl(url),true,url);
+ for(const url of ['https://api.github.com/repos/unknown/project/pulls/4000','https://api.github.com/repos/lemonade-sdk/lemonade/issues/4000','https://api.github.com/repos/lemonade-sdk/lemonade/pulls/4000/files'])assert.equal(isApprovedPrimarySourceUrl(url),false,url);
 });

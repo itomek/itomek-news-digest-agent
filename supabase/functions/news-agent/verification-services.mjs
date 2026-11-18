@@ -3,7 +3,7 @@ import {createPublicEvidenceTransport} from './public-evidence-transport.mjs';
 const operations={
  warpcore_verification_claim:[],warpcore_curator_snapshot:['p_story'],warpcore_agent_history:['p_cursor'],
  warpcore_verification_reserve:['p_job','p_lease','p_hash','p_max','p_metadata'],warpcore_verification_dispatch:['p_job','p_lease'],
- warpcore_verification_settle:['p_job','p_lease','p_status','p_cost','p_audit'],warpcore_verification_finish:['p_job','p_lease','p_status','p_receipt'],
+ warpcore_verification_settle:['p_job','p_lease','p_status','p_cost','p_audit'],warpcore_verification_finish:['p_job','p_lease','p_status','p_receipt','p_reason'],
  warpcore_agent_issue_receipt:['p_material'],warpcore_verification_handoff:['p_job','p_lease'],
 };
 export function createVerificationService(config={},dependencies={}){

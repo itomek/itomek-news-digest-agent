@@ -485,5 +485,36 @@
       "url": "https://www.anthropic.com/research",
       "label": "Anthropic Research"
     }
+  },
+  {
+    "id": "gaia_releases",
+    "adapter": "rss",
+    "config": {
+      "url": "https://github.com/amd/gaia/releases.atom",
+      "label": "AMD GAIA Releases"
+    }
+  },
+  {
+    "id": "lemonade_merged_prs",
+    "adapter": "github_pr",
+    "config": {
+      "repo": "lemonade-sdk/lemonade"
+    }
+  },
+  {
+    "id": "nvidia_developer_blog",
+    "adapter": "rss",
+    "config": {
+      "url": "https://developer.nvidia.com/blog/feed/",
+      "label": "NVIDIA Developer Blog"
+    }
+  },
+  {
+    "id": "nasa_news",
+    "adapter": "rss",
+    "config": {
+      "url": "https://www.nasa.gov/feed/",
+      "label": "NASA"
+    }
   }
 ]

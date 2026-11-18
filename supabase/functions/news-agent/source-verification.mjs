@@ -2,8 +2,8 @@
 // claims or source authorship. No scripts, embedded links or page instructions run.
 // The injected transport must enforce public-network egress/DNS policy; an exact
 // trusted hostname allowlist alone cannot prevent DNS rebinding/private resolution.
-class EvidenceFetchError extends Error {}
-const fail=code=>{throw new EvidenceFetchError(`Evidence fetch: ${code}`);};
+class EvidenceFetchError extends Error {constructor(code){super('Evidence fetch: '+code);this.code=code;}}
+const fail=code=>{throw new EvidenceFetchError(code);};
 const integer=(n,max)=>Number.isSafeInteger(n)&&n>0&&n<=max;
 const hostAllowed=h=>typeof h==='string'&&h===h.toLowerCase()&&h.length<=253&&
  h.includes('.')&&!h.endsWith('.')&&!/^[0-9.]+$/.test(h)&&
@@ -21,7 +21,7 @@ export async function fetchCapturedEvidence({url,evidence,config={},fetcher}={})
  if(typeof url!=='string'||parsed.href!==url||parsed.protocol!=='https:'||parsed.username||parsed.password||parsed.port||url.includes('#')||!hostAllowed(parsed.hostname)||!config.allowedHosts.includes(parsed.hostname))fail('forbidden_url');
 
  const controller=new AbortController();let timer;
- const deadline=new Promise((_resolve,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new EvidenceFetchError('Evidence fetch: timeout'));},timeoutMs);});
+ const deadline=new Promise((_resolve,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new EvidenceFetchError('timeout'));},timeoutMs);});
  const operation=(async()=>{
   const response=await fetcher(url,{method:'GET',redirect:'error',credentials:'omit',referrerPolicy:'no-referrer',signal:controller.signal,headers:{Accept:'text/plain, text/html, application/json'}});
   let reader;
@@ -47,6 +47,6 @@ export async function fetchCapturedEvidence({url,evidence,config={},fetcher}={})
   }finally{controller.signal.removeEventListener('abort',cancel);cancel();if(reader)reader.releaseLock();}
  })();
  try{return await Promise.race([operation,deadline]);}
- catch(error){if(error instanceof EvidenceFetchError)throw error;throw new EvidenceFetchError('Evidence fetch: transport_failure');}
+ catch(error){if(error instanceof EvidenceFetchError)throw error;throw new EvidenceFetchError('transport_failure');}
  finally{clearTimeout(timer);controller.abort();}
 }

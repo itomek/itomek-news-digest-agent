@@ -87,17 +87,19 @@ export async function runVerificationInvocation({config={},rpc,modelFetcher,evid
   catch{return {status:'uncertain',reason:'handoff_unconfirmed',receiptId:receipt,...flags};}
  };
  if(Object.hasOwn(job,'handoffReceiptId'))return uuid(job.handoffReceiptId)?handoff(job.handoffReceiptId):{status:'uncertain',reason:'invalid_handoff_claim',...flags};
- const finishDeferred=async reason=>{
-  try{if(await rpc('warpcore_verification_finish',{...ids,p_status:'deferred',p_receipt:null})!==true)throw Error();return {status:'deferred',reason,...flags};}
+ const finishDeferred=async (reason,detail=reason)=>{
+  try{if(await rpc('warpcore_verification_finish',{...ids,p_status:'deferred',p_receipt:null,p_reason:detail})!==true)throw Error();return {status:'deferred',reason,...flags};}
   catch{return {status:'uncertain',reason:'finish_unconfirmed',...flags};}
  };
- let input,request,requestSha256;
+ let input,request,requestSha256,sourceStage='snapshot_unavailable';
  const started=Date.now();
  try{
   const snapshot=await rpc('warpcore_curator_snapshot',{p_story:job.storyKey});
   if(!plain(snapshot)||snapshot.story_key!==job.storyKey||!sha(snapshot.evidence_hash)||!Array.isArray(snapshot.evidence)||snapshot.evidence.length<1||snapshot.evidence.length>20)throw Error();
   const evidence=snapshot.evidence.map(e=>{if(!plain(e))throw Error();return project(e,['id','url','text','sourceType','visibility','sourceLinks','nativeUri','nativeUrl','nativeCid','nativeAuthorDid']);});
+  sourceStage='history_unavailable';
   const history=await readHistory(rpc,started),sources=[];let remainingBytes=approved.provider==='Cerebras'?120000:200000; // Full captures or deferral, never truncation; Cerebras retains a bounded capacity mitigation, not a token-context guarantee.
+  sourceStage='source_unavailable';
   for(const item of evidence){
    if(Date.now()-started>30000||remainingBytes<1)throw Error();
    if(item.sourceType==='bluesky'){
@@ -112,10 +114,15 @@ export async function runVerificationInvocation({config={},rpc,modelFetcher,evid
    sources.push(project(fetched,['evidenceId','url','contentSha256','fetchedAt','body']));
   }
   if(Date.now()-started>40000)throw Error();
+  sourceStage='verification_input_invalid';
   input={storyKey:job.storyKey,evidenceHash:snapshot.evidence_hash,evidence,sources,history,now:now()};
   request=buildVerificationRequest(input,{model:config.model,maxOutputTokens:config.maxOutputTokens});
   requestSha256=await hash(JSON.stringify({...request,stream:false}));
- }catch{return finishDeferred('evidence_or_history_unavailable');}
+ }catch(error){
+  const sourceCodes=new Set(['timeout','http_failure','destination_mismatch','unsupported_content_type','response_size_limit','empty_body','invalid_encoding','transport_failure']);
+  const detail=sourceStage==='source_unavailable'&&sourceCodes.has(error?.code)?'source_'+error.code:sourceStage;
+  return finishDeferred('evidence_or_history_unavailable',detail);
+ }
  let reservation;
  try{
   reservation=await rpc('warpcore_verification_reserve',{...ids,p_hash:requestSha256,p_max:approved.maxCostCredits,p_metadata:{model:approved.model,profileVersion:VERIFICATION_REQUEST_PROFILE_VERSION,expectedProvider:approved.provider}});
@@ -149,7 +156,7 @@ export async function runVerificationInvocation({config={},rpc,modelFetcher,evid
  let receipt;
  try{receipt=await rpc('warpcore_agent_issue_receipt',{p_material:material});if(!uuid(receipt))throw Error();}
  catch{return {status:'uncertain',reason:'receipt_unconfirmed',...flags};}
- try{if(await rpc('warpcore_verification_finish',{...ids,p_status:'verified',p_receipt:receipt})!==true)throw Error();}
+ try{if(await rpc('warpcore_verification_finish',{...ids,p_status:'verified',p_receipt:receipt,p_reason:null})!==true)throw Error();}
  catch{return {status:'uncertain',reason:'finish_unconfirmed',...flags};}
  return handoff(receipt);
 }

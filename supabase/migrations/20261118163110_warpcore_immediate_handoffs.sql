@@ -45,6 +45,6 @@ begin
 exception when others then
  -- No SQLERRM/body/credential logging; next tick sees the original durable queue.
  return null;
-end $function$
+end $function$;
 
 commit;

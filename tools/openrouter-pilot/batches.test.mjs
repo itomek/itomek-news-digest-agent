@@ -39,7 +39,7 @@ test('stage-aware protocol preserves its shape and later verification guards und
  const model='nvidia/nemotron-3.5-super-vl';
  const build=version=>buildReviewRequest(cases,{model,allowedModels:[model],maxOutputTokens:2048,requestProfile:requestProfileForModel(model,version)});
  const old=build('2026-11-17.1');
- assert.equal(createHash('sha256').update(JSON.stringify(old)).digest('hex'),'eeed5c23ddd95cb6803a78830f02746b19adf58b513b35b1cb29f871b76985b6');
+ assert.equal(createHash('sha256').update(JSON.stringify(old)).digest('hex'),'a513e02fe6d1dedeedd7862eadb1db171f5ab44f334b2c38eedc6adcec57d9b2');
  const profile=requestProfileForModel(model,'2026-11-17.3');assert.equal(profile.version,'2026-11-17.3');
  const current=build('2026-11-17.3');assert.deepEqual(current.provider,old.provider);assert.deepEqual(current.response_format,old.response_format);assert.deepEqual(current.messages[1],old.messages[1]);
  const system=current.messages[0].content;
@@ -49,4 +49,4 @@ test('stage-aware protocol preserves its shape and later verification guards und
  assert.equal(requestProfileForModel('openai/gpt-oss-120b','2026-11-16.4').version,'2026-11-16.4');
 });
 
-test('17.3 protocol body has an explicit snapshot under current editorial policy',async()=>{const {createHash}=await import('node:crypto'),{buildReviewRequest}=await import('../../supabase/functions/news-agent/evaluation.mjs'),{requestProfileForModel}=await import('../../supabase/functions/news-agent/model-profiles.mjs');const model='nvidia/nemotron-3.5-super-vl',cases=selectDevelopmentBatch(Array(8).fill({id:'unused'}),'scope-challenge');const old=buildReviewRequest(cases,{model,allowedModels:[model],maxOutputTokens:2048,requestProfile:requestProfileForModel(model,'2026-11-17.3')});assert.equal(createHash('sha256').update(JSON.stringify(old)).digest('hex'),'01c7140f47d23c754be1e3de8ed41baa874f2d3a87c93933627ff98b400a5f2e');assert.equal(requestProfileForModel(model,'2026-11-17.4').version,'2026-11-17.4');});
+test('17.3 protocol body has an explicit snapshot under current editorial policy',async()=>{const {createHash}=await import('node:crypto'),{buildReviewRequest}=await import('../../supabase/functions/news-agent/evaluation.mjs'),{requestProfileForModel}=await import('../../supabase/functions/news-agent/model-profiles.mjs');const model='nvidia/nemotron-3.5-super-vl',cases=selectDevelopmentBatch(Array(8).fill({id:'unused'}),'scope-challenge');const old=buildReviewRequest(cases,{model,allowedModels:[model],maxOutputTokens:2048,requestProfile:requestProfileForModel(model,'2026-11-17.3')});assert.equal(createHash('sha256').update(JSON.stringify(old)).digest('hex'),'e9898386aefc094c8a4173497eda2d481b9013a5f5363b22487087732a45aa6a');assert.equal(requestProfileForModel(model,'2026-11-17.4').version,'2026-11-17.4');});

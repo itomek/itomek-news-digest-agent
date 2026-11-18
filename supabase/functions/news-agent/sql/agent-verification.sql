@@ -166,7 +166,7 @@ begin
    if m->'editorial'->>'mode'='repost' and m->'editorial'->'evidenceIds' ? (source->>'evidenceId') and ((original->'record'->>'createdAt')::timestamptz at time zone 'UTC')::date is distinct from (j->>'publicationDate')::date then raise exception 'Invalid native publication date';end if;
   end if;
   if github then
-   release_path:=regexp_match(source->>'url','^https://github[.]com/(lemonade-sdk/lemonade|ROCm/TheRock|ggml-org/llama[.]cpp|vllm-project/vllm|ollama/ollama|ml-explore/mlx|anthropics/claude-code)/releases/tag/([A-Za-z0-9._+~-]+)$');
+   release_path:=regexp_match(source->>'url','^https://github[.]com/(amd/gaia|lemonade-sdk/lemonade|ROCm/TheRock|ggml-org/llama[.]cpp|vllm-project/vllm|ollama/ollama|ml-explore/mlx|anthropics/claude-code)/releases/tag/([A-Za-z0-9._+~-]+)$');
    if release_path is null or release_path[2] in ('.','..') or source->>'url' ~ U&'[\0001-\001F\007F-\009F]'
    or octet_length(source->>'body')>100000 or source->>'fetchedUrl' is distinct from 'https://api.github.com/repos/'||release_path[1]||'/releases/tags/'||release_path[2]
    then raise exception 'Invalid GitHub capture binding';end if;

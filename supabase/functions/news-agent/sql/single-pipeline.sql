@@ -36,7 +36,9 @@ begin
  bucket:=(case when p_stage='collect' then date_trunc('hour',stamp at time zone 'utc')+floor(extract(minute from stamp at time zone 'utc')/30)*interval '30 minutes' else date_trunc('minute',stamp at time zone 'utc') end) at time zone 'utc';
  if exists(select 1 from shadow_agent.pipeline_dispatch_slots s where s.stage=p_stage and s.slot>=bucket
   and not (p_stage='agent' and exists(select 1 from net._http_response r where r.id=s.request_id and r.status_code is not null and not coalesce(r.timed_out,false))
-   and exists(select 1 from shadow_agent.pipeline_dispatch_slots c where c.stage='collect' and c.completed_at>s.queued_at))) then return null;end if;
+   and exists(select 1 from shadow_agent.pipeline_dispatch_slots c where c.stage='collect' and c.completed_at>s.queued_at))
+   and not (p_stage in ('curate','publish') and exists(select 1 from net._http_response r where r.id=s.request_id
+    and r.status_code is not null and not coalesce(r.timed_out,false)))) then return null;end if;
  if p_stage='agent' then
   request_id:=shadow_agent.alerting_enqueue();
  else

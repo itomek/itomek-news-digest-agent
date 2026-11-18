@@ -13,6 +13,7 @@ try{
  let sql=await fs.readFile(new URL('../supabase/functions/news-agent/sql/single-pipeline.sql',import.meta.url),'utf8');
  const guard="(select count(*) from pg_catalog.pg_extension where extname in ('pg_net','supabase_vault')) <> 2";
  assert.ok(sql.includes(guard),'Exact extension shim must match reviewed guard');sql=sql.replace(guard,'false');await db.exec(sql);
+ await db.exec(await fs.readFile(new URL('../supabase/migrations/20261118163110_warpcore_immediate_handoffs.sql',import.meta.url),'utf8'));
  assert.equal(await v("select count(*)::int v from net.calls"),0,'Install does not enqueue');
  const pin='did:plc:pfq2p7n2oiiy2k4pv6xnsgdk',origin='https://eedfyviypptfpghyffip.supabase.co';
  const gateway='g'.repeat(40),collect='c'.repeat(40),publish='p'.repeat(40);
@@ -36,7 +37,7 @@ try{
  // Mark completed calls so later tests isolate coalescing/retry rather than pending HTTP.
  await q('insert into net._http_response select id,200,false from net.calls where id not in(select id from net._http_response)');
  // Failed enqueue must not undo durable editorial queue; minute tick retries it.
- await expire('curate');await q("delete from vault.decrypted_secrets where name='warpcore_publish_cron_token'");await q("insert into public.warpcore_curator_inbox(actor_kind,state) values('agent','pending')");assert.equal(await v("select count(*)::int v from public.warpcore_curator_inbox"),4);assert.equal(await count(),5);await q('insert into vault.decrypted_secrets values($1,$2)',['warpcore_publish_cron_token',publish]);await v('select shadow_agent.pipeline_tick() v');assert.equal(await count(),7,'Tick adds one agent and retries curator; no duplicate collect/publish');await v('select shadow_agent.pipeline_tick() v');assert.equal(await count(),7);
+ await expire('curate');await q("delete from vault.decrypted_secrets where name='warpcore_publish_cron_token'");await q("insert into public.warpcore_curator_inbox(actor_kind,state) values('agent','pending')");assert.equal(await v("select count(*)::int v from public.warpcore_curator_inbox"),4);assert.equal(await count(),5);await q('insert into vault.decrypted_secrets values($1,$2)',['warpcore_publish_cron_token',publish]);await v('select shadow_agent.pipeline_tick() v');assert.equal(await count(),8,'Tick adds agent and retries completed curator/publisher without repeating collect');await v('select shadow_agent.pipeline_tick() v');assert.equal(await count(),8);
  // Legacy backlog still drains after the old curator cron is removed.
  await expire('curate');await q('delete from public.warpcore_curator_inbox');await q("insert into public.warpcore_curator_inbox(actor_kind,state) values('dot','pending')");const legacyBefore=await count();await v('select shadow_agent.pipeline_tick() v');assert.equal(await count(),legacyBefore+1,'Tick must drain retained Dot backlog too');
  // Collector completion records readiness before waking review; one queue, no second timer.
@@ -45,9 +46,15 @@ try{
  assert.equal(await v('select public.warpcore_collection_finished() v'),null,'Completion does not overlap an unacknowledged worker');
  await q('insert into net._http_response values($1,200,false)',[wake]);assert.ok(await v('select public.warpcore_collection_finished() v'),'Completed idle worker may be woken again in same minute after collection');
  // Protected origin and exact unique secret guards, no alternate target or secret output.
- await expire('publish');await q("update shadow_agent.scheduler_settings set approved_project_origin='https://other.supabase.co'");assert.equal(await enqueue('publish'),null);await q('update shadow_agent.scheduler_settings set approved_project_origin=$1',[origin]);await q('insert into vault.decrypted_secrets values($1,$2)',['warpcore_publish_cron_token',publish]);assert.equal(await enqueue('publish'),null);await q("delete from vault.decrypted_secrets where ctid=(select ctid from vault.decrypted_secrets where name='warpcore_publish_cron_token' limit1)".replace('limit1','limit 1'));assert.ok(await enqueue('publish'));assert.equal(await count(),11);
+ await expire('publish');await q("update shadow_agent.scheduler_settings set approved_project_origin='https://other.supabase.co'");assert.equal(await enqueue('publish'),null);await q('update shadow_agent.scheduler_settings set approved_project_origin=$1',[origin]);await q('insert into vault.decrypted_secrets values($1,$2)',['warpcore_publish_cron_token',publish]);assert.equal(await enqueue('publish'),null);await q("delete from vault.decrypted_secrets where ctid=(select ctid from vault.decrypted_secrets where name='warpcore_publish_cron_token' limit1)".replace('limit1','limit 1'));assert.ok(await enqueue('publish'));assert.equal(await count(),12);
  // HTTP enqueue is transactional: rolling back a queue insert cannot dispatch it.
  const beforeRollback=await count();await db.exec('begin');await expire('curate');await q("insert into public.warpcore_curator_inbox(actor_kind,state) values('agent','pending')");assert.equal(await count(),beforeRollback+1);await db.exec('rollback');assert.equal(await count(),beforeRollback);
+ // A completed prior HTTP invocation must not hold the next item for a minute.
+ for(const stage of ['curate','publish']){
+  await q('insert into net._http_response select request_id,200,false from shadow_agent.pipeline_dispatch_slots where stage=$1 and request_id not in(select id from net._http_response)',[stage]);
+  assert.ok(await enqueue(stage),'Completed same-minute '+stage+' permits next item');
+  assert.equal(await enqueue(stage),null,'In-flight '+stage+' still cannot overlap');
+ }
  for(const role of ['anon','authenticated','service_role']){await db.exec('set role '+role);for(const sql of ["select * from shadow_agent.pipeline_dispatch_slots","select shadow_agent.pipeline_enqueue('collect')","select shadow_agent.pipeline_tick()","select shadow_agent.pipeline_collection_pending()"])await assert.rejects(()=>q(sql),/permission/);await db.exec('reset role');}
  console.log('PASS single pipeline: installzeroHTTP; real legacyseed; exact fixed routes+auth; immediate approval/agent triggers; minute/hourcoalescing; enqueuefailure preserves queue/tickretry; pending180s/responsebounds; protectedorigin/uniquesecrets; privateACL');
 }finally{await db.close();}

@@ -1,3 +1,4 @@
+import {POLICY_VERSION} from '../supabase/functions/news-agent/policy.mjs';
 // Disposable SQL and synthetic model responses only: durable small-item queue.
 import {PGlite} from '@electric-sql/pglite';
 import fs from 'node:fs/promises';
@@ -12,7 +13,7 @@ try{
  create table public.warpcore_candidates(uri text primary key,story_key text,source_type text,source_created_at timestamptz,source_url text,text text,collected_at timestamptz);
  create table public.warpcore_curator_inbox(story_key text,state text);create table public.warpcore_publications(story_key text,state text,prepared_at timestamptz);`);
  for(const f of ['shadow-state.sql','shadow-paged.sql','shadow-audit.sql','shadow-ranking.sql','shadow-producer.sql','shadow-release.sql'])await db.exec(await fs.readFile(new URL('../supabase/functions/news-agent/sql/'+f,import.meta.url),'utf8'));
- await db.exec("update shadow_agent.producer_settings set enabled=true,run_limit_credits=1,policy_version='2026-11-14.1',first_seen_since=clock_timestamp()-interval '1 hour';insert into shadow_agent.budgets(day,limit_credits) values((now() at time zone 'utc')::date,10)");
+ await db.exec("update shadow_agent.producer_settings set enabled=true,run_limit_credits=1,policy_version='"+POLICY_VERSION+"',first_seen_since=clock_timestamp()-interval '1 hour';insert into shadow_agent.budgets(day,limit_credits) values((now() at time zone 'utc')::date,10)");
  const add=async(n)=>{await q("insert into public.warpcore_stories values($1,'unverified_review_required',clock_timestamp())",[key(n)]);await q("insert into public.warpcore_candidates values($1,$2,'rss',clock_timestamp(),'https://example.com/item','Synthetic new item',clock_timestamp())",['fixture:'+n,key(n)]);};
  const select=()=>v('select public.warpcore_shadow_select_run() v');
  assert.equal(await select(),null,'Empty list creates no scan or billing work');

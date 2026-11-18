@@ -1,3 +1,4 @@
+import {POLICY_VERSION} from '../supabase/functions/news-agent/policy.mjs';
 // Owner-only recovery of known billed invalid completion; no live calls or replay.
 import {PGlite} from '@electric-sql/pglite';import fs from 'node:fs/promises';import assert from 'node:assert/strict';import {randomUUID} from 'node:crypto';
 import {newPagedShadowRun} from '../supabase/functions/news-agent/paged-runtime.mjs';
@@ -5,7 +6,7 @@ import {requestProfileForModel} from '../supabase/functions/news-agent/model-pro
 const db=new PGlite(),q=async(s,a=[])=>(await db.query(s,a)).rows,scalar=async(s,a=[])=>(await q(s,a))[0].value;
 const admin=async fn=>{await db.exec('reset role');try{return await fn();}finally{await db.exec('set role service_role');}};
 const model='openai/gpt-oss-120b',key=n=>n.toString(16).padStart(64,'0');
-const config=profile=>({model,requestProfile:profile,expectedProvider:'Groq',reviewBatchSize:16,maxOutputTokens:8192,maxCostCredits:.058983,timeoutMs:30000,maxResponseBytes:200000,policyVersion:'2026-11-14.1',routing:'openrouter-no-fallback'});
+const config=profile=>({model,requestProfile:profile,expectedProvider:'Groq',reviewBatchSize:16,maxOutputTokens:8192,maxCostCredits:.058983,timeoutMs:30000,maxResponseBytes:200000,policyVersion:POLICY_VERSION,routing:'openrouter-no-fallback'});
 const usage=cost=>({promptTokens:100,completionTokens:200,totalTokens:300,costCredits:cost});
 async function seed(count,version='2026-11-16.3'){
  const run=randomUUID();let state=newPagedShadowRun({runId:run,scanStartedAt:new Date().toISOString()});

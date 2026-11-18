@@ -84,7 +84,7 @@ begin
  -- independently fenced; callers receiving one ID still compete for one lease.
  select * into settings from shadow_agent.producer_settings where singleton for update;
  if not found or not settings.enabled then return null; end if;
- if settings.run_limit_credits is null or settings.policy_version is distinct from '2026-11-14.1'
+ if settings.run_limit_credits is null or (settings.policy_version is null or settings.policy_version not in ('2026-11-14.1','2026-11-18.1'))
  then raise exception 'Invalid producer configuration'; end if;
  if to_regprocedure('shadow_agent.advance_verification_rate_limits()') is not null then
   perform shadow_agent.advance_verification_rate_limits();end if;

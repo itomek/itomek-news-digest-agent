@@ -19,6 +19,10 @@ begin
  select pg_get_functiondef('public.warpcore_shadow_select_run()'::regprocedure) into definition;
  if position('2026-11-14.1' in definition)=0 then raise exception 'Unexpected producer policy version';end if;
  execute replace(definition,'2026-11-14.1','2026-11-18.1');
+ if to_regprocedure('shadow_agent.create_validation_run(text,numeric)') is not null then
+  select pg_get_functiondef('shadow_agent.create_validation_run(text,numeric)'::regprocedure) into definition;
+  execute replace(definition,'''2026-11-14.1''','coalesce((select policy_version from shadow_agent.producer_settings where singleton),''2026-11-18.1'')');
+ end if;
  update shadow_agent.producer_settings set policy_version='2026-11-18.1' where singleton;
  update shadow_agent.runtime_settings set allowed_source_hosts=(select array_agg(distinct host order by host) from unnest(allowed_source_hosts||array['api.github.com','developer.nvidia.com']) host) where singleton;
 end $$;

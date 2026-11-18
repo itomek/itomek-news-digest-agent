@@ -19,6 +19,10 @@ export async function handle(req, env, registry, options={}) {
    selections=selections.filter(source=>ids.includes(source.id));
   }
  }catch{return Response.json({error:'invalid_source_selection'},{status:400});}
+ const notify=async input=>{
+  if(typeof options.notifyFailure!=='function')return undefined;
+  try{const r=await options.notifyFailure(input);return ['sent','failed','timeout','unconfigured','suppressed'].includes(r?.status)?r.status:'failed';}catch{return 'failed';}
+ };
  if(!selections.length)return Response.json({mode:'idle',publishing_enabled:false,candidates_submitted:0});
  try{
   const store=options.store??createCheckpointStore(env);
@@ -26,7 +30,12 @@ export async function handle(req, env, registry, options={}) {
   let processing_dispatch='deferred';
   try{if(typeof store.collected==='function'&&await store.collected())processing_dispatch='queued';}catch{/* Saved items remain available for the next scheduled tick. */}
   const summary={sources_checked:result.sources.length,entries_fetched:result.sources.reduce((n,s)=>n+(s.fetched??0),0),new_items:result.sources.reduce((n,s)=>n+(s.new??0),0),duplicate_entries:result.sources.reduce((n,s)=>n+(s.duplicate??0),0)};
+  summary.failed_sources=result.sources.filter(s=>s.status==='failed').length;
+  summary.partial_sources=result.sources.filter(s=>s.status==='partial').length;
+  summary.limited_history_sources=result.sources.filter(s=>s.coverage_reasons?.some(r=>r.startsWith('finite_'))).length;
+  const sourceFailures=result.sources.flatMap(s=>s.status==='failed'?[{id:s.id,error:s.error}]:s.coverage_reasons?.includes('malformed_source_dates')?[{id:s.id,error:'malformed_source_dates'}]:[]);
   const allFailed=result.sources.every(source=>source.status==='failed');
-  return Response.json({mode:'review_only',publishing_enabled:false,...result,summary,processing_dispatch,...(allFailed?{error:'all_sources_failed'}:{})},{status:allFailed?502:200});
- }catch{return Response.json({error:'checkpoint_persistence_unavailable'},{status:502});}
+  const notification=await notify({sourceFailures,httpStatus:allFailed?502:200});
+  return Response.json({mode:'review_only',publishing_enabled:false,...result,summary,processing_dispatch,...(notification&&notification!=='suppressed'?{notification:{status:notification}}:{}),...(allFailed?{error:'all_sources_failed'}:{})},{status:allFailed?502:200});
+ }catch{const notification=await notify({httpStatus:502,sourceFailures:[{id:'collector',error:'source_or_persistence_failed'}]});return Response.json({error:'checkpoint_persistence_unavailable',...(notification?{notification:{status:notification}}:{})},{status:502});}
 }

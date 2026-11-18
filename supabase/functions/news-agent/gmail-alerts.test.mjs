@@ -40,3 +40,9 @@ test('deployed entrypoint pins Nodemailer and wires only the private Gmail secre
  assert.equal(typeof dependencies.notifyFailure,'function');assert.deepEqual(await dependencies.notifyFailure(failure),{status:'sent'});assert.equal(smtp.auth.pass,secret);
  delete env.WARPCORE_ALERT_GMAIL_APP_PASSWORD;assert.deepEqual(await dependencies.notifyFailure(failure),{status:'unconfigured'});
 });
+
+test('source failures get readable emails, with no source body or arbitrary diagnostic text',async()=>{
+ let mail;const notify=createGmailFailureNotifier({account:'fixture.owner@gmail.com',password:secret,createTransport:()=>({sendMail:async message=>{mail=message;return {accepted:['fixture.owner@gmail.com']};},close:()=>{}})});
+ assert.deepEqual(await notify({httpStatus:200,sourceFailures:[{id:'rocm_blog',error:'source_http_429',body:secret},{id:'feed',error:'malformed_source_dates'},{id:'bad\r\nheader',error:'source_network'},{id:'unknown',error:secret}]}),{status:'sent'});assert.match(mail.text,/Source rocm_blog: The source returned HTTP 429/);assert.match(mail.text,/coverage is uncertain/);assert.ok(!mail.text.includes(secret));assert.ok(!mail.text.includes('bad\r\nheader'));
+ assert.deepEqual(await notify({httpStatus:200,sourceFailures:[]}),{status:'suppressed'});
+});

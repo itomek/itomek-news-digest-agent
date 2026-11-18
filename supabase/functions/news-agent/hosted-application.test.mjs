@@ -84,3 +84,25 @@ test('failure notification is delivered once per invocation and cannot stop queu
   const response=await app(request()),body=await response.json();assert.equal(response.status,200);assert.equal(calls,2);assert.equal(notified,1);assert.equal(body.status,'idle');assert.equal(body.notification.status,delivery==='throws'?'failed':delivery);assert.ok(!JSON.stringify(body).includes('private-password'));
  }
 });
+
+test('runtime slice hands progressing work to another invocation, idle never wakes',async()=>{
+ for(const status of ['advanced','idle','uncertain','busy']){
+ let wakes=0,clock=0;
+ const app=createHostedApplication({...config,drain:true},{now:()=>clock,bootstrapRpc:async name=>{
+ if(name==='warpcore_worker_continue'){wakes++;return 123;}
+ return name==='warpcore_agent_authorization'?{enabled:true,producerToken:token}:{model:'google/gemma-4-26b-a4b-it',apiKey:'test',maxOutputTokens:4096,maxCostCredits:.036045,allowedSourceHosts:['example.com']};
+ },createDiscoveryService:()=>({selectRun:async()=>null}),createVerifierService:()=>({runInvocation:async()=>{clock=12000;return {status:status==='advanced'?'verified':status};}})});
+ assert.equal((await app(request())).status,200);assert.equal(wakes,status==='advanced'?1:0);
+ }
+});
+
+test('step limit continues without a timer through fixed private RPC',async()=>{
+ let wakes=0,steps=0;
+ const app=createHostedApplication({...config,drain:true},{fetcher:async(url,options)=>{
+ const name=new URL(url).pathname.split('/').at(-1);
+ if(name==='warpcore_agent_authorization')return Response.json({enabled:true,producerToken:token});
+ if(name==='warpcore_worker_continue'){wakes++;assert.equal(options.body,'{}');assert.equal(options.headers.Authorization,'Bearer '+config.serviceKey);return Response.json(123);}
+ return Response.json({model:'google/gemma-4-26b-a4b-it',apiKey:'test',maxOutputTokens:4096,maxCostCredits:.036045,allowedSourceHosts:['example.com']});
+ },createDiscoveryService:()=>({selectRun:async()=>null}),createVerifierService:()=>({runInvocation:async()=>{steps++;return {status:'verified'};}})});
+ assert.equal((await app(request())).status,200);assert.equal(steps,12);assert.equal(wakes,1);
+});

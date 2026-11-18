@@ -516,5 +516,74 @@
       "url": "https://www.nasa.gov/feed/",
       "label": "NASA"
     }
+  },
+  {
+    "id": "deepseek_updates",
+    "adapter": "official_html",
+    "config": {
+      "url": "https://api-docs.deepseek.com/updates/",
+      "label": "DeepSeek Updates"
+    }
+  },
+  {
+    "id": "openclaw_news",
+    "adapter": "rss",
+    "config": {
+      "url": "https://openclaw.ai/rss.xml",
+      "label": "OpenClaw News"
+    }
+  },
+  {
+    "id": "jetbrains_blog",
+    "adapter": "rss",
+    "config": {
+      "url": "https://blog.jetbrains.com/feed/",
+      "label": "JetBrains"
+    }
+  },
+  {
+    "id": "infoq_agents",
+    "adapter": "rss",
+    "config": {
+      "url": "https://feed.infoq.com/Agents/news/",
+      "label": "InfoQ Agent News"
+    }
+  },
+  {
+    "id": "esa_science",
+    "adapter": "rss",
+    "config": {
+      "url": "https://www.esa.int/rss/science.rss",
+      "label": "ESA Space Science"
+    }
+  },
+  {
+    "id": "spacenews",
+    "adapter": "rss",
+    "config": {
+      "url": "https://spacenews.com/feed/",
+      "label": "SpaceNews"
+    }
+  },
+  {
+    "id": "virgin_galactic_news",
+    "adapter": "official_html",
+    "config": {
+      "url": "https://www.virgingalactic.com/news",
+      "label": "Virgin Galactic"
+    }
+  },
+  {
+    "id": "huggingface_posts",
+    "adapter": "huggingface_posts",
+    "config": {}
+  },
+  {
+    "id": "pi_announcements",
+    "adapter": "rss",
+    "config": {
+      "url": "https://earendil.com/posts/feed.atom",
+      "label": "Earendil / Pi Announcements"
+    }
   }
 ]

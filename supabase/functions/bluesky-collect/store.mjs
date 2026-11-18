@@ -18,7 +18,11 @@ export async function candidateRow(candidate) {
   if(sourceLinks.length>20)throw Error('Too many source links');
   const firstLink=sourceLinks[0];
   if(candidate.native_cid!=null){const subject=repostSubject({uri:candidate.native_uri,cid:candidate.native_cid});if(candidate.source_type!=='bluesky'||candidate.native_author_did!==subject.uri.split('/')[2])throw Error('Invalid repost evidence');}
-  const key = candidate.native_cid!=null?candidate.native_uri:firstLink || candidate.uri;
+  // A dated entry in DeepSeek's rolling changelog has no distinct article URL.
+  // Bind its identity to the exact trusted adapter/source/date URI, while keeping
+  // the real fetchable page URL for evidence. Other URLs retain normal dedup.
+  const datedChangelog=candidate.source_type==='official_html'&&candidate.source_id==='deepseek_updates'&&firstLink==='https://api-docs.deepseek.com/updates/'&&/^urn:warpcore:official_html:deepseek_updates:https%3A%2F%2Fapi-docs\.deepseek\.com%2Fupdates%2F%23date-\d{4}-\d{2}-\d{2}$/.test(candidate.uri);
+  const key = candidate.native_cid!=null?candidate.native_uri:datedChangelog?candidate.uri:firstLink || candidate.uri;
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key));
   return {uri:candidate.uri,story_key:[...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join(''),
     source_type:candidate.source_type ?? 'bluesky',source_id:candidate.source_id ?? candidate.actor,actor:candidate.actor,text:candidate.text,source_created_at:candidate.created_at,

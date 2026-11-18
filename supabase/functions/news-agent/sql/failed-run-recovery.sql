@@ -67,7 +67,7 @@ begin
  perform 1 from shadow_agent.producer_settings where singleton for update;
  if exists(select 1 from shadow_agent.runs where state->>'storageKind'='paged-v1' and state->>'phase' in ('scan','review','reviewing','uncertain')) then raise exception 'Existing unfinished paged run';end if;
  initial:=jsonb_build_object('storageKind','paged-v1','runId',run_id::text,'scanStartedAt',to_char(stamp at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
- 'policyVersion',coalesce((select policy_version from shadow_agent.producer_settings where singleton),'2026-11-18.1'),'revision',0,'phase','scan','cursor',null,'candidateCount',0,'reviewedCount',0,'activeBatch',null,'publishingEnabled',false);
+ 'policyVersion',coalesce((select policy_version from shadow_agent.producer_settings where singleton),'2026-11-18.2'),'revision',0,'phase','scan','cursor',null,'candidateCount',0,'reviewedCount',0,'activeBatch',null,'publishingEnabled',false);
  insert into shadow_agent.runs(id,state,limit_credits) values(run_id,initial,p_limit);
  insert into shadow_agent.run_recovery_audit(action,run_id,revision_before,revision_after,state_after,reason)
  values('create_validation',run_id,null,0,initial,p_reason);

@@ -5,8 +5,9 @@
 // Callers MUST intersect this policy with configured allowedSourceHosts; this
 // module grants no network egress, follows no redirects and performs no I/O.
 // Native public originals retain their separate pinned-identity repost path.
-export const PRIMARY_SOURCE_POLICY_VERSION='2026-11-18.1';
+export const PRIMARY_SOURCE_POLICY_VERSION='2026-11-18.2';
 const ORIGINS=new Set([
+ 'api-docs.deepseek.com','openclaw.ai','earendil.com','blog.jetbrains.com','www.infoq.com','www.esa.int','spacenews.com','www.virgingalactic.com','x.ai',
  'ir.amd.com','rocm.blogs.amd.com','blogs.nvidia.com','openai.com',
  'www.anthropic.com','blog.google','deepmind.google','research.google',
  'mistral.ai','supabase.com','firebase.blog','www.apple.com','newsroom.arm.com',
@@ -44,6 +45,7 @@ export function isApprovedPrimarySourceUrl(raw){
 // Friendly publisher identity for approved provenance only. This label does not
 // assert independent confirmation; callers retain the exact source-bound proof.
 const PUBLISHERS=Object.freeze({
+ 'api-docs.deepseek.com':'DeepSeek','openclaw.ai':'OpenClaw','earendil.com':'Earendil','blog.jetbrains.com':'JetBrains','www.infoq.com':'InfoQ','www.esa.int':'ESA','spacenews.com':'SpaceNews','www.virgingalactic.com':'Virgin Galactic','x.ai':'xAI',
  'ir.amd.com':'AMD','rocm.blogs.amd.com':'AMD','blogs.nvidia.com':'NVIDIA',
  'openai.com':'OpenAI','www.anthropic.com':'Anthropic','blog.google':'Google',
  'deepmind.google':'Google','research.google':'Google','mistral.ai':'Mistral',

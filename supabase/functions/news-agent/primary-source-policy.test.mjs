@@ -2,8 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {isApprovedPrimarySourceUrl,PRIMARY_SOURCE_POLICY_VERSION,primarySourceAttributionLabel} from './primary-source-policy.mjs';
 
+test('approved announcement/reporting origins support attribution without granting community namespaces',()=>{
+ for(const [host,label] of [['api-docs.deepseek.com','DeepSeek'],['openclaw.ai','OpenClaw'],['earendil.com','Earendil'],['blog.jetbrains.com','JetBrains'],['www.infoq.com','InfoQ'],['www.esa.int','ESA'],['spacenews.com','SpaceNews'],['www.virgingalactic.com','Virgin Galactic'],['x.ai','xAI']]){
+  const url=`https://${host}/news/announcement`;assert.equal(isApprovedPrimarySourceUrl(url),true,url);assert.equal(primarySourceAttributionLabel(url),label);
+  assert.equal(isApprovedPrimarySourceUrl(`https://${host}.evil.example/news/announcement`),false);
+ }
+ assert.equal(isApprovedPrimarySourceUrl('https://huggingface.co/posts/random/123'),false);
+});
+
 test('reviewed first-party origins and exact official project releases are supported',()=>{
- assert.equal(PRIMARY_SOURCE_POLICY_VERSION,'2026-11-18.1');
+ assert.equal(PRIMARY_SOURCE_POLICY_VERSION,'2026-11-18.2');
  for(const url of [
   'https://rocm.blogs.amd.com/software-tools-optimization/example/index.html','https://ir.amd.com/news-events/press-releases/detail/1305/example',
   'https://openai.com/index/example/','https://www.anthropic.com/news/example','https://blog.google/products-and-platforms/products/search/example/',

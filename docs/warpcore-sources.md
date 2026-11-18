@@ -1,5 +1,61 @@
 # Warp Core source directory
 
+## Current configured expansion — November 18, 2026
+
+The tracked roster now has **55 sources**: the existing 46 plus the nine active entries
+below. This section describes repository configuration and public adapter checks,
+not a production deployment receipt. xAI is listed as deferred, outside that count. The older dated sections below describe
+earlier snapshots and their counts/status must not be used as the current roster.
+
+| Source | Public discovery endpoint | Public adapter check |
+|---|---|---|
+| DeepSeek updates | https://api-docs.deepseek.com/updates/ | Dated changelog sections parsed |
+| OpenClaw announcements | https://openclaw.ai/rss.xml | RSS parsed |
+| Pi / Earendil announcements | https://earendil.com/posts/feed.atom | Atom parsed |
+| JetBrains products, services and models | https://blog.jetbrains.com/feed/ | Combined RSS parsed |
+| InfoQ agent news | https://feed.infoq.com/Agents/news/ | Curated news RSS parsed |
+| Hugging Face Posts | https://huggingface.co/api/posts?skip=0&sort=recent | First anonymous JSON page parsed; continuation returned |
+| xAI / Grok | https://x.ai/news | Deferred / not enabled: HTTP 403 |
+| ESA Science | https://www.esa.int/rss/science.rss | RSS parsed |
+| SpaceNews | https://spacenews.com/feed/ | RSS parsed |
+| Virgin Galactic | https://www.virgingalactic.com/news | Visible dated HTML cards parsed |
+
+Agent coverage favors general reporting, major launches and substantial new
+capabilities. Pi, Hermes, OpenClaw and agents generally are explicit interests.
+InfoQ is the general agent-news discovery source; OpenClaw and Pi additionally
+have announcement blogs. Raw Pi, Hermes and OpenClaw GitHub release feeds are
+deliberately absent to avoid patch/changelog noise. No reliable direct Hermes
+announcement RSS was found, so Hermes coverage depends on curated reporting;
+this is not a completeness guarantee. No newsletter signup or private mailbox
+integration was performed. Reddit's old PRAW integration is not activated here.
+
+JetBrains coverage is high-level product, service and model releases, including
+IDEs, AI Assistant and Junie. Routine patches, tutorials, webinars and minor
+feature walkthroughs are excluded by editorial policy. Feed membership alone
+does not approve any story. Native Bluesky sources and publication guards retain
+their existing behavior.
+
+HF Posts uses one size-bounded page per checkpoint invocation and refreshes the
+current head during catch-up. The anonymous endpoint and its schema are not a
+stable API contract. Mutable offset pagination can omit/repeat entries as upstream
+posts change; a permanent finite-history gap is reported even after exhaustion.
+Author/post identity is retained alongside any outbound discovery link. Community
+posts do not become approved primary sources; exact provenance and actual claim
+verification still gate publication. A full multi-page live scan was not run.
+
+DeepSeek's rolling changelog retains a distinct story identity per dated section
+while linking to its real fetchable page. Publication dates and claims still need
+verification against that page. Layout/schema errors and access failures remain
+source failures. xAI's 403 is not bypassed or reported as an empty news window.
+
+Roster capacity is now 55 with the existing five workers, eight-second source
+fetch bounds and one-page checkpoint work. Increasing capacity does not establish
+a full production invocation latency; validate scheduled runtime and persistence
+after deployment. Apply the policy/host migration only after active discovery
+drains; the migration locks the producer settings before checking that condition.
+
+## Historical source snapshots
+
 This is the human-readable companion to `supabase/functions/news-collect/initial-sources.json`. Feed discovery does not automatically publish: the dot selects meaningful, current, nonduplicate stories and the guarded publisher sends at most five separate posts per hour.
 
 ## Deployment status

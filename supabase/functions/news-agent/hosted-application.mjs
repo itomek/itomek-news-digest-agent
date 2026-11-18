@@ -9,7 +9,7 @@ function bootstrapTransport({projectUrl,serviceKey},fetcher){
  const project=new URL(projectUrl);
  if(project.protocol!=='https:'||! /^[a-z0-9]+\.supabase\.co$/.test(project.hostname)||project.href!==project.origin+'/'||typeof serviceKey!=='string'||!serviceKey||/[\r\n]/.test(serviceKey))throw Error('Invalid hosted configuration');
  return async(name,args={})=>{
-  const signature={warpcore_agent_authorization:[],warpcore_agent_runtime_config:[],warpcore_owner_feedback_checkpoint:[],warpcore_owner_feedback_record_page:['p_revision','p_page']};
+  const signature={warpcore_worker_continue:[],warpcore_agent_authorization:[],warpcore_agent_runtime_config:[],warpcore_owner_feedback_checkpoint:[],warpcore_owner_feedback_record_page:['p_revision','p_page']};
   const fields=Object.hasOwn(signature,name)?signature[name]:undefined;
   if(!fields)throw Error('Invalid bootstrap operation');
   if(!args||typeof args!=='object'||Array.isArray(args)||Object.keys(args).length!==fields.length||fields.some(k=>!Object.hasOwn(args,k)))throw Error('Invalid bootstrap arguments');
@@ -91,7 +91,11 @@ export function createHostedApplication(config,dependencies={}){
     steps.push(result);
     const progressed=['advanced','verified','submitted'].includes(result.status)
      ||result.mode==='verification'&&result.status==='deferred'&&finishedItemDeferrals.has(result.reason);
-    if(!progressed||now()-started>=10000||i===11)break;
+    if(!progressed)break;
+    if(now()-started>=10000||i===11){
+     await rpc('warpcore_worker_continue');
+     break;
+    }
     response=await handleAgent(new Request(req.url,{method:'POST',headers:req.headers,body:'{}'}),authorization,service);
    }
    return finish(Response.json({...await response.json(),steps}));

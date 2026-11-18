@@ -1,7 +1,7 @@
 import {repostSubject} from './repost.mjs';
 // Source-neutral review queue contract. Adapters are trusted code, not names/URLs
 // supplied in an HTTP request. No publishing or model calls occur in this module.
-export const MAX_SOURCES=48;
+export const MAX_SOURCES=55;
 export async function runAdapters(selections, registry) {
   if (!Array.isArray(selections) || selections.length > MAX_SOURCES) throw new Error('Invalid source selection');
   if(selections.filter(s=>s?.adapter==='hn').length>1)throw new Error('One HN discovery selection per run');

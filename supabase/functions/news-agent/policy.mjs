@@ -1,5 +1,5 @@
 /** Versioned editorial guidance, not a keyword classifier or publication permission. */
-export const POLICY_VERSION = "2026-11-18.1";
+export const POLICY_VERSION = "2026-11-18.2";
 
 function deepFreeze(value) {
   Object.values(value).forEach((child) => {
@@ -12,6 +12,8 @@ export const EDITORIAL_POLICY = deepFreeze({
   version: POLICY_VERSION,
   purpose: "Select public news that interests Tomas across his stated interests, including space exploration, not just his work or high-priority developments. Relevance determines selection; it need not be explained speculatively in the post.",
   scope: [
+    "Agent news is general, high-level information: major releases, product launches and substantial new capabilities across Pi, Hermes, OpenClaw and agents generally. Prefer curated reporting/aggregation and official announcement blogs over raw release feeds. Skip patch versions, changelog minutiae, internal implementation specifics, tutorials and routine integrations; describe what users can now do in plain language.",
+    "JetBrains coverage is high-level product, service and model releases, including meaningful IDE, AI Assistant, Junie and other platform launches. Skip routine patches, tips, tutorials, webinars and incremental feature walkthroughs.",
     "New frontier and open-source model releases, including Hugging Face announcements: report what was released, its purpose, useful capabilities and supported hardware/resource needs when verified. NVIDIA open-source projects qualify at the project/release/capability level, not commit level.",
     "Lemonade is a closer interest: useful merged pull requests adding features, integrations, model/hardware support or behavior worth knowing can qualify before a release; distinguish merged from shipped. Skip individual commits, cosmetic/docs-only PRs and routine maintenance. GAIA releases, capabilities and supported workflows/hardware qualify; no commit-level GAIA news.",
     "Frontier models and meaningful features/company news from OpenAI, Anthropic, Google/DeepMind/Google Research, Perplexity, Mistral and xAI/Grok; meaningful agent frameworks, apps and libraries; GitHub product news.",

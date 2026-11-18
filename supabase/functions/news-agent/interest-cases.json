@@ -1,10 +1,86 @@
 [
- {"id":"voyager","sourceUrl":"https://www.theverge.com/science/voyager","discoveryText":"NASA's Voyager 1 probe is now one light-day away after 49 years travelling through space.","expectedAction":"verify"},
- {"id":"llama-commit","sourceUrl":"https://github.com/ggml-org/llama.cpp/releases/tag/b12502","discoveryText":"b12502 CUDA: use MMQ for MoE on V100 (#32504). Specific kernel optimization.","expectedAction":"skip"},
- {"id":"vllm-commit","sourceUrl":"https://github.com/vllm-project/vllm/releases/tag/v0.0.1","discoveryText":"Refactor one attention kernel loop and adjust a unit test. No new user-facing feature.","expectedAction":"skip"},
- {"id":"lemonade-pr","sourceUrl":"https://github.com/lemonade-sdk/lemonade/pull/4000","discoveryText":"Merged Lemonade PR adds an OpenAI-compatible image generation endpoint to the desktop app. Available on main; not yet in a tagged release.","expectedAction":"verify"},
- {"id":"gaia-release","sourceUrl":"https://github.com/amd/gaia/releases/tag/v1.0","discoveryText":"GAIA feature release adds local document search agents and support for new Ryzen AI devices.","expectedAction":"verify"},
- {"id":"nvidia-open-source","sourceUrl":"https://blogs.nvidia.com/blog/open-source-model-release/","discoveryText":"NVIDIA releases an open-source local speech model toolkit, adding multilingual transcription and a documented consumer GPU deployment path.","expectedAction":"verify"},
- {"id":"huggingface-model","sourceUrl":"https://huggingface.co/blog/new-model","discoveryText":"Hugging Face announces a new open-weight small reasoning model designed for low-memory local inference, with released weights and reproducible evaluations.","expectedAction":"verify"},
- {"id":"intel-hardware","sourceUrl":"https://www.intc.com/news-events/press-releases/detail/1/new-chip","discoveryText":"Intel launches a new desktop AI processor competing with AMD Ryzen AI, with a larger NPU and announced memory capacity and shipping availability.","expectedAction":"verify"}
+  {
+    "id": "voyager",
+    "sourceUrl": "https://www.theverge.com/science/voyager",
+    "discoveryText": "NASA's Voyager 1 probe is now one light-day away after 49 years travelling through space.",
+    "expectedAction": "verify"
+  },
+  {
+    "id": "llama-commit",
+    "sourceUrl": "https://github.com/ggml-org/llama.cpp/releases/tag/b12502",
+    "discoveryText": "b12502 CUDA: use MMQ for MoE on V100 (#32504). Specific kernel optimization.",
+    "expectedAction": "skip"
+  },
+  {
+    "id": "vllm-commit",
+    "sourceUrl": "https://github.com/vllm-project/vllm/releases/tag/v0.0.1",
+    "discoveryText": "Refactor one attention kernel loop and adjust a unit test. No new user-facing feature.",
+    "expectedAction": "skip"
+  },
+  {
+    "id": "lemonade-pr",
+    "sourceUrl": "https://github.com/lemonade-sdk/lemonade/pull/4000",
+    "discoveryText": "Merged Lemonade PR adds an OpenAI-compatible image generation endpoint to the desktop app. Available on main; not yet in a tagged release.",
+    "expectedAction": "verify"
+  },
+  {
+    "id": "gaia-release",
+    "sourceUrl": "https://github.com/amd/gaia/releases/tag/v1.0",
+    "discoveryText": "GAIA feature release adds local document search agents and support for new Ryzen AI devices.",
+    "expectedAction": "verify"
+  },
+  {
+    "id": "nvidia-open-source",
+    "sourceUrl": "https://blogs.nvidia.com/blog/open-source-model-release/",
+    "discoveryText": "NVIDIA releases an open-source local speech model toolkit, adding multilingual transcription and a documented consumer GPU deployment path.",
+    "expectedAction": "verify"
+  },
+  {
+    "id": "huggingface-model",
+    "sourceUrl": "https://huggingface.co/blog/new-model",
+    "discoveryText": "Hugging Face announces a new open-weight small reasoning model designed for low-memory local inference, with released weights and reproducible evaluations.",
+    "expectedAction": "verify"
+  },
+  {
+    "id": "intel-hardware",
+    "sourceUrl": "https://www.intc.com/news-events/press-releases/detail/1/new-chip",
+    "discoveryText": "Intel launches a new desktop AI processor competing with AMD Ryzen AI, with a larger NPU and announced memory capacity and shipping availability.",
+    "expectedAction": "verify"
+  },
+  {
+    "id": "pi-major",
+    "sourceUrl": "https://earendil.com/posts/pi-1-0/",
+    "discoveryText": "Pi 1.0 launches as a stable coding agent, alongside Pi Durable for long-running agents.",
+    "expectedAction": "verify"
+  },
+  {
+    "id": "hermes-launch",
+    "sourceUrl": "https://www.infoq.com/news/2026/11/hermes-desktop/",
+    "discoveryText": "Nous launches Hermes Desktop, bringing its persistent agent to macOS, Windows and Linux.",
+    "expectedAction": "verify"
+  },
+  {
+    "id": "agent-patch",
+    "sourceUrl": "https://openclaw.ai/blog/patch",
+    "discoveryText": "Agent v1.0.1 fixes a CLI log formatter and updates an internal dependency. No new capability.",
+    "expectedAction": "skip"
+  },
+  {
+    "id": "agent-tutorial",
+    "sourceUrl": "https://www.infoq.com/articles/agent-tutorial/",
+    "discoveryText": "Tutorial: configure three callbacks and a custom tool handler in an existing agent SDK.",
+    "expectedAction": "skip"
+  },
+  {
+    "id": "jetbrains-launch",
+    "sourceUrl": "https://blog.jetbrains.com/ai/new-model/",
+    "discoveryText": "JetBrains launches a new coding model and makes its autonomous coding service generally available.",
+    "expectedAction": "verify"
+  },
+  {
+    "id": "jetbrains-patch",
+    "sourceUrl": "https://blog.jetbrains.com/idea/patch/",
+    "discoveryText": "IntelliJ patch fixes a settings dialog alignment bug. No product or service launch.",
+    "expectedAction": "skip"
+  }
 ]

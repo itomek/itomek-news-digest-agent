@@ -41,7 +41,7 @@ test('expanded roster collects at most five sources concurrently in deterministi
  assert.equal(peak,5);assert.deepEqual(result.sources.map(s=>s.id),selections.map(s=>s.id));
 });
 test('rejects rosters above bounded expanded maximum',async()=>{
- await assert.rejects(()=>pipeline.runAdapters(Array.from({length:49},(_,i)=>({id:`s${i}`,adapter:'rss'})),{}));
+ await assert.rejects(()=>pipeline.runAdapters(Array.from({length:pipeline.MAX_SOURCES+1},(_,i)=>({id:`s${i}`,adapter:'rss'})),{}));
 });
 test('starts slow HN first without changing reported roster order',async()=>{
  const started=[];const selections=[{id:'a',adapter:'rss'},{id:'b',adapter:'rss'},{id:'h',adapter:'hn'}];
@@ -50,8 +50,8 @@ test('starts slow HN first without changing reported roster order',async()=>{
  assert.equal(started[0],'hn');assert.deepEqual(result.sources.map(x=>x.id),['a','b','h']);
 });
 
-test('exactly forty sources remain within the bounded discovery capacity',async()=>{
- const selections=Array.from({length:48},(_,i)=>({id:`s${i}`,adapter:'rss'}));
+test('the full configured roster remain within the bounded discovery capacity',async()=>{
+ const selections=Array.from({length:pipeline.MAX_SOURCES},(_,i)=>({id:`s${i}`,adapter:'rss'}));
  const result=await pipeline.runAdapters(selections,{rss:{collect:async()=>[]}});
- assert.equal(result.sources.length,48);assert.ok(result.sources.every(s=>s.status==='ok'));
+ assert.equal(result.sources.length,pipeline.MAX_SOURCES);assert.ok(result.sources.every(s=>s.status==='ok'));
 });

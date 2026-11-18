@@ -74,11 +74,11 @@ test('only fixed diagnostic codes reach durable attempts and operations response
   assert.doesNotMatch(JSON.stringify(result),/private|secret/);assert.equal(f.state.covered_through,null);
  }
 });
-test('resumed Bluesky catch-up also persists current head evidence without moving saved backlog boundaries',async()=>{
+for(const adapter of ['bluesky','huggingface_posts'])test(`resumed ${adapter} catch-up also persists current head evidence without moving saved backlog boundaries`,async()=>{
  const f=fixture();const oldUpper='2026-11-13T12:00:00Z',prior='2026-11-10T00:00:00Z';
  Object.assign(f.state,{window_until:oldUpper,covered_through:prior,cursor:{token:'backlog'}});
- const calls=[];const selected={...selection,adapter:'bluesky'};
- const registry={bluesky:{collectPage:async(config,window)=>{
+ const calls=[];const selected={...selection,adapter};
+ const registry={[adapter]:{collectPage:async(config,window)=>{
   calls.push(window);
   if(window.cursor)return {items:[item('overlap','2026-11-12T00:00:00Z'),item('old','2026-11-11T00:00:00Z'),item('backlog-future','2026-11-14T00:00:00Z')],complete:false,cursor:{token:'older'},coverageGap:false,fetchedCount:3};
   return {items:[{...item('overlap','2026-11-12T00:00:00Z'),text:'Updated head text'},item('current','2026-11-15T10:00:00Z'),item('exact',upper),item('future','2026-11-16T00:00:00Z')],complete:false,cursor:{token:'head-next'},coverageGap:false,fetchedCount:4};

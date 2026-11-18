@@ -42,7 +42,7 @@ function failureSummary(input){
   if(!/^[a-z0-9_-]{1,64}$/.test(source?.id??''))continue;
   const code=source.error;let message;
   if(/^source_http_[1-5][0-9]{2}$/.test(code??''))message='The source returned HTTP '+code.slice(-3)+'.';
-  else message=({source_timeout:'The source request timed out.',source_network:'The source could not be reached.',source_content_type:'The source returned an unexpected format.',source_body_limit:'The source response exceeded its supported size.',source_parse_failed:'The source content could not be parsed.',source_or_persistence_failed:'Collection or saving the source result failed.',malformed_source_dates:'Some source dates could not be read; coverage is uncertain.'})[code];
+  else message=({source_timeout:'The source request timed out.',source_network:'The source could not be reached.',source_content_type:'The source returned an unexpected format.',source_body_limit:'The source response exceeded its supported size.',source_parse_failed:'The source content could not be parsed.',source_or_persistence_failed:'Collection or saving the source result failed.',malformed_source_dates:'Some source dates could not be read; coverage is uncertain.',source_head_stale:'The current source listing has not been refreshed for over an hour while an older list is being paged; recent stories may be delayed.'})[code];
   if(message)lines.push('Source '+source.id+': '+message);
  }
  if(status!==null)lines.unshift('HTTP '+status);

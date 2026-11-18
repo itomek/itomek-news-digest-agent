@@ -33,7 +33,11 @@ export async function handle(req, env, registry, options={}) {
   summary.failed_sources=result.sources.filter(s=>s.status==='failed').length;
   summary.partial_sources=result.sources.filter(s=>s.status==='partial').length;
   summary.limited_history_sources=result.sources.filter(s=>s.coverage_reasons?.some(r=>r.startsWith('finite_'))).length;
+  const observed=Date.parse(options.upper??new Date().toISOString());
+  const staleHeads=result.sources.filter(s=>s.status==='partial'&&Number.isFinite(Date.parse(s.head_checked_at))&&observed-Date.parse(s.head_checked_at)>3600000);
+  summary.stale_head_sources=staleHeads.length;
   const sourceFailures=result.sources.flatMap(s=>s.status==='failed'?[{id:s.id,error:s.error}]:s.coverage_reasons?.includes('malformed_source_dates')?[{id:s.id,error:'malformed_source_dates'}]:[]);
+  sourceFailures.push(...staleHeads.map(s=>({id:s.id,error:'source_head_stale'})));
   const allFailed=result.sources.every(source=>source.status==='failed');
   const notification=await notify({sourceFailures,httpStatus:allFailed?502:200});
   return Response.json({mode:'review_only',publishing_enabled:false,...result,summary,processing_dispatch,...(notification&&notification!=='suppressed'?{notification:{status:notification}}:{}),...(allFailed?{error:'all_sources_failed'}:{})},{status:allFailed?502:200});

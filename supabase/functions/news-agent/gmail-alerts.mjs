@@ -36,6 +36,15 @@ function failureSummary(input){
   const parts=[modes.has(step.mode)?(step.mode==='shadow'?'Discovery':'Verification'):null,statuses.has(step.status)?(step.status==='uncertain'?'Outcome unconfirmed':'Item deferred'):null,reason?reasonLabels[reason]+' ('+reason+')':null,error?'The processing step failed. ('+error+')':null].filter(Boolean);
   if(parts.length)lines.push(parts.join(': '));
  }
+ // Source IDs and diagnostic codes come from the configured collector, never
+ // from SMTP headers, source content, or an arbitrary destination.
+ for(const source of Array.isArray(input?.sourceFailures)?input.sourceFailures.slice(0,64):[]){
+  if(!/^[a-z0-9_-]{1,64}$/.test(source?.id??''))continue;
+  const code=source.error;let message;
+  if(/^source_http_[1-5][0-9]{2}$/.test(code??''))message='The source returned HTTP '+code.slice(-3)+'.';
+  else message=({source_timeout:'The source request timed out.',source_network:'The source could not be reached.',source_content_type:'The source returned an unexpected format.',source_body_limit:'The source response exceeded its supported size.',source_parse_failed:'The source content could not be parsed.',source_or_persistence_failed:'Collection or saving the source result failed.',malformed_source_dates:'Some source dates could not be read; coverage is uncertain.',source_head_stale:'The current source listing has not been refreshed for over an hour while an older list is being paged; recent stories may be delayed.'})[code];
+  if(message)lines.push('Source '+source.id+': '+message);
+ }
  if(status!==null)lines.unshift('HTTP '+status);
  return lines.length?[...new Set(lines)].join('\n'):null;
 }

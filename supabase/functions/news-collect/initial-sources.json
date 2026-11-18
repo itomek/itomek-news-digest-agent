@@ -485,13 +485,5 @@
       "url": "https://www.anthropic.com/research",
       "label": "Anthropic Research"
     }
-  },
-  {
-    "id": "perplexity_blog",
-    "adapter": "official_html",
-    "config": {
-      "url": "https://www.perplexity.ai/hub/blog",
-      "label": "Perplexity Blog"
-    }
   }
 ]

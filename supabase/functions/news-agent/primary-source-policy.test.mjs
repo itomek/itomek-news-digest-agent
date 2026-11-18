@@ -27,7 +27,7 @@ test('reviewed first-party origins and exact official project releases are suppo
 test('secondary and unsupported publishers cannot become primary via an arbitrary project link',()=>{
  for(const url of [
   'https://arstechnica.com/ai/2026/11/example/',
-  
+
   'https://example.com/primary-announcement','https://nvidia.com/example',
   'https://github.com/unknown/project/releases/tag/v1','https://github.com/lemonade-sdk/unknown/releases/tag/v1',
   'https://github.com/unknown/lemonade/releases/tag/v1','https://github.com/lemonade-sdk/lemonade-fork/releases/tag/v1',

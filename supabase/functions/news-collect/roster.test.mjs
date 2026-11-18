@@ -15,5 +15,5 @@ test('roster retains existing sources plus official frontier sources',async()=>{
   let captured;const adapter=createBlueskyAdapter(async config=>{captured=config;return {sources:[{status:'ok'}],candidates:[]};});
   assert.deepEqual(await adapter.collect(source.config),[]);assert.deepEqual(captured.actorDids,source.config.actorDids);
  }
- assert.equal(roster.filter(s=>s.adapter!=='bluesky').length,38);
+ assert.equal(roster.filter(s=>s.adapter!=='bluesky').length,42);
 });

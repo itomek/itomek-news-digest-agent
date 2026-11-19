@@ -1,5 +1,5 @@
 /** Versioned editorial guidance, not a keyword classifier or publication permission. */
-export const POLICY_VERSION = "2026-11-18.2";
+export const POLICY_VERSION = "2026-11-19.1";
 
 function deepFreeze(value) {
   Object.values(value).forEach((child) => {
@@ -25,6 +25,7 @@ export const EDITORIAL_POLICY = deepFreeze({
     "Nonpolitical Quakertown/Upper Bucks local news from configured public sources, Pittsburgh Penguins, and consequential Haas/Cadillac/Mercedes F1 developments; not merchandise, lifestyle or road-car news."
   ],
   selection: [
+    "A technically new implementation is not by itself a meaningful new capability. Skip inference kernel/shader algorithms, matrix-operation changes, scheduling/chunking details and backend internals unless evidence demonstrates a substantial practical outcome for users, such as newly usable hardware/models or a material measured improvement with workload and hardware context. Do not infer speedups or broader support from implementation notes. For example, llama.cpp b12535 implementing stream-k MUL_MAT for Vulkan, splitting 256 K element chunks across SMs and enabling cm2 shader code, is implementation-level news to skip without that demonstrated outcome. Mentioning Vulkan, GPUs or performance-related code does not establish significance. Apply this eligibility check in both discovery and final verification, before writing or shortening a post; simpler wording cannot make an ineligible story eligible.",
     "For llama.cpp, vLLM and similar general inference tools, do not publish individual commits, pull requests, routine numbered builds or granular changelog entries as standalone news, even when distributed through a GitHub release feed. For example, llama.cpp b12482's PLaMo-2/3 tokenizer table-build optimization and routine platform build updates are too granular. Select meaningful releases, major capabilities or material performance developments only when verified user-facing impact establishes significance beyond an individual code change; a release tag alone does not qualify.",
     "Interest is the eligibility gate; importance and work priority only order eligible stories, never suppress them. Low-priority but interesting news can and should be selected. Each interest stands independently. Do not skip Voyager or other space exploration merely because AI/hardware is higher priority, and do not fill a quota with low-level code news.",
     "Review every eligible candidate before ranking across the full result. No per-source or total review quota, keyword-only filtering or mandatory story count. A page size is transport only. Runtime exhaustion must resume or fail incomplete, never silently truncate.",

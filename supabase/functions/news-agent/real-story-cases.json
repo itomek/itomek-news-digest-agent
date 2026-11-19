@@ -78,5 +78,15 @@
     "expectedAction": "skip",
     "ownerRationale": "Owner explicitly rejected this as too PyTorch-specific; he does not use PyTorch directly. No demonstrated impact on his inference tools.",
     "provenance": "Public getPostThread retrieved during development on 2026-11-14. URI at://did:plc:pfq2p7n2oiiy2k4pv6xnsgdk/app.bsky.feed.post/3n2a56hyffkyt; CID bafyreiek2fqtzjdtsierg6gkjc5btchx6yxmujynjdbtmqg3wn234nfqmm. Negative expectation supplied by owner Nov 14."
+  },
+  {
+    "id": "owner-stream-k-rejection",
+    "sourceUrl": "https://github.com/ggml-org/llama.cpp/releases/tag/b12535",
+    "sourceType": "rss",
+    "sourceCreatedAt": "2026-11-19T12:00:00Z",
+    "discoveryText": "llama.cpp b12535 implements stream-k MUL_MAT for Vulkan, splitting 256 K element chunks across SMs. The implementation currently enables this for cm2 shader code.",
+    "expectedAction": "skip",
+    "ownerRationale": "Shader implementation mechanics without demonstrated material user-facing impact; too granular.",
+    "provenance": "Owner-supplied screenshot Nov 19, 2026 at 7:00 AM Eastern. Release URL reconstructed from visible project/build; source and release claims have not been independently verified."
   }
 ]

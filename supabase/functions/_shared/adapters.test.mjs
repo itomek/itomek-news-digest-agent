@@ -16,7 +16,7 @@ test('post writes reject legacy generic record keys before network but reads may
 test('repost transport uses exact collection and validates original via credential-free public API',async()=>{
  const subject={uri:'at://did:plc:abcdefghijklmnopqrstuvwx/app.bsky.feed.post/3n256uxsaokol',cid:'bafyre'+'a'.repeat(53)},record={$type:'app.bsky.feed.repost',subject,createdAt:'2026-11-13T00:00:00.000Z'};
  const r=a.blueskyAdapter({accountDid:job.accountDid,sessionDid:job.accountDid,pdsUrl:'https://bsky.social',accessToken:'mock'},async(url,o)=>{
-  if(String(url).includes('getPosts')){assert.equal(o.headers.Authorization,undefined);assert.equal(new URL(url).searchParams.get('uris'),subject.uri);return Response.json({posts:[{...subject,author:{did:job.accountDid}}]});}
+  if(String(url).includes('getPosts')){assert.equal(o.headers.Authorization,undefined);assert.equal(new URL(url).searchParams.get('uris'),subject.uri);return Response.json({posts:[{...subject,author:{did:job.accountDid},record:{$type:'app.bsky.feed.post',text:'A public capability release.',createdAt:new Date().toISOString()},labels:[]}]});}
   if(o.method==='POST'){assert.equal(JSON.parse(o.body).collection,'app.bsky.feed.repost');assert.deepEqual(JSON.parse(o.body).record,record);return Response.json({uri:'at://test'});}
   assert.equal(new URL(url).searchParams.get('collection'),'app.bsky.feed.repost');return Response.json({value:record});
  });
@@ -28,4 +28,19 @@ test('original verification rejects missing, changed or wrong-author records and
  const config={accountDid:job.accountDid,sessionDid:job.accountDid,pdsUrl:'https://bsky.social',accessToken:'mock'};
  for(const posts of [[],[{...post,cid:'bafyre'+'b'.repeat(53)}],[{...post,uri:subject.uri+'x'}],[{...post,author:{did:'did:plc:wrong'}}]])assert.equal(await a.blueskyAdapter(config,async()=>Response.json({posts})).verifySubject(subject),false);
  await assert.rejects(()=>a.blueskyAdapter(config,async()=>{throw Error('timeout');}).verifySubject(subject),/timeout/);
+});
+
+test('final original verification rejects changed publicness and missing original records with unchanged identity',async()=>{
+ const subject={uri:'at://did:plc:abcdefghijklmnopqrstuvwx/app.bsky.feed.post/3n256uxsaokol',cid:'bafyre'+'a'.repeat(53)};
+ const config={accountDid:job.accountDid,sessionDid:job.accountDid,pdsUrl:'https://bsky.social',accessToken:'mock'};
+ const post={...subject,author:{did:job.accountDid},record:{$type:'app.bsky.feed.post',text:'An official capability release.',createdAt:new Date().toISOString()},labels:[]};
+ for(const [name,mutate] of [
+  ['post label',p=>p.labels=[{val:'warn'}]],['author label',p=>p.author.labels=[{val:'warn'}]],
+  ['private',p=>p.private=true],['blocked',p=>p.viewer={blockedBy:true}],['missing record',p=>delete p.record],
+  ['wrong type',p=>p.record.$type='app.bsky.feed.repost'],['empty text',p=>p.record.text=''],
+  ['stale date',p=>p.record.createdAt='2000-01-01T00:00:00Z'],['future date',p=>p.record.createdAt=new Date(Date.now()+600000).toISOString()]
+ ]){
+  const changed=structuredClone(post);mutate(changed);
+  assert.equal(await a.blueskyAdapter(config,async()=>Response.json({posts:[changed]})).verifySubject(subject),false,name);
+ }
 });

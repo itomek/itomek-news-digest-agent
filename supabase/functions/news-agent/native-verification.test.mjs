@@ -14,3 +14,21 @@ test('changed, missing, blocked, private, labelled, malformed or stale originals
 test('native identity cannot select arbitrary URLs, authorities or malformed subjects',()=>{
  for(const change of [{nativeUri:'at://evil.example/app.bsky.feed.post/3m3e4a2b22222'},{nativeAuthorDid:'did:plc:zzzzzzzzzzzzzzzzzzzzzzzz'},{nativeCid:'bad'},{nativeUrl:'http://bsky.app/'},{visibility:'private'},{sourceType:'rss'}])assert.throws(()=>nativeEvidenceIdentity({...evidence,...change}));
 });
+test('native attribution must name the frozen DID and record key on Bluesky',()=>{
+ for(const nativeUrl of [
+  'https://evil.example/',
+  'https://bsky.app/profile/did:plc:zzzzzzzzzzzzzzzzzzzzzzzz/post/3m3e4a2b22222',
+  'https://bsky.app/profile/'+did+'/post/3m3e4a2b22223',
+  'https://bsky.app/profile/someone.bsky.social/post/3m3e4a2b22222',
+  evidence.nativeUrl+'?redirect=elsewhere',
+  evidence.nativeUrl+'/',
+ ])assert.throws(()=>nativeEvidenceIdentity({...evidence,nativeUrl}),undefined,nativeUrl);
+ const encoded='https://bsky.app/profile/'+encodeURIComponent(did)+'/post/3m3e4a2b22222';
+ assert.equal(nativeEvidenceIdentity({...evidence,nativeUrl:encoded}).url,encoded);
+ assert.equal(nativeEvidenceIdentity(evidence).url,evidence.nativeUrl);
+ // Discovery's article link can differ; only nativeUrl identifies the original.
+ assert.equal(nativeEvidenceIdentity({...evidence,url:'https://vendor.example/announcement'}).url,evidence.nativeUrl);
+ const {nativeUrl,...fallback}=evidence;
+ assert.equal(nativeEvidenceIdentity(fallback).url,nativeUrl);
+ assert.throws(()=>nativeEvidenceIdentity({...fallback,url:'https://vendor.example/announcement'}));
+});

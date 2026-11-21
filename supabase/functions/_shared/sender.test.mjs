@@ -1,3 +1,4 @@
+import {blueskyAdapter} from './adapters.mjs';
 import test from 'node:test';import assert from 'node:assert/strict';import * as s from './sender.mjs';
 const job={accountDid:'did:plc:abcdefghijklmnopqrstuvwx',recordKey:'story-abc',record:{$type:'app.bsky.feed.post',text:'test',createdAt:'2026-11-12T12:00:00Z'},contentHash:'hash'};
 test('sender refuses absent explicit enable and does not claim',async()=>{assert.equal(typeof s.sendPrepared,'function');await assert.rejects(()=>s.sendPrepared(job,{},{},{}));});
@@ -32,4 +33,19 @@ test('second trigger cannot duplicate a pending write and late success reconcile
  assert.deepEqual(await s.sendPrepared(job,db,remote,policy),{state:'not_claimed'});assert.equal(puts,1);
  resolveWrite({uri});assert.deepEqual(await first,{state:'published',uri});assert.equal(state,'published');
  assert.deepEqual(await s.sendPrepared(job,db,remote,policy),{state:'not_claimed'});assert.equal(puts,1);
+});
+
+test('final public lookup holds newly labelled private blocked or incomplete originals without writing',async()=>{
+ const subject={uri:'at://did:plc:abcdefghijklmnopqrstuvwx/app.bsky.feed.post/3n256uxsaokol',cid:'bafyre'+'a'.repeat(53)};
+ const j={...job,record:{$type:'app.bsky.feed.repost',subject,createdAt:job.record.createdAt}};
+ const original={...subject,author:{did:job.accountDid},record:{$type:'app.bsky.feed.post',text:'An official capability release.',createdAt:new Date().toISOString()},labels:[]};
+ for(const mutate of [p=>p.labels=[{val:'warn'}],p=>p.private=true,p=>p.viewer={blockedBy:true},p=>delete p.record]){
+  const post=structuredClone(original);mutate(post);let held=false,writes=0;
+  const remote=blueskyAdapter({accountDid:job.accountDid,sessionDid:job.accountDid,pdsUrl:'https://bsky.social',accessToken:'mock'},async(url,options)=>{
+   if(options.method==='GET')return Response.json({posts:[post]});
+   writes++;throw Error('must not write');
+  });
+  const result=await s.sendPrepared(j,{claim:async()=>j,uncertain:async()=>{},manualReview:async()=>{held=true;}},remote,{enabled:true,accountDid:j.accountDid});
+  assert.equal(result.state,'manual_review');assert.equal(held,true);assert.equal(writes,0);
+ }
 });

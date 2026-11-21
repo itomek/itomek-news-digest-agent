@@ -30,3 +30,5 @@ No new spend/post permission is requested or granted here. Completing local fixt
 - `git diff --check` passed.
 
 The first unrestricted-concurrency unit invocation encountered an existing 100 ms source-fetch fixture timeout under load and the pilot-ledger permission fixture's assumption that directory mode 0755 survives the shell umask (this workspace defaults to 0077). The bounded-concurrency run with the expected umask passed without changing those tests or production behavior. Real PostgreSQL/PostgREST service concurrency, hosted cycles, new inference and actual public-display canaries were not run for this change.
+
+Before merging PR #199, the branch was updated through `main` commit `646deb7` (#198, #196 and #197). Both independently added sender regressions were retained during the sole test-file conflict. The combined unit/mock suite passed **638/638** tests, the focused sender/campaign suite passed 40/40, and independent conflict-resolution review approved. The campaign example now records policy `2026-11-21.1`. These remain local checks, separate from GitHub CI and the formal campaign.

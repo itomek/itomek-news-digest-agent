@@ -31,7 +31,7 @@ A completed saved inference run (`heldout` and each nonempty scheduled cycle) re
   "completedAt": "2026-11-21T02:00:00Z",
   "model": "google/gemma-4-26b-a4b-it",
   "provider": "PrimeIntellect",
-  "policyVersion": "2026-11-19.1",
+  "policyVersion": "2026-11-21.1",
   "requestProfile": "REPLACE with full existing requestProfileForModel(model, '2026-11-17.8') object",
   "costCredits": 0.01,
   "evidenceRef": "saved/actual-run.json"

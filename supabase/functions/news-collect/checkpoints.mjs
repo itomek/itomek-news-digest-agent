@@ -38,7 +38,7 @@ export async function syncSource(selection,registry,store,upper){
   const windows=[{since:lease.window_since,until:lease.window_until,cursor:lease.cursor??null}];
   // Refresh the head during long historical scans so current news does not wait
   // for archive exhaustion. Only the original backlog page controls coverage.
-  if(['bluesky','huggingface_posts'].includes(selection.adapter)&&lease.cursor!=null)windows.push({since:lease.window_since,until:upper,cursor:null});
+  if(['bluesky','huggingface_posts','hn'].includes(selection.adapter)&&lease.cursor!=null)windows.push({since:lease.window_since,until:upper,cursor:null});
   const fetchedPages=await Promise.allSettled(windows.map(window=>adapter.collectPage(selection.config??{},window)));
   const rejected=fetchedPages.find(result=>result.status==='rejected');if(rejected)throw rejected.reason;
   const pages=fetchedPages.map(result=>result.value),page=pages[0],candidates=[];
@@ -67,7 +67,7 @@ export async function syncSource(selection,registry,store,upper){
   const result=await store.finish({p_source_key:sourceKey,p_token:lease.token,p_items:items,p_outcome:outcome,p_cursor:page.complete?null:page.cursor,p_earliest_available:earliestAvailableAt,p_error_code:coverageGap?'upstream_history_unproven':null,p_fetched:fetchedCount});
   if(!result.accepted)throw Error('Lease rejected');
   const status=result.status??outcome;
-  return {id,status,head_checked_at:lease.cursor==null||['bluesky','huggingface_posts'].includes(selection.adapter)?upper:lease.window_until,...(coverageReasons.size?{coverage_reasons:[...coverageReasons]}:{}),count:items.length,fetched:result.fetched??fetchedCount,new:result.new??0,duplicate:result.duplicate??0,last_successful_sync:result.last_success_at??null,covered_through:result.covered_through??null,lag_seconds:result.covered_through?Math.max(0,Math.floor((Date.parse(upper)-Date.parse(result.covered_through))/1000)):null,incomplete_catch_up:['partial','gap','failed','running','busy'].includes(status),coverage_gap:status==='gap'||coverageGap,earliest_available:earliestAvailableAt};
+  return {id,status,head_checked_at:lease.cursor==null||['bluesky','huggingface_posts','hn'].includes(selection.adapter)?upper:lease.window_until,...(coverageReasons.size?{coverage_reasons:[...coverageReasons]}:{}),count:items.length,fetched:result.fetched??fetchedCount,new:result.new??0,duplicate:result.duplicate??0,last_successful_sync:result.last_success_at??null,covered_through:result.covered_through??null,lag_seconds:result.covered_through?Math.max(0,Math.floor((Date.parse(upper)-Date.parse(result.covered_through))/1000)):null,incomplete_catch_up:['partial','gap','failed','running','busy'].includes(status),coverage_gap:status==='gap'||coverageGap,earliest_available:earliestAvailableAt};
  }catch(error){
   const code=/^source_(?:http_[1-5][0-9]{2}|content_type|timeout|network|body_limit|parse_failed)$/.test(error?.code??'')?error.code:'source_or_persistence_failed';
   if(lease?.acquired){try{await store.finish({p_source_key:sourceKey,p_token:lease.token,p_items:[],p_outcome:'failed',p_cursor:lease.cursor??null,p_earliest_available:null,p_error_code:code,p_fetched:0});}catch{/* Preserve the lease for crash-safe expiry and retry. */}}

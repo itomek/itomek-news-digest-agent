@@ -1,5 +1,5 @@
 /** Versioned editorial guidance, not a keyword classifier or publication permission. */
-export const POLICY_VERSION = "2026-11-19.1";
+export const POLICY_VERSION = "2026-11-21.1";
 
 function deepFreeze(value) {
   Object.values(value).forEach((child) => {
@@ -32,7 +32,7 @@ export const EDITORIAL_POLICY = deepFreeze({
     "Use a fixed scan timestamp and exclusive 64-lowercase-hex story-key cursor. Eligible source dates are within seven days before that timestamp and five minutes after; collection after it waits for a later run. Live exclusions and final guards still apply.",
     "Review and process every eligible interesting distinct story. The bounded pending-editorial/publication capacity is backpressure, not a story-count target or hourly posting quota. Keep draining as completed items free capacity.",
     "Configured sources are discovery, not automatic selection approval. Skip political stories rather than mislabel political:false; skip sensitive/high-impact allegations and private content. Never use mailbox or private source material for public news.",
-    "Read all fourteen-day and unresolved publications plus all pending/leased decisions for semantic event deduplication. Null repost text/summary is not absent coverage: inspect subject/native URI, candidate text and source links. Recheck relevant dedup before submission. Material follow-ups need an explicit change justification. Never repeat the first Firebase Analytics-skills post."
+    "Read all published and unresolved publications plus all pending/leased decisions for semantic event deduplication, without a date cutoff. Null repost text/summary is not absent coverage: inspect subject/native URI, candidate text and source links. Recheck relevant dedup before submission. Material follow-ups need an explicit change justification. Never repeat the first Firebase Analytics-skills post."
   ],
   verification: [
     "Excerpts are discovery, not verification. Actually retrieve primary sources where available; reviewed news publishers may support clearly attributed reporting, and absence of a vendor link alone is not a factual disproof; establish real publication/release dates and support for each substantive claim. Distinguish vendor claims from independently demonstrated results and community reports. Skip inaccessible/inadequate evidence; never invent checks, mechanisms, comparisons, numbers or specifications.",

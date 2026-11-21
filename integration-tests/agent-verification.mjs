@@ -105,21 +105,43 @@ try{
  for(const [n,repo] of repos.entries())assert.ok(await issue(await githubCase(repo,'v1.0+build',70+n)));
  await assert.rejects(()=>githubCase('unreviewed/repo','v1.0',80).then(issue),/GitHub capture/);
  await assert.rejects(()=>githubCase('lemonade-sdk/lemonade','.',81).then(issue),/GitHub capture/);
- // Complete history spans pages and conservatively retains old published rows.
+ // Characterize required history independently of current queue contents. All
+ // fixture changes roll back; normal admission triggers remain enabled.
+ await db.exec('begin');
  await admin(async()=>{
-  await q("insert into public.warpcore_stories(story_key,status) select lpad(to_hex(n),64,'0'),'approved' from generate_series(100,159)n");
-  await q(`insert into public.warpcore_publications(account_did,story_key,record_key,content_hash,record_payload,state,prepared_at)
-   select $1,lpad(to_hex(n),64,'0'),public.warpcore_record_tid(lpad(to_hex(n),64,'0'),now()+n*interval '1 millisecond'),repeat('a',64),jsonb_build_object('$type','app.bsky.feed.post','text','Historical release '||n),'published','2000-01-01'::timestamptz from generate_series(100,159)n`,[account]);
- });
- const pages=[],seen=[];let cursor=null,fullHash;
+ await q('truncate public.warpcore_curator_inbox,public.warpcore_publications');
+ const expectedKeys=[];
+ for(let n=100;n<160;n++){
+  const story=await seed(n),account=n%2?'did:plc:history-b':'did:plc:history-a';await db.exec('reset role');
+  await q("insert into public.warpcore_publications(account_did,story_key,record_key,content_hash,state,prepared_at,record_payload) values($1,$2,$3,$4,'published',now()-interval '90 days',$5)",[account,story,`history-${n}`,hash(`record-${n}`),JSON.stringify({$type:'app.bsky.feed.post',text:`Old published event ${n}`,createdAt:'2020-01-01T00:00:00Z'})]);
+  expectedKeys.push(`p:${account}:${story}`);
+ }
+ for(const [i,state] of ['prepared','sending','uncertain','manual_review'].entries()){
+  const account=`did:plc:unresolved-${i}`,story=key(100);
+  await q("insert into public.warpcore_publications(account_did,story_key,record_key,content_hash,state,record_payload) values($1,$2,$3,$4,$5,$6)",[account,story,`unresolved-${i}`,hash(state),state,JSON.stringify({text:`Unresolved ${state}`})]);
+  expectedKeys.push(`p:${account}:${story}`);
+ }
+ for(const [i,state] of ['pending','leased'].entries()){
+  const row=(await q("insert into public.warpcore_curator_inbox(story_key,evidence_hash,evidence,editorial,attestations,dot_id,run_id,state) values($1,$2,'[]',$3,'{}','history-fixture',$4,$5) returning id",[key(100+i),hash(state),JSON.stringify({summary:`Unresolved ${state}`}),randomUUID(),state]))[0];
+  expectedKeys.push(`i:${row.id}`);
+ }
+ let cursor=null;const pages=[],all=[];
  do{
-  const page=await scalar('select public.warpcore_agent_history($1) as value',[cursor]);
-  assert.ok(page.items.length<=50);assert.equal(page.historyCoverageMode,'all-published-plus-unresolved-v1');
-  fullHash??=page.snapshotHash;assert.equal(page.snapshotHash,fullHash);pages.push(page);seen.push(...page.items.map(x=>x.historyKey));cursor=page.cursor;
+  const page=await scalar('select public.warpcore_agent_history($1) value',[cursor]);
+  assert.equal(page.historyCoverageMode,'all-published-plus-unresolved-v1');
+  if(pages.length)assert.equal(page.snapshotHash,pages[0].snapshotHash);
+  pages.push(page);all.push(...page.items);cursor=page.cursor;
   if(page.complete)break;
- }while(pages.length<10);
- assert.ok(pages.length>=2);assert.equal(pages.at(-1).complete,true);assert.equal(new Set(seen).size,seen.length);
- assert.ok(pages.flatMap(p=>p.items).some(x=>x.storyKey===key(100)),'Old publications remain conservatively visible');
+  assert.ok(cursor);assert.ok(pages.length<4,'History cursor must make progress');
+ }while(true);
+ assert.deepEqual(pages.map(p=>p.items.length),[50,16]);
+ assert.deepEqual(all.map(item=>item.historyKey).sort(),expectedKeys.sort(),'Every old publication, account and unresolved state appears exactly once');
+ assert.ok(all.filter(item=>item.kind==='publication').some(item=>Date.parse(item.preparedAt)<Date.now()-14*86400000));
+ const frozenHash=pages[0].snapshotHash;
+ await q("update public.warpcore_candidates set text='Changed old event beyond current date window' where story_key=$1",[key(159)]);
+ assert.notEqual((await history()).snapshotHash,frozenHash,'Old publication evidence remains part of the complete snapshot hash');
+ });
+ await db.exec('rollback');
  // Over time a parent may admit more than five stories, while actual pending capacity stays bounded.
  await db.exec('begin');await admin(()=>db.exec("update public.warpcore_curator_inbox set state='rejected',reason='fixture_release',completed_at=now() where state in ('pending','leased')"));const rollingRun=randomUUID();
  for(let n=201;n<=206;n++){const story=await seed(n),proposal=await material(story);proposal.runId=rollingRun;const proof=await issue(proposal),inbox=await submit(proof);assert.ok(inbox);await admin(()=>q("update public.warpcore_curator_inbox set state='rejected',reason='fixture_release',completed_at=now() where id=$1",[inbox]));}

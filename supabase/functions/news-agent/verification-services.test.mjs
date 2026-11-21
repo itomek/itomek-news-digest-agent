@@ -42,3 +42,22 @@ test('RPC deadline includes a stalled body and causes no inference',async t=>{
  const pending=service.runInvocation();await Promise.resolve();await Promise.resolve();t.mock.timers.tick(10000);
  assert.equal((await pending).reason,'claim_unavailable');assert.equal(cancelled,true);t.mock.timers.reset();
 });
+
+test('only bounded history SQLSTATE lock errors are retried and classified',async()=>{
+ for(const [body,status,expected,callsExpected] of [[{code:'55P03',message:'private '+config.serviceKey},503,'history_lock_contention',3],[{code:'XX000',message:'55P03 private'},503,'evidence_or_history_unavailable',1],['not-json',503,'evidence_or_history_unavailable',1],[{code:'55P03',padding:'x'.repeat(32769)},503,'evidence_or_history_unavailable',1]]){
+  let calls=0;const service=createVerificationService(config,{rpcFetcher:async(target)=>{const name=target.pathname.split('/').at(-1);if(name==='warpcore_verification_claim')return Response.json({jobId:id(1),rankingRunId:id(2),storyKey:story,lease:id(3)});if(name==='warpcore_curator_snapshot')return Response.json({story_key:story,evidence_hash:'b'.repeat(64),evidence:[{id:'fixture',url,text:'Discovery',sourceType:'rss'}]});if(name==='warpcore_agent_history'){calls++;return typeof body==='string'?new Response(body,{status}):Response.json(body,{status});}assert.equal(name,'warpcore_verification_finish');return Response.json(true);},modelFetcher:()=>assert.fail('no model'),evidenceFetcher:()=>assert.fail('no source')});const out=await service.runInvocation();assert.equal(out.reason,expected);assert.equal(calls,callsExpected);assert.equal(JSON.stringify(out).includes(config.serviceKey),false);
+ }
+});
+test('nonhistory SQLSTATE lock errors never retry',async()=>{
+ let calls=0;const service=createVerificationService(config,{rpcFetcher:async()=>{calls++;return Response.json({code:'55P03',message:'private'},{status:503});},modelFetcher:()=>assert.fail(),evidenceFetcher:()=>assert.fail()});assert.equal((await service.runInvocation()).reason,'claim_unavailable');assert.equal(calls,1);
+});
+
+test('history error streams enforce the small limit and the RPC body deadline',async t=>{
+ for(const stalled of [false,true]){
+  let history=0,cancelled=false;
+  if(stalled)t.mock.timers.enable({apis:['setTimeout']});
+  const service=createVerificationService(config,{rpcFetcher:async target=>{const name=target.pathname.split('/').at(-1);if(name==='warpcore_verification_claim')return Response.json({jobId:id(1),rankingRunId:id(2),storyKey:story,lease:id(3)});if(name==='warpcore_curator_snapshot')return Response.json({story_key:story,evidence_hash:'b'.repeat(64),evidence:[{id:'fixture',url,text:'Discovery',sourceType:'rss'}]});if(name==='warpcore_agent_history'){history++;return new Response(new ReadableStream({start(controller){if(!stalled)controller.enqueue(new TextEncoder().encode(JSON.stringify({code:'55P03',padding:'x'.repeat(32769)})));},cancel(){cancelled=true;}}),{status:503});}assert.equal(name,'warpcore_verification_finish');return Response.json(true);},modelFetcher:()=>assert.fail(),evidenceFetcher:()=>assert.fail()});
+  const pending=service.runInvocation();if(stalled){for(let i=0;i<100;i++)await Promise.resolve();assert.equal(history,1);t.mock.timers.tick(10000);}
+  assert.equal((await pending).reason,'evidence_or_history_unavailable');assert.equal(history,1);assert.equal(cancelled,true);if(stalled)t.mock.timers.reset();
+ }
+});

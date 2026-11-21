@@ -7,6 +7,7 @@ const reasonLabels={
  handoff_unconfirmed:'The publishing handoff could not be confirmed.',
  invalid_handoff_claim:'The publishing handoff could not be validated.',
  finish_unconfirmed:'The item completion could not be confirmed.',
+ history_lock_contention:'Publication history remained busy after bounded retries.',
  evidence_or_history_unavailable:'Source evidence or publication history was unavailable.',
  reservation_unconfirmed:'The spending reservation could not be confirmed.',
  dispatch_unconfirmed:'The provider request dispatch could not be confirmed.',

@@ -99,6 +99,10 @@ jobs:
         env:
           WARPCORE_TEST_DATABASE_URL: postgres://postgres:disposable-ci-only@127.0.0.1:5432/warpcore_test
         run: npm run test:source-sync-concurrency --prefix integration-tests
+      - name: Publication history contention and bounded recovery
+        env:
+          WARPCORE_TEST_DATABASE_URL: postgres://postgres:disposable-ci-only@127.0.0.1:5432/warpcore_test
+        run: npm run test:verification-history-concurrency --prefix integration-tests
 
   guarded-publication-contracts:
     runs-on: ubuntu-24.04

@@ -64,7 +64,7 @@ function drainingVerifier(results,now=()=>0){
  let calls=0;const app=createHostedApplication({...config,drain:true},{now,bootstrapRpc:async name=>name==='warpcore_agent_authorization'?{enabled:true,producerToken:token}:{model:'google/gemma-4-26b-a4b-it',apiKey:'private-test-key',maxOutputTokens:4096,maxCostCredits:.036045,allowedSourceHosts:['example.com']},createDiscoveryService:()=>({selectRun:async()=>null}),createVerifierService:()=>({runInvocation:async()=>{calls++;return results[Math.min(calls-1,results.length-1)];}})});return {app,calls:()=>calls};
 }
 test('finished item deferrals advance to the next queued story in the same invocation',async()=>{
- for(const reason of ['evidence_or_history_unavailable','unapproved_primary_source','model_deferred','billed_invalid_completion','verification_post_unpublishable']){
+ for(const reason of ['evidence_or_history_unavailable','history_lock_contention','unapproved_primary_source','model_deferred','billed_invalid_completion','verification_post_unpublishable']){
   const f=drainingVerifier([{status:'deferred',reason},{status:'submitted'},{status:'idle'}]);const r=await f.app(request()),body=await r.json();assert.equal(r.status,200);assert.equal(f.calls(),3);assert.deepEqual(body.steps.map(s=>s.status),['deferred','submitted','idle']);
  }
 });

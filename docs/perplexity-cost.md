@@ -1,11 +1,13 @@
 # Perplexity API — Usage & Cost
 
+> This is a dated cost receipt for the earlier Python GAIA/Lemonade curator, not the active Warp Core OpenRouter spending ledger or a current production spend assertion. The June measurements and projections below retain their original scope. See [current cost-policy inventory and its reproducibility gap](warpcore-recovery.md#cost-policy-evidence).
+
 Perplexity is **not** part of the digest pipeline. It is only called by the
 **source curator** ([`src/news_digest/curator.py`](../src/news_digest/curator.py))
 to discover replacement feeds when a configured source has been persistently
 failing. See [architecture.md](architecture.md) for where it sits.
 
-## Bottom line
+## Historical cost snapshot
 
 - **Total spend to date: ~$0.01 (about one cent).** Two API calls, both on a
   single dev/test run on 2026-06-12.

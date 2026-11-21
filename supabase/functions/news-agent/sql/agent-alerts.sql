@@ -8,7 +8,7 @@ alter table shadow_agent.runs add column progressed_at timestamptz not null defa
 create function shadow_agent.track_run_progress() returns trigger
 language plpgsql set search_path='' as $$
 begin
- if new.state is distinct from old.state or new.revision is distinct from old.revision then new.progressed_at:=clock_timestamp();end if;
+ if (new.state->'phase',new.state->'cursor',new.state->'candidateCount',new.state->'reviewedCount',new.state->'decisions') is distinct from (old.state->'phase',old.state->'cursor',old.state->'candidateCount',old.state->'reviewedCount',old.state->'decisions') then new.progressed_at:=clock_timestamp();end if;
  return new;
 end $$;
 create trigger warpcore_run_progress before update of state,revision on shadow_agent.runs for each row execute function shadow_agent.track_run_progress();
@@ -19,7 +19,7 @@ create table shadow_agent.alert_settings(
 );
 insert into shadow_agent.alert_settings(singleton) values(true);
 create table shadow_agent.alert_state(
- code text primary key check(code in ('discovery_stalled','source_attempt_outage','source_failed','budget_unavailable','accounting_uncertain','verification_uncertain','publication_reconciliation','handoff_deferred','handoff_stalled','scheduler_http_failure','scheduler_response_unavailable','scheduler_enqueue_failed','lifetime_headroom_exhausted','queue_above_limit')),
+ code text primary key check(code in ('curation_stalled','verification_stalled','publication_stalled','source_head_stale','discovery_stalled','source_attempt_outage','source_failed','budget_unavailable','accounting_uncertain','verification_uncertain','publication_reconciliation','handoff_deferred','handoff_stalled','scheduler_http_failure','scheduler_response_unavailable','scheduler_enqueue_failed','lifetime_headroom_exhausted','queue_above_limit')),
  active boolean not null,affected_count bigint not null check(affected_count>=0),changed_at timestamptz not null default clock_timestamp()
 );
 -- IDs and timestamps only: no request headers, URLs, bodies or provider errors.
@@ -94,17 +94,26 @@ begin
   where r.state->>'storageKind'='paged-v1' and r.progressed_at<clock_timestamp()-interval '15 minutes'
   and r.state->>'phase' in ('scan','review','reviewing');
  end if;
+ if health ? 'stages' then n:=coalesce((health->'stages'->'discovery'->>'stalledCount')::bigint,0);end if;
  perform shadow_agent.set_alert('discovery_stalled',n,settings.resolution_info);
  n:=0;
- if to_regclass('public.warpcore_source_sync') is not null then
-  select count(*) into n from public.warpcore_source_sync where coalesce(last_attempt_at,settings.installed_at)<clock_timestamp()-interval '2 hours';
+ if to_regclass('public.warpcore_configured_source_health') is not null then
+  select count(*) into n from public.warpcore_configured_source_health where coalesce(last_attempt_at,configured_at)<clock_timestamp()-interval '2 hours';
  end if;
  perform shadow_agent.set_alert('source_attempt_outage',n,settings.resolution_info);
  n:=0;
- if to_regclass('public.warpcore_source_sync') is not null then
-  select count(*) into n from public.warpcore_source_sync where outcome='failed';
+ if to_regclass('public.warpcore_configured_source_health') is not null then
+  select count(*) into n from public.warpcore_configured_source_health where outcome='failed';
  end if;
  perform shadow_agent.set_alert('source_failed',n,settings.resolution_info);
+ n:=0;
+ if to_regclass('public.warpcore_configured_source_health') is not null then
+  select count(*) into n from public.warpcore_configured_source_health where coalesce(head_checked_at,configured_at)<clock_timestamp()-interval '2 hours';
+ end if;
+ perform shadow_agent.set_alert('source_head_stale',n,settings.resolution_info);
+ perform shadow_agent.set_alert('verification_stalled',coalesce((health->'stages'->'verification'->>'stalledCount')::bigint,0),settings.resolution_info);
+ perform shadow_agent.set_alert('curation_stalled',coalesce((health->'stages'->'curation'->>'stalledCount')::bigint,0),settings.resolution_info);
+ perform shadow_agent.set_alert('publication_stalled',coalesce((health->'stages'->'publication'->>'stalledCount')::bigint,0),settings.resolution_info);
  n:=0;
  if coalesce((health->>'producerEnabled')::boolean,false) and coalesce((health->'spendingPolicy'->>'enabled')::boolean,false) and
   (health->'currentDayBudget' is null or health->'currentDayBudget'='null'::jsonb or
@@ -121,6 +130,7 @@ begin
   select count(*) into n from shadow_agent.verification_jobs j join shadow_agent.runs r on r.id=j.child_run_id
   where j.status='verified' and j.handoff_status='pending' and r.progressed_at<clock_timestamp()-interval '15 minutes';
  end if;
+ if health ? 'stages' then n:=coalesce((health->'stages'->'handoff'->>'stalledCount')::bigint,0);end if;
  perform shadow_agent.set_alert('handoff_stalled',n,settings.resolution_info);
  perform shadow_agent.set_alert('lifetime_headroom_exhausted',case when health->'attentionKeys' ? 'lifetime_headroom_exhausted' then 1 else 0 end,settings.resolution_info);
  perform shadow_agent.set_alert('queue_above_limit',case when coalesce((health->'queue'->>'distinctStories')::bigint,0)>5 then 1 else 0 end,settings.resolution_info);

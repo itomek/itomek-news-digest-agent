@@ -111,3 +111,17 @@ test('finishing backlog certifies only its old window even when the refreshed he
  assert.equal(result.sources[0].status,'complete');assert.equal(f.state.covered_through,oldUpper);
  assert.equal(f.finishes[0].p_cursor,null);assert.equal(f.finishes[0].p_items.length,1);assert.equal(f.finishes[0].p_items[0].text,'Story new');
 });
+
+test('accepted typed coverage and head checks are persisted independently from exhaustive coverage',async()=>{
+ const f=fixture();f.state.generation=3;
+ const result=await syncSources([selection],{fixture:{collectPage:async()=>({items:[],complete:true,cursor:null,coverageGap:true,gapReason:'finite_feed_history',fetchedCount:0})}},f.store,upper);
+ assert.equal(f.finishes[0].p_head_checked_at,upper);
+ assert.deepEqual(f.finishes[0].p_coverage_reasons,['finite_feed_history']);
+ assert.equal(result.sources[0].source_generation,3);assert.equal(result.sources[0].config_generation,await configurationHash(selection));assert.equal(result.sources[0].head_check_succeeded,true);
+ assert.equal(result.sources[0].covered_through,null);
+});
+test('archive continuation never claims a current head check',async()=>{
+ const f=fixture();Object.assign(f.state,{cursor:{page:2},window_until:'2026-11-12T00:00:00Z'});
+ const result=await syncSources([selection],{fixture:{collectPage:async()=>({items:[],complete:false,cursor:{page:3},coverageGap:false,fetchedCount:0})}},f.store,upper);
+ assert.equal(f.finishes[0].p_head_checked_at,null);assert.equal(result.sources[0].head_check_succeeded,false);
+});

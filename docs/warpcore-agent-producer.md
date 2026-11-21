@@ -1,11 +1,6 @@
-# Disabled Warp Core producer
+# Warp Core autonomous producer
 
-This is the implementation path for #161. Production remains disabled and
-nonpublishing. Historical [hosted spike](warpcore-hosted-spike.md),
-[Strix Halo synthetic results](evidence/2026-11-16-strix-halo-shadow/result.json) and
-[paid pilot results](evidence/2026-11-16-strix-halo-paid/result.json) record bounded
-preliminary discovery checks, not factual verification or publication acceptance.
-Issue #161 remains open until its full acceptance evidence is recorded.
+The producer is part of the active pipeline according to the November 17–19 deployment evidence in the [architecture reference](warpcore-architecture.md). This is not a current live-state assertion. Earlier disabled-foundation and pilot evidence does not describe current deployment. [Inventory and recovery](warpcore-recovery.md) defines operational boundaries.
 
 ## Runtime decision
 
@@ -19,7 +14,7 @@ the #160/#164 evidence campaign.
 
 ```mermaid
 flowchart LR
-  Cron[Future authenticated scheduler] --> Handler[Disabled news-agent handler]
+  Cron[Single authenticated pipeline tick and immediate handoffs] --> Handler[news-agent handler]
   Handler --> Selector[Private durable run selector]
   Selector --> Runtime[Paged discovery review]
   Collector[Existing collector] --> Candidates[Existing candidate tables]
@@ -27,11 +22,12 @@ flowchart LR
   Runtime --> Ledger[Private run and cost ledger]
   Runtime --> Router[OpenRouter only]
   Runtime --> Decisions[Discovery skip or verify rows]
-  Decisions -. Later verified integration under 162 and 163 .-> Inbox[Existing guarded curator inbox]
+  Decisions --> Verify[Durable verification and source-bound receipts]
+  Verify --> Inbox[Existing guarded curator inbox]
   Inbox --> Publisher[Existing validator and publisher]
 ```
 
-The current collector, dot curator, publisher and schedules are unchanged.
+The agent is the intended sole new editorial producer; the curation drain and guarded publisher remain distinct workers. Current pipeline dispatch replaces the older independent stage schedules.
 `supabase/config.toml` requires platform JWT verification. Existing deployments
 with `WARPCORE_AGENT_CRON_TOKEN` retain the explicit `WARPCORE_AGENT_ENABLED=true`
 environment gate and dedicated `x-warpcore-agent-token` check. When that token is
@@ -49,8 +45,7 @@ these bounds do not authorize paid transport before configuration and budget pin
 Normalized candidate and decision rows eliminate the legacy aggregate 2MB JSON
 checkpoint ceiling. A run checkpoint stores identity, fixed cutoff, policy,
 revision, phase, exact cursor, counts and at most 100 active IDs. Every page is
-persisted before another invocation proceeds. Only an empty terminal page opens
-review; review completion accounts for every captured candidate.
+persisted before another invocation proceeds. The current waiting-list selector takes eligible items directly into bounded review; legacy paged scans retain their resumable cursor. Review completion accounts for every captured candidate, while committed qualifying items may proceed to verification before remaining feed review completes.
 
 A read-only bounded preview lets the runtime fit the exact serialized HTTP body
 under 200KB before freezing a batch. A requested item count is a maximum per
@@ -72,20 +67,13 @@ identity, token usage and exact cost. Known-error audits preserve available usag
 unknown-error audits contain sanitized codes. Run configuration is immutable and
 excludes credentials, prompts and response bodies.
 
-The selector is disabled in its own administrator-owned settings row. Once
-separately authorized/configured, it serializes one new run per UTC hour, resumes
-an incomplete run across invocations, and holds while reviewing/uncertain work
-needs reconciliation. Selection does not claim a lease: competing triggers still
+The selector defaults disabled in its administrator-owned settings row. When enabled, it serializes waiting-list selection, resumes incomplete work across invocations, and holds while reviewing/uncertain work needs reconciliation. New batches are not limited to one run per UTC hour. Selection does not claim a lease: competing triggers still
 have to win the fenced claim. Workers cannot create/raise daily budgets or edit
 settings. The selector never creates filler publication records.
 
 ## Installation and activation boundary
 
-All SQL stays outside `supabase/migrations`; normal migrations cannot install it.
-The proposed installation order is `shadow-state.sql`, `shadow-paged.sql`,
-`shadow-audit.sql`, `shadow-ranking.sql`, then `shadow-producer.sql`. The latter adds narrow,
-service-role-only RPCs in `public`; internal tables/helpers remain private with
-RLS and revoked direct worker access. There is no generic SQL endpoint.
+SQL files under `supabase/functions/news-agent/sql` are contracts/reference installers, with later dated migrations under `supabase/migrations`. Neither applying every historical file nor deploying the tracked safety-locked entrypoints reproduces the approved hosted bundle. Inventory installed definitions and deployed artifacts first. The following continuation installer describes the historical disabled foundation; do not install it alongside the current pipeline job.
 
 The separate administrator-only `supabase/schedules/install-agent-disabled.sql`
 installer requires reviewed pg_cron, pg_net and Vault extensions plus installed
@@ -129,7 +117,7 @@ producer gate must remain off until reviewed activation. The legacy environment
 route instead uses `WARPCORE_AGENT_ENABLED`, `WARPCORE_AGENT_CRON_TOKEN`,
 `OPENROUTER_API_KEY`, `WARPCORE_AGENT_MODEL`, `WARPCORE_AGENT_MAX_OUTPUT_TOKENS`
 and `WARPCORE_AGENT_MAX_COST_CREDITS`.
-Hosted bootstrap pins GPT-oss/Groq and a conservative per-attempt ceiling;
+The original hosted bootstrap pinned GPT-oss/Groq and a conservative per-attempt ceiling; later model/provider selections are dated in the architecture reference.
 standing run/day budgets must be provisioned separately. OpenRouter credits are not assumed
 USD; verified worst-case pricing, routing, currency conversion and per-run/day
 ceilings must be approved before enabling paid transport. Runtime model config
@@ -144,15 +132,6 @@ cover empty scans, exact HTTP hashes, deferral, uncertainty, immutable audits,
 lease rollback and permissions. CI additionally exercises actual independent
 PostgreSQL sessions and PostgREST. Deno type checking covers the inactive entrypoint.
 
-These checks do not demonstrate factual verification, editorial relevance,
-semantic deduplication, native repost identity or rendered Bluesky output. There
-is no submission path from this producer, so it cannot bypass or prove the
-existing five-item/five-attempt guards; #163 owns that integration. Historical pilot receipts above cover only their recorded model/provider/pricing
-checks. Hosted unattended operation and scheduled continuation remain unrun.
-Scheduler tests use disposable PGlite cron/net/Vault tables and functions with no
-network. PGlite cannot install these extensions: the fixture replaces only the
-`pg_extension` count predicate with false, after proving the unchanged installer
-refuses missing extensions. Real extension/job-owner compatibility remains a
-Strix Halo/disposable PostgreSQL acceptance requirement. Do not close #161, #160 or #159 based on
-this disabled foundation. Production cutover and test-account posting retain
-their separate approval gates.
+These synthetic checks do not establish editorial quality or current hosted health. Later integration added submission through guarded verification receipts and shared five-item pending capacity. The historical five-attempt/hour bound was removed by migration `20261118180116_warpcore_drain_without_hourly_quota.sql`; attempt counters and uncertain outcomes remain. Hosted first-publication evidence is dated in the architecture reference, and no reliability deployment or production rollback was performed by the November 21 local work.
+
+The single recurring pipeline tick is distinct from immediate database dispatch: collection completion wakes item processing, inbox admission wakes curation, and approved prepared records wake publication. Tick recovery retains existing queue identities. Disabling the job alone does not disable those event paths; the shared producer gate also fences `pipeline_enqueue`. Disabling any gate does not cancel HTTP already queued or running. See the recovery reference before stopping or resuming.

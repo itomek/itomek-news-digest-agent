@@ -26,15 +26,16 @@ export function createCheckpointStore(env,fetcher=fetch){
 // No candidate writes occur outside finish: ingestion and checkpoint movement are
 // one database transaction, fenced by the per-source lease token.
 export async function syncSource(selection,registry,store,upper){
- let lease;
+ let lease,configGeneration;
  const id=/^[a-z0-9_-]{1,64}$/i.test(selection?.id??'')?selection.id:'invalid';
  const sourceKey=`${selection?.adapter}:${id}`;
  try{
   if(id==='invalid'||!/^[a-z0-9_-]{1,32}$/i.test(selection.adapter))throw Error('Invalid source');
+  configGeneration=await configurationHash(selection);
   const adapter=Object.hasOwn(registry,selection.adapter)&&registry[selection.adapter];
   if(!adapter||typeof adapter.collectPage!=='function')throw Error('Checkpoint adapter unavailable');
-  lease=await store.begin({p_source_key:sourceKey,p_source_type:selection.adapter,p_source_id:id,p_config_hash:await configurationHash(selection),p_bootstrap_since:new Date(Date.parse(upper)-7*DAY).toISOString(),p_upper:upper});
-  if(!lease.acquired)return {id,status:'busy',count:0,incomplete_catch_up:true,last_successful_sync:lease.last_success_at??null,covered_through:lease.covered_through??null,lag_seconds:lease.covered_through?Math.max(0,Math.floor((Date.parse(upper)-Date.parse(lease.covered_through))/1000)):null};
+  lease=await store.begin({p_source_key:sourceKey,p_source_type:selection.adapter,p_source_id:id,p_config_hash:configGeneration,p_bootstrap_since:new Date(Date.parse(upper)-7*DAY).toISOString(),p_upper:upper});
+  if(!lease.acquired)return {id,source_key:sourceKey,status:'busy',config_generation:configGeneration??null,source_generation:lease?.generation??null,head_check_succeeded:false,count:0,incomplete_catch_up:true,last_successful_sync:lease.last_success_at??null,covered_through:lease.covered_through??null,lag_seconds:lease.covered_through?Math.max(0,Math.floor((Date.parse(upper)-Date.parse(lease.covered_through))/1000)):null};
   const windows=[{since:lease.window_since,until:lease.window_until,cursor:lease.cursor??null}];
   // Refresh the head during long historical scans so current news does not wait
   // for archive exhaustion. Only the original backlog page controls coverage.
@@ -64,14 +65,15 @@ export async function syncSource(selection,registry,store,upper){
   if(unique.length>5000||fetchedCount>10000)throw Error('Combined page exceeds persistence bounds');
   const items=await Promise.all(unique.map(candidateRow));
   const outcome=!page.complete?'partial':coverageGap?'gap':fetchedCount?'complete':'empty';
-  const result=await store.finish({p_source_key:sourceKey,p_token:lease.token,p_items:items,p_outcome:outcome,p_cursor:page.complete?null:page.cursor,p_earliest_available:earliestAvailableAt,p_error_code:coverageGap?'upstream_history_unproven':null,p_fetched:fetchedCount});
+  const headCheckedAt=lease.cursor==null?lease.window_until:(windows.length>1?upper:null);
+  const result=await store.finish({p_head_checked_at:headCheckedAt??lease.head_checked_at??null,p_coverage_reasons:[...coverageReasons],p_source_key:sourceKey,p_token:lease.token,p_items:items,p_outcome:outcome,p_cursor:page.complete?null:page.cursor,p_earliest_available:earliestAvailableAt,p_error_code:coverageGap?'upstream_history_unproven':null,p_fetched:fetchedCount});
   if(!result.accepted)throw Error('Lease rejected');
   const status=result.status??outcome;
-  return {id,status,head_checked_at:lease.cursor==null||['bluesky','huggingface_posts'].includes(selection.adapter)?upper:lease.window_until,...(coverageReasons.size?{coverage_reasons:[...coverageReasons]}:{}),count:items.length,fetched:result.fetched??fetchedCount,new:result.new??0,duplicate:result.duplicate??0,last_successful_sync:result.last_success_at??null,covered_through:result.covered_through??null,lag_seconds:result.covered_through?Math.max(0,Math.floor((Date.parse(upper)-Date.parse(result.covered_through))/1000)):null,incomplete_catch_up:['partial','gap','failed','running','busy'].includes(status),coverage_gap:status==='gap'||coverageGap,earliest_available:earliestAvailableAt};
+  return {id,source_key:sourceKey,status,config_generation:configGeneration??null,source_generation:lease?.generation??null,head_check_succeeded:headCheckedAt!=null&&Date.parse(headCheckedAt)===Date.parse(upper),head_checked_at:headCheckedAt??lease.head_checked_at??null,...(coverageReasons.size?{coverage_reasons:[...coverageReasons]}:{}),count:items.length,fetched:result.fetched??fetchedCount,new:result.new??0,duplicate:result.duplicate??0,last_successful_sync:result.last_success_at??null,covered_through:result.covered_through??null,lag_seconds:result.covered_through?Math.max(0,Math.floor((Date.parse(upper)-Date.parse(result.covered_through))/1000)):null,incomplete_catch_up:['partial','gap','failed','running','busy'].includes(status),coverage_gap:status==='gap'||coverageGap,earliest_available:earliestAvailableAt};
  }catch(error){
   const code=/^source_(?:http_[1-5][0-9]{2}|content_type|timeout|network|body_limit|parse_failed)$/.test(error?.code??'')?error.code:'source_or_persistence_failed';
   if(lease?.acquired){try{await store.finish({p_source_key:sourceKey,p_token:lease.token,p_items:[],p_outcome:'failed',p_cursor:lease.cursor??null,p_earliest_available:null,p_error_code:code,p_fetched:0});}catch{/* Preserve the lease for crash-safe expiry and retry. */}}
-  return {id,status:'failed',count:0,error:code,incomplete_catch_up:true,last_successful_sync:lease?.last_success_at??null,covered_through:lease?.covered_through??null,lag_seconds:lease?.covered_through?Math.max(0,Math.floor((Date.parse(upper)-Date.parse(lease.covered_through))/1000)):null};
+  return {id,source_key:sourceKey,status:'failed',config_generation:configGeneration??null,source_generation:lease?.generation??null,head_check_succeeded:false,count:0,error:code,incomplete_catch_up:true,last_successful_sync:lease?.last_success_at??null,covered_through:lease?.covered_through??null,lag_seconds:lease?.covered_through?Math.max(0,Math.floor((Date.parse(upper)-Date.parse(lease.covered_through))/1000)):null};
  }
 }
 export async function syncSources(selections,registry,store,upper=new Date().toISOString()){

@@ -2,9 +2,9 @@
 
 This repository contains Warp Core's news collection and guarded Bluesky publishing pipeline, a digest reader with text-to-speech, and the earlier GAIA/Lemonade digest implementation.
 
-Warp Core runs on the existing Supabase News Digest project. Its collector, Gemma-backed autonomous editorial producer, curation drain and guarded publisher are active, using OpenRouter with a private spending ledger. The owner approved shipping, and the first ordinary post and native repost are published. Eligible stories can move through verification and publication while the remaining feed is reviewed; they do not wait for end-of-feed ranking or an hourly publishing slot. Reviewed workflow recovery now handles the exact recorded shared-pool 429 after backoff while preserving its unknown charge; generic unknown failures still stop for owner recovery. See the dated checkpoint below.
+Warp Core runs on the existing Supabase News Digest project. Its collector, Gemma-backed autonomous editorial producer, curation drain and guarded publisher are active, using OpenRouter with a private spending ledger. The owner approved shipping, and the first ordinary post and native repost are published. Eligible stories can move through verification and publication while the remaining feed is reviewed; they do not wait for end-of-feed ranking or an hourly publishing slot. Reviewed workflow recovery now handles the exact recorded shared-pool 429 after backoff while preserving its unknown charge; generic unknown failures still stop for owner recovery. These are dated deployment observations, not a live status check. The repository roster has 55 sources; the historical hosted checkpoint recorded 43.
 
-See [Warp Core architecture and operational status](docs/warpcore-architecture.md) for the central current reference, deployment checkpoint, activation checks and rollback steps. Historical design and test reports are linked there with their limits.
+See [Warp Core architecture and operational status](docs/warpcore-architecture.md) for the central current reference, deployment checkpoint, activation checks and [state-preserving recovery](docs/warpcore-recovery.md). Historical design and test reports are linked there with their limits.
 
 ## Components
 

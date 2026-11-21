@@ -21,7 +21,7 @@ const reasonLabels={
  verification_claim_coverage_missing:'The response did not support every claim.',
  verification_post_unpublishable:'The generated post did not pass publication checks.',
 };
-const reasons=new Set(Object.keys(reasonLabels));
+export const reasons=new Set(Object.keys(reasonLabels));
 const errors=new Set(['agent_run_failed','hosted_agent_unavailable']);
 const modes=new Set(['shadow','verification']);
 const statuses=new Set(['deferred','uncertain']);
@@ -56,23 +56,35 @@ export function createGmailFailureNotifier({createTransport,password,account,tim
  const secret=typeof password==='string'?password.replace(/ /g,''):'';
  const configured=typeof createTransport==='function'&&typeof account==='string'&&/^[A-Za-z0-9._%+-]+@gmail\.com$/.test(account)&&/^[A-Za-z0-9]{16}$/.test(secret);
  const deadline=Number.isInteger(timeoutMs)&&timeoutMs>=1&&timeoutMs<=10000?timeoutMs:10000;
- return async input=>{
+ return async (input,context={})=>{
   if(!configured)return {status:'unconfigured'};
-  const summary=failureSummary(input);if(summary===null)return {status:'suppressed'};
-  let transport,timer;
+  const incident=input?.incident;
+  const summary=incident&&['opened','reminder','recovered'].includes(incident.event)&&/^[A-Za-z0-9_:-]{1,128}$/.test(incident.entity??'')&&/^[a-z][a-z0-9_]{0,63}$/.test(incident.class??'')?('Incident '+incident.event+': '+incident.domain+' '+incident.entity+' ('+incident.class+').'):failureSummary(input);if(summary===null)return {status:'suppressed'};
+  const event=['opened','reminder','recovered'].includes(incident?.event)?incident.event:'opened';
+  const subject=event==='recovered'?'Warp Core processing recovered':event==='reminder'?'Warp Core processing reminder':'Warp Core processing failure';
+  const introduction=event==='recovered'?'Warp Core processing has recovered.':event==='reminder'?'A Warp Core processing incident remains active.':'Warp Core encountered a processing failure.';
+  let transport,timer,closed=false;
+  const controller=new AbortController();let resolveAbort;
+  const aborted=new Promise(resolve=>{resolveAbort=resolve;});
+  const abort=()=>{controller.abort();close();resolveAbort('timeout');};
+  const close=()=>{if(closed)return;closed=true;try{transport?.close();}catch{}};
+  if(context.signal?.aborted)return {status:'timeout'};
+  const activeDeadline=Math.max(1,Math.min(deadline,context.remainingMs?.()??deadline));
   try{
+   context.signal?.addEventListener('abort',abort,{once:true});
    transport=createTransport({host:'smtp.gmail.com',port:465,secure:true,
     auth:{user:account,pass:secret},pool:false,logger:false,debug:false,
-    connectionTimeout:5000,greetingTimeout:5000,socketTimeout:8000,dnsTimeout:5000,
+    connectionTimeout:5000,greetingTimeout:5000,socketTimeout:8000,dnsTimeout:5000,socketCloseTimeout:0,
     tls:{servername:'smtp.gmail.com',minVersion:'TLSv1.2',rejectUnauthorized:true},
     disableFileAccess:true,disableUrlAccess:true});
    const operation=Promise.resolve().then(()=>transport.sendMail({
-    from:account,to:account,subject:'Warp Core processing failure',
-    text:'Warp Core encountered a processing failure.\nTime: '+new Date().toISOString()+'\n\n'+summary+'\n\nThe affected item is retained; unrelated queued items continue on subsequent worker turns.',
+    from:account,to:account,subject,signal:controller.signal,
+    text:introduction+'\nTime: '+new Date().toISOString()+'\n\n'+summary+'\n\nThe affected item is retained; unrelated queued items continue on subsequent worker turns.',
     disableFileAccess:true,disableUrlAccess:true,
-   })).then(result=>Array.isArray(result?.accepted)&&result.accepted.includes(account)?'sent':'failed',()=> 'failed');
-   return {status:await Promise.race([operation,new Promise(resolve=>{timer=setTimeout(()=>resolve('timeout'),deadline);})])};
+   })).then(result=>controller.signal.aborted?'timeout':Array.isArray(result?.accepted)&&result.accepted.includes(account)?'sent':'failed',()=>controller.signal.aborted?'timeout':'failed');
+   timer=setTimeout(abort,activeDeadline);
+   return {status:await Promise.race([operation,aborted])};
   }catch{return {status:'failed'};}
-  finally{clearTimeout(timer);try{transport?.close();}catch{}}
+  finally{clearTimeout(timer);context.signal?.removeEventListener('abort',abort);close();}
  };
 }

@@ -8,6 +8,10 @@ language sql security definer set search_path='' as $$
  select coalesce(jsonb_agg(jsonb_build_object('code',code,'message',message,'changedAt',changed_at,'affectedCount',least(affected_count,2147483647)) order by changed_at desc,code),'[]'::jsonb)
  from (
   select a.code,a.changed_at,a.affected_count,case a.code
+   when 'source_head_stale' then 'A news source has no recent check of its latest items.'
+   when 'verification_stalled' then 'News verification has stopped making progress.'
+   when 'publication_stalled' then 'News publishing has stopped making progress.'
+   when 'curation_stalled' then 'Queued news review has stopped making progress.'
    when 'discovery_stalled' then 'News review has stopped making progress.'
    when 'source_attempt_outage' then 'A news source has not been checked recently.'
    when 'source_failed' then 'A news source could not be refreshed.'
@@ -25,7 +29,7 @@ language sql security definer set search_path='' as $$
   end as message
   from shadow_agent.alert_state a
   where a.active and coalesce((select enabled from shadow_agent.alert_settings where singleton),false)
-  and a.code in ('discovery_stalled','source_attempt_outage','source_failed','budget_unavailable','accounting_uncertain','verification_uncertain','publication_reconciliation','handoff_deferred','handoff_stalled','scheduler_http_failure','scheduler_response_unavailable','scheduler_enqueue_failed','lifetime_headroom_exhausted','queue_above_limit')
+  and a.code in ('source_head_stale','verification_stalled','publication_stalled','curation_stalled','discovery_stalled','source_attempt_outage','source_failed','budget_unavailable','accounting_uncertain','verification_uncertain','publication_reconciliation','handoff_deferred','handoff_stalled','scheduler_http_failure','scheduler_response_unavailable','scheduler_enqueue_failed','lifetime_headroom_exhausted','queue_above_limit')
   order by a.changed_at desc,a.code limit 15
  ) bounded
 $$;

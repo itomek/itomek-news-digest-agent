@@ -107,6 +107,8 @@ Every new record remains subject to public-source/native identity, freshness, co
 
 ## Stop and rollback
 
+The `2026-11-21.1` full-history editorial policy requires the matching worker and `20261121215230_warpcore_full_history_editorial_policy.sql` migration. For rollout, pause the producer and drain discovery work and active leases first; the migration rejects an active producer or unfinished work and leaves the producer paused. Apply the migration, deploy the matching worker, verify policy agreement, then restore the intended gates. This repository change does not apply the migration or deploy production.
+
 1. Pause the autonomous continuation cron and disable the database producer gate to stop new discovery/model dispatch. Disable verification and submission as needed. A flag change does not cancel an already dispatched request; inspect its durable outcome before taking another action.
 2. Keep all run checkpoints, candidate assessments, reservations, settled usage, uncertain holds, receipts, inbox rows, publication jobs and record keys. Do not reset a budget or delete history to resume work.
 3. Reconcile any sending/uncertain publication by its original account, collection and TID. Keep the collection-aware publisher available for reconciliation. If new publication sends must stop, use its enable flag while preserving the stored queue and reconciliation capability; never swap in an older post-only publisher while reposts remain unresolved.

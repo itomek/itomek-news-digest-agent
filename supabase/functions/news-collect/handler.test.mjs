@@ -50,9 +50,9 @@ test('finite feed history is a limitation, while malformed dates are a coverage 
  }
 });
 
-test('stale ranked-list pagination alerts while refreshed Bluesky heads do not',async()=>{
+test('refreshed HN and Bluesky heads do not report stale head alerts',async()=>{
  for(const adapter of ['hn','bluesky']){
   const opt=options();opt.store.begin=async()=>({acquired:true,token:'fixture',window_since:'2026-11-08T00:00:00Z',window_until:'2026-11-14T00:00:00Z',cursor:{page:1}});let report;opt.notifyFailure=async input=>{report=input;return {status:'sent'};};
-  const response=await h.handle(req(),{WARPCORE_CRON_TOKEN:token,NEWS_SOURCE_CONFIG:JSON.stringify([{id:'source',adapter}])},{[adapter]:{collectPage:async()=>({...page([]),complete:false,cursor:{page:2},coverageGap:adapter==='hn',gapReason:'finite_top_story_snapshot'})}},opt),body=await response.json();assert.equal(response.status,200);assert.equal(body.summary.stale_head_sources,adapter==='hn'?1:0);assert.equal(report.sourceFailures.some(x=>x.error==='source_head_stale'),adapter==='hn');
+  const response=await h.handle(req(),{WARPCORE_CRON_TOKEN:token,NEWS_SOURCE_CONFIG:JSON.stringify([{id:'source',adapter}])},{[adapter]:{collectPage:async()=>({...page([]),complete:false,cursor:{page:2},coverageGap:adapter==='hn',gapReason:'finite_top_story_snapshot'})}},opt),body=await response.json();assert.equal(response.status,200);assert.equal(body.summary.stale_head_sources,0);assert.equal(report.sourceFailures.some(x=>x.error==='source_head_stale'),false);assert.equal(body.sources[0].head_checked_at,upper);
  }
 });

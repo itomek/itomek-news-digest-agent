@@ -35,3 +35,27 @@ test('TID rejects invalid hash, missing time, preepoch and overflow',()=>{
 test('Firebase persisted fixture matches independent Python and SQL expected TID',()=>{
  assert.equal(p.deterministicTid('a44802c82c053c5d5044a1ca0ea8f60799b4878e97da25cb6ce9afd266e4c223','2026-11-12T19:20:54.330Z'),'3n256uxsaokol');
 });
+
+// Each combining sequence and family emoji is one grapheme despite multiple code points.
+for(const cluster of ['e\u0301','👨‍👩‍👧‍👦'])test(`complete rendered text accepts 300 and rejects 301 graphemes with ${cluster}`,()=>{
+ const links=['https://example.com/a','https://example.com/b','https://example.com/c'];
+ const prefix='Example reports: ',whyItMatters='Useful detail.';
+ const overhead=prefix.length+whyItMatters.length+links.join('').length+8; // Four double-newline separators.
+ const summary=prefix+cluster.repeat(5)+'x'.repeat(300-overhead-5),expected=[summary,whyItMatters,...links].join('\n\n');
+ const result=p.preview({...draft,summary,whyItMatters,links});
+ assert.equal(result.graphemes,300);assert.equal(result.text,expected);assert.deepEqual(result.links,links);
+ assert.ok(new TextEncoder().encode(expected).length<3000);
+ assert.throws(()=>p.preview({...draft,summary:summary+'x',whyItMatters,links}),/exceeds Bluesky limits/);
+});
+test('UTF8 byte ceiling independently accepts 3000 and rejects 3001 bytes below 300 graphemes',()=>{
+ // Combining marks increase byte length without increasing the cluster count.
+ const whyItMatters='b',links=['https://example.com/a'];
+ const fixedBytes=new TextEncoder().encode(['a',whyItMatters,...links].join('\n\n')).length;
+ const remaining=3000-fixedBytes,summary='a'+'\u0301'.repeat(Math.floor(remaining/2))+(remaining%2?'x':'');
+ const candidate={...draft,summary,whyItMatters,links},rendered=[summary,whyItMatters,...links].join('\n\n');
+ assert.equal(new TextEncoder().encode(rendered).length,3000);
+ const result=p.preview(candidate);assert.ok(result.graphemes<300);assert.equal(result.text,rendered);
+ const overflow={...candidate,summary:summary+'x'};
+ assert.equal(new TextEncoder().encode([overflow.summary,whyItMatters,...links].join('\n\n')).length,3001);
+ assert.throws(()=>p.preview(overflow),/exceeds Bluesky limits/);
+});

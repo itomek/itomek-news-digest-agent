@@ -21,6 +21,20 @@ test('changed/deleted original is held without repost write',async()=>{
  const r=await s.sendPrepared(j,{claim:async()=>j,uncertain:async()=>{},manualReview:async()=>{held=true;}},{verifySubject:async()=>false,put:async()=>{throw Error('must not write');}},{enabled:true,accountDid:j.accountDid});assert.equal(r.state,'manual_review');assert.equal(held,true);
 });
 
+test('second trigger cannot duplicate a pending write and late success reconciles the persisted record',async()=>{
+ let state='prepared',puts=0,resolveWrite,writeStarted;
+ const started=new Promise(resolve=>{writeStarted=resolve;});
+ const pendingWrite=new Promise(resolve=>{resolveWrite=resolve;});
+ const uri=`at://${job.accountDid}/app.bsky.feed.post/${job.recordKey}`;
+ const db={claim:async()=>{if(state!=='prepared')return null;state='sending';return job;},uncertain:async()=>{state='uncertain';},checked:async()=>{},manualReview:async()=>{assert.fail('matching record must reconcile');},published:async()=>{state='published';return true;}};
+ const remote={put:async(account,key,record,options)=>{puts++;assert.equal(state,'uncertain');assert.equal(account,job.accountDid);assert.equal(key,job.recordKey);assert.deepEqual(record,job.record);assert.deepEqual(options,{swapRecord:null});writeStarted();return pendingWrite;},get:async()=>({uri,record:job.record})};
+ const policy={enabled:true,accountDid:job.accountDid};
+ const first=s.sendPrepared(job,db,remote,policy);await started;
+ assert.deepEqual(await s.sendPrepared(job,db,remote,policy),{state:'not_claimed'});assert.equal(puts,1);
+ resolveWrite({uri});assert.deepEqual(await first,{state:'published',uri});assert.equal(state,'published');
+ assert.deepEqual(await s.sendPrepared(job,db,remote,policy),{state:'not_claimed'});assert.equal(puts,1);
+});
+
 test('final public lookup holds newly labelled private blocked or incomplete originals without writing',async()=>{
  const subject={uri:'at://did:plc:abcdefghijklmnopqrstuvwx/app.bsky.feed.post/3n256uxsaokol',cid:'bafyre'+'a'.repeat(53)};
  const j={...job,record:{$type:'app.bsky.feed.repost',subject,createdAt:job.record.createdAt}};

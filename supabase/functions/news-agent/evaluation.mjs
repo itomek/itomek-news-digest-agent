@@ -48,14 +48,16 @@ export function evaluateDecisions(cases,decisions){
   if(!d||!expected.has(d.id)||seen.has(d.id)||!actions.has(d.action)||typeof d.reason!=='string'||!d.reason.trim()||d.reason.length>1000||Object.keys(d).some(k=>!fields.includes(k))||(ranked&&(!Number.isInteger(d.importance)||!Number.isInteger(d.relevance)||(d.action==='skip'?(d.importance!==0||d.relevance!==0):(d.importance<1||d.importance>4||d.relevance<1||d.relevance>4)))))throw Error('Malformed, unknown or duplicate decision');
   seen.set(d.id,d.action);
  }
- const missing=[],falsePositives=[],missedCandidates=[];
+ const missing=[],truePositives=[],trueNegatives=[],falsePositives=[],falseNegatives=[],missedCandidates=[];
  let correct=0;
  for(const c of cases){
   const action=seen.get(c.id);
-  if(!action){missing.push(c.id);continue;}
-  if(action===c.expectedAction)correct++;
+  if(!action){missing.push(c.id);if(c.expectedAction==='verify')falseNegatives.push(c.id);continue;}
+  if(action===c.expectedAction){correct++;(action==='verify'?truePositives:trueNegatives).push(c.id);}
   else if(action==='verify')falsePositives.push(c.id);
-  else missedCandidates.push(c.id);
+  else {falseNegatives.push(c.id);missedCandidates.push(c.id);}
  }
- return {policyVersion:POLICY_VERSION,total:cases.length,reviewed:seen.size,correct,missing,falsePositives,missedCandidates,complete:missing.length===0,modelQualityProven:false,publishingEnabled:false};
+ const counts={truePositives:truePositives.length,trueNegatives:trueNegatives.length,falsePositives:falsePositives.length,falseNegatives:falseNegatives.length};
+ const ratio=denominator=>({numerator:counts.truePositives,denominator,value:denominator===0?null:counts.truePositives/denominator});
+ return {policyVersion:POLICY_VERSION,total:cases.length,reviewed:seen.size,correct,missing,truePositives,trueNegatives,falsePositives,falseNegatives,missedCandidates,counts,precision:ratio(counts.truePositives+counts.falsePositives),recall:ratio(counts.truePositives+counts.falseNegatives),complete:missing.length===0,modelQualityProven:false,publishingEnabled:false};
 }

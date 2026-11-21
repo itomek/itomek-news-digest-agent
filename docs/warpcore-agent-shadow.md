@@ -85,10 +85,15 @@ this foundation.
 
 Run unit contracts with `node --test supabase/functions/news-agent/*.test.mjs`.
 The actual candidate inputs are in `real-story-cases.json`; seven come from a
-recorded configured feed scan, and the eighth is the owner's explicit Helion
-negative example, checked against its public post. All other labels are provisional
-editorial expectations, not owner-approved gold labels. Review and expand these
-labels independently before measuring model quality.
+recorded configured feed scan; the eighth is the owner's explicit Helion
+negative example, checked against its public post; the ninth is the owner's
+stream-k rejection from a screenshot, with reconstructed release URL and release
+claims not independently verified. The seven scan labels are provisional editorial
+expectations, not owner-approved gold labels. These nine regressions are not an
+independently labeled held-out campaign. Review and expand labels independently
+before measuring model quality. Use the [human editorial quality rubric](editorial-quality-rubric-v1.md)
+and [current evaluation evidence status](evidence/2026-11-21-editorial-evaluation-status.md)
+for their scope and remaining requirements.
 
 `buildReviewRequest(cases, {model, allowedModels, maxOutputTokens})` produces an
 OpenRouter-compatible JSON request body only. It performs no network operation.

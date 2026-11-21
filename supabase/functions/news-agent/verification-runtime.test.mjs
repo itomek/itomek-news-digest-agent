@@ -266,3 +266,31 @@ test('history retry backoff retains the original acquisition deadline',async t=>
 test('malformed history after recovered contention still fails closed',async()=>{
  const f=fixture(),base=f.rpc;let calls=0;f.rpc=async(name,args)=>{if(name!=='warpcore_agent_history')return base(name,args);if(++calls===1)throw Object.assign(Error(),{code:'history_lock_contention'});return {snapshotHash:historyHash,items:[],complete:false,cursor:null};};assert.equal((await run(f)).reason,'evidence_or_history_unavailable');assert.equal(calls,2);assert.equal(f.events.some(e=>['model_post','warpcore_verification_reserve','warpcore_verification_handoff'].includes(e.name)),false);
 });
+
+test('complete history beyond one SQL page reaches verification intact; changed later snapshot defers',async()=>{
+ const rows=Array.from({length:75},(_,i)=>({kind:'publication',storyKey:hash(`historic-event-${i}`),record:{text:`Historic event ${i}`,createdAt:'2020-01-01T00:00:00.000Z'},candidateContext:[]}));
+ for(const changed of [false,true]){
+  const f=fixture(),base=f.rpc,cursors=[];
+  f.rpc=async(name,args)=>{
+   if(name!=='warpcore_agent_history')return base(name,args);
+   cursors.push(args.p_cursor);const first=args.p_cursor===null;
+   return {snapshotHash:changed&&!first?'d'.repeat(64):historyHash,historyCoverageMode:'all-published-plus-unresolved-v1',items:first?rows.slice(0,50):rows.slice(50),cursor:first?'p:page-one':null,complete:!first};
+  };
+  assert.equal((await run(f)).status,changed?'deferred':'submitted');
+  assert.deepEqual(cursors,[null,'p:page-one']);
+  if(changed){assert.equal(f.events.some(e=>['source_get','warpcore_verification_reserve','model_post'].includes(e.name)),false);}
+  else {assert.deepEqual(f.projectedInput.history.items,rows);assert.equal(f.material.judgment.historyHash,historyHash);}
+ }
+});
+
+test('required history over capacity defers instead of verifying a truncated prefix',async()=>{
+ const f=fixture(),base=f.rpc;let pages=0;
+ const rows=Array.from({length:30},(_,i)=>({kind:'publication',storyKey:hash(`large-historic-event-${i}`),record:{text:`Event ${i}: `+'x'.repeat(18000)},candidateContext:[]}));
+ f.rpc=async(name,args)=>{
+  if(name!=='warpcore_agent_history')return base(name,args);
+  pages++;return {snapshotHash:historyHash,historyCoverageMode:'all-published-plus-unresolved-v1',items:pages===1?rows.slice(0,20):rows.slice(20),cursor:pages===1?'p:large-first':null,complete:pages===2};
+ };
+ const out=await run(f);assert.equal(out.reason,'evidence_or_history_unavailable');assert.equal(pages,2);
+ assert.equal(f.events.some(e=>['source_get','warpcore_verification_reserve','model_post','warpcore_agent_issue_receipt','warpcore_verification_handoff'].includes(e.name)),false);
+ assert.equal(f.events.at(-1).args.p_status,'deferred');
+});

@@ -1,5 +1,5 @@
 import {PGlite} from '@electric-sql/pglite';import fs from 'node:fs/promises';import assert from 'node:assert/strict';
-import {POLICY_VERSION} from '../supabase/functions/news-agent/policy.mjs';
+const POLICY_VERSION='2026-11-19.1'; // Historical migration target, independent of later policy releases.
 const migration=await fs.readFile(new URL('../supabase/migrations/20261119172744_warpcore_inference_editorial_policy.sql',import.meta.url),'utf8');
 for(const previous of ['2026-11-18.1','2026-11-18.2']){
  const db=new PGlite();try{

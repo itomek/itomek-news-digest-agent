@@ -107,3 +107,65 @@ jobs:
         env:
           WARPCORE_TEST_DATABASE_URL: postgres://postgres:disposable-ci-only@127.0.0.1:5432/warpcore_test
         run: npm run test:notification-concurrency --prefix integration-tests
+
+  guarded-publication-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    services:
+      identity-postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_DB: warpcore_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: disposable-ci-only
+        ports:
+          - '127.0.0.1:5433:5432'
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      recovery-postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_DB: warpcore_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: disposable-ci-only
+        ports:
+          - '127.0.0.1:5434:5432'
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      recovery-postgrest:
+        image: postgrest/postgrest:v12.2.3
+        env:
+          PGRST_DB_URI: postgres://postgres:disposable-ci-only@recovery-postgres:5432/warpcore_test
+          PGRST_DB_ANON_ROLE: anon
+          PGRST_JWT_SECRET: disposable-ci-jwt-secret-never-production-2026
+        ports:
+          - '127.0.0.1:3004:3000'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned isolated test dependencies
+        run: npm ci --prefix integration-tests --ignore-scripts --no-audit --no-fund
+      - name: Shared pending admission overlapping PostgreSQL transactions
+        env:
+          WARPCORE_TEST_DATABASE_URL: postgres://postgres:disposable-ci-only@127.0.0.1:5433/warpcore_test
+        run: npm run test:shared-admission-concurrency --prefix integration-tests
+      - name: Identity migration preservation and expired lease contention
+        env:
+          WARPCORE_TEST_DATABASE_URL: postgres://postgres:disposable-ci-only@127.0.0.1:5433/warpcore_test
+        run: npm run test:identity-leases-postgres --prefix integration-tests
+      - name: Current publication guards and lost-response recovery through PostgREST
+        env:
+          WARPCORE_TEST_DATABASE_URL: postgres://postgres:disposable-ci-only@127.0.0.1:5434/warpcore_test
+          WARPCORE_TEST_POSTGREST_URL: http://127.0.0.1:3004
+          WARPCORE_TEST_JWT_SECRET: disposable-ci-jwt-secret-never-production-2026
+        run: npm run test:current-recovery-postgrest --prefix integration-tests

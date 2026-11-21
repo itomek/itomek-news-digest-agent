@@ -6,7 +6,7 @@ This is the central current reference for Warp Core. The checkpoint below is an 
 
 ## Dated deployment checkpoint (November 17–19, 2026)
 
-The following versions and counts are historical evidence only. Current live bundle hashes, versions, gates, roster and job state were not inspected for the November 21 reliability work. The tracked roster now contains **55 sources**; the recorded hosted **43** is not a current live count. Use the [inventory and recovery procedure](warpcore-recovery.md) before operational changes.
+The following versions and counts are historical evidence only. The [November 21 deployment readback](evidence/2026-11-21-deployment-readback.md) separately records agent v34, curator v8 and publisher v14, exact retrieved artifact hashes, selected SQL/grant comparisons and public-record readbacks at approximately 21:52 UTC. That bounded audit does not establish complete schema parity, the collector roster, current schedules or reliability-extension installation. The tracked roster contains **55 sources**; the recorded hosted **43** is not a current live count. The [November 21 source inventory](evidence/2026-11-21-source-inventory.md) leaves deployed source configuration and per-source freshness unknown. Use the [inventory and recovery procedure](warpcore-recovery.md) before operational changes.
 
 | Area | Recorded state |
 |---|---|
@@ -109,9 +109,14 @@ Every new record remains subject to public-source/native identity, freshness, co
 
 ## Stop and recovery
 
+The `2026-11-21.1` full-history editorial policy requires the matching worker and `20261121215230_warpcore_full_history_editorial_policy.sql` migration. For rollout, pause the producer and drain discovery work and active leases first; the migration rejects an active producer or unfinished work and leaves the producer paused. Apply the migration, deploy the matching worker, verify policy agreement, then restore the intended gates. This repository change does not apply the migration or deploy production.
+
 Follow the [state-preserving stop, inventory and recovery procedure](warpcore-recovery.md). It distinguishes new dispatch from in-flight work, retains uncertain outcomes and financial evidence, and requires collection-aware reconciliation before resumption. This procedure has not been exercised in production by this change.
 
 ## Evidence and further references
+
+- [November 21 verification correctness reconciliation](evidence/2026-11-21-verification-correctness.md): full-history policy and native-original corrections, local acceptance limits and guarded rollout requirements.
+- [November 21 guarded-publication contracts](evidence/2026-11-21-guarded-publication-contracts.md): disposable PostgreSQL/PostgREST contention, lease and recovery evidence; no production mutation or live send.
 
 - [Editorial policy](../supabase/functions/news-agent/policy.mjs): current scope, verification, attribution, full coverage and native-repost rules.
 - [Ranking acceptance checkpoint, November 16](evidence/2026-11-16-ranking-acceptance.md): 405-candidate synthetic ordering/restart checks and their limitations.

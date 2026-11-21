@@ -39,7 +39,7 @@ export async function syncSource(selection,registry,store,upper){
   const windows=[{since:lease.window_since,until:lease.window_until,cursor:lease.cursor??null}];
   // Refresh the head during long historical scans so current news does not wait
   // for archive exhaustion. Only the original backlog page controls coverage.
-  if(['bluesky','huggingface_posts'].includes(selection.adapter)&&lease.cursor!=null)windows.push({since:lease.window_since,until:upper,cursor:null});
+  if(['bluesky','huggingface_posts','hn'].includes(selection.adapter)&&lease.cursor!=null)windows.push({since:lease.window_since,until:upper,cursor:null});
   const fetchedPages=await Promise.allSettled(windows.map(window=>adapter.collectPage(selection.config??{},window)));
   const rejected=fetchedPages.find(result=>result.status==='rejected');if(rejected)throw rejected.reason;
   const pages=fetchedPages.map(result=>result.value),page=pages[0],candidates=[];

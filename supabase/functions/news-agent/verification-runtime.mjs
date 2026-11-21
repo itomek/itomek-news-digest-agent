@@ -39,7 +39,18 @@ async function readHistory(rpc,started){
  const items=[];let cursor=null,snapshotHash;const seen=new Set();
  for(let pageNumber=0;pageNumber<1000;pageNumber++){
   if(Date.now()-started>30000)throw Error('History deadline');
-  const page=await rpc('warpcore_agent_history',{p_cursor:cursor});
+  let page;
+  for(let attempt=0;attempt<3;attempt++){
+   if(Date.now()-started>30000)throw Error('History deadline');
+   try{page=await rpc('warpcore_agent_history',{p_cursor:cursor});break;}
+   catch(error){
+    if(error?.code!=='history_lock_contention'||attempt===2)throw error;
+    const delay=100*(attempt+1);
+    if(Date.now()-started+delay>30000)throw Error('History deadline');
+    await new Promise(resolve=>setTimeout(resolve,delay));
+   }
+  }
+  if(Date.now()-started>30000)throw Error('History deadline');
   if(!plain(page)||!sha(page.snapshotHash)||!Array.isArray(page.items)||page.items.length>50||typeof page.complete!=='boolean'||page.historyCoverageMode!=='all-published-plus-unresolved-v1')throw Error('Incomplete history');
   snapshotHash??=page.snapshotHash;if(snapshotHash!==page.snapshotHash)throw Error('History changed');
   for(const item of page.items)items.push(projectVerificationHistory(item));
@@ -119,6 +130,7 @@ export async function runVerificationInvocation({config={},rpc,modelFetcher,evid
   request=buildVerificationRequest(input,{model:config.model,maxOutputTokens:config.maxOutputTokens});
   requestSha256=await hash(JSON.stringify({...request,stream:false}));
  }catch(error){
+  if(sourceStage==='history_unavailable'&&error?.code==='history_lock_contention')return finishDeferred('history_lock_contention');
   const sourceCodes=new Set(['timeout','http_failure','destination_mismatch','unsupported_content_type','response_size_limit','empty_body','invalid_encoding','transport_failure']);
   const detail=sourceStage==='source_unavailable'&&sourceCodes.has(error?.code)?'source_'+error.code:sourceStage;
   return finishDeferred('evidence_or_history_unavailable',detail);

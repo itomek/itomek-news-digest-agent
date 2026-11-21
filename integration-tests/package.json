@@ -11,7 +11,8 @@
     "test:curator-concurrency": "node curator-concurrency.mjs",
     "test:batch-concurrency": "node publication-batch-concurrency.mjs",
     "test:shadow-concurrency": "node shadow-agent-concurrency.mjs",
-    "test:shadow-postgrest": "node shadow-producer-postgrest.mjs"
+    "test:shadow-postgrest": "node shadow-producer-postgrest.mjs",
+    "test:verification-history-concurrency": "node verification-history-concurrency.mjs"
   },
   "dependencies": {
     "@electric-sql/pglite": "0.5.16",

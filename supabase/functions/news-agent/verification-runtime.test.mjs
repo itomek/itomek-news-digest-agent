@@ -245,3 +245,24 @@ test('source failures retain a sanitized reason and never reserve model spend',a
  const f=fixture();f.evidenceFetcher=async()=>{throw Object.assign(Error('private-secret'),{code:'timeout'});};
  const out=await run(f);assert.equal(out.status,'deferred');const finished=f.events.find(e=>e.name==='warpcore_verification_finish');assert.equal(finished.args.p_reason,'source_transport_failure');assert.equal(f.events.some(e=>e.name==='model_post'),false);assert.equal(JSON.stringify(finished).includes('private-secret'),false);
 });
+
+test('history lock contention recovers with bounded retries before one paid submission',async()=>{
+ const f=fixture(),base=f.rpc;let calls=0;f.rpc=async(name,args)=>{if(name==='warpcore_agent_history'&&++calls<3)throw Object.assign(Error('sanitized'),{code:'history_lock_contention'});return base(name,args);};
+ assert.equal((await run(f)).status,'submitted');assert.equal(calls,3);for(const name of ['model_post','warpcore_verification_reserve','warpcore_agent_issue_receipt','warpcore_verification_handoff'])assert.equal(f.events.filter(e=>e.name===name).length,1);
+});
+test('exhausted history contention defers without source, reservation or paid work',async()=>{
+ const f=fixture(),base=f.rpc;let calls=0;f.rpc=async(name,args)=>{if(name==='warpcore_agent_history'){calls++;throw Object.assign(Error('private'),{code:'history_lock_contention'});}return base(name,args);};
+ const out=await run(f);assert.equal(out.reason,'history_lock_contention');assert.equal(calls,3);assert.equal(f.events.at(-1).args.p_reason,'history_lock_contention');assert.equal(f.events.some(e=>['source_get','model_post','warpcore_verification_reserve'].includes(e.name)),false);
+});
+test('ordinary history failures are not retried',async()=>{
+ const f=fixture(),base=f.rpc;let calls=0;f.rpc=async(name,args)=>{if(name==='warpcore_agent_history'){calls++;throw Error('history_lock_contention');}return base(name,args);};assert.equal((await run(f)).reason,'evidence_or_history_unavailable');assert.equal(calls,1);
+});
+test('retried later history page preserves cursor and snapshot consistency',async()=>{
+ for(const changed of [false,true]){const f=fixture(),base=f.rpc,cursors=[];f.rpc=async(name,args)=>{if(name!=='warpcore_agent_history')return base(name,args);cursors.push(args.p_cursor);if(cursors.length===2)throw Object.assign(Error(),{code:'history_lock_contention'});return {snapshotHash:changed&&cursors.length===3?'d'.repeat(64):historyHash,historyCoverageMode:'all-published-plus-unresolved-v1',items:cursors.length===1?[{kind:'publication',storyKey:'e'.repeat(64),record:{text:'Old public event.'},candidateContext:[]}]:[],cursor:'p:first',complete:cursors.length===3};};assert.equal((await run(f)).status,changed?'deferred':'submitted');assert.deepEqual(cursors,[null,'p:first','p:first']);if(changed)assert.equal(f.events.some(e=>e.name==='model_post'),false);}
+});
+test('history retry backoff retains the original acquisition deadline',async t=>{
+ const f=fixture(),base=f.rpc,delays=[];let clock=0,calls=0;t.mock.method(Date,'now',()=>clock);t.mock.method(globalThis,'setTimeout',(fn,delay)=>{delays.push(delay);clock+=31000;queueMicrotask(fn);return 1;});f.rpc=async(name,args)=>{if(name==='warpcore_agent_history'){calls++;throw Object.assign(Error(),{code:'history_lock_contention'});}return base(name,args);};assert.equal((await run(f)).reason,'evidence_or_history_unavailable');assert.equal(calls,1);assert.deepEqual(delays,[100]);assert.equal(f.events.some(e=>e.name==='model_post'),false);
+});
+test('malformed history after recovered contention still fails closed',async()=>{
+ const f=fixture(),base=f.rpc;let calls=0;f.rpc=async(name,args)=>{if(name!=='warpcore_agent_history')return base(name,args);if(++calls===1)throw Object.assign(Error(),{code:'history_lock_contention'});return {snapshotHash:historyHash,items:[],complete:false,cursor:null};};assert.equal((await run(f)).reason,'evidence_or_history_unavailable');assert.equal(calls,2);assert.equal(f.events.some(e=>['model_post','warpcore_verification_reserve','warpcore_verification_handoff'].includes(e.name)),false);
+});

@@ -39,7 +39,17 @@ export async function handle(req, env, registry, options={}) {
   const sourceFailures=result.sources.flatMap(s=>s.status==='failed'?[{id:s.id,error:s.error}]:s.coverage_reasons?.includes('malformed_source_dates')?[{id:s.id,error:'malformed_source_dates'}]:[]);
   sourceFailures.push(...staleHeads.map(s=>({id:s.id,error:'source_head_stale'})));
   const allFailed=result.sources.every(source=>source.status==='failed');
-  const notification=await notify({sourceFailures,httpStatus:allFailed?502:200});
+  const sourceObservations=result.sources.filter(s=>s.status!=='busy'&&s.config_generation).map(s=>({
+   id:s.source_key??s.id,generation:s.config_generation,sourceGeneration:s.source_generation,
+   classes:[...(s.status==='failed'?[s.error]:s.coverage_reasons?.includes('malformed_source_dates')?['malformed_source_dates']:[]),...(staleHeads.includes(s)?['source_head_stale']:[])],
+   resolved:s.status==='failed'?[]:[
+    'source_timeout','source_network','source_content_type','source_body_limit','source_parse_failed','source_or_persistence_failed',
+    'source_http_error',
+    ...(s.head_check_succeeded?['source_head_stale']:[]),
+    ...(s.head_check_succeeded&&!s.coverage_reasons?.includes('malformed_source_dates')?['malformed_source_dates']:[]),
+   ],
+  }));
+  const notification=await notify({sourceFailures,sourceObservations,httpStatus:allFailed?502:200,workerObservations:result.sources.some(s=>!['failed','busy'].includes(s.status))?[{entity:'collector',resolved:['source_or_persistence_failed']}]:[]});
   return Response.json({mode:'review_only',publishing_enabled:false,...result,summary,processing_dispatch,...(notification&&notification!=='suppressed'?{notification:{status:notification}}:{}),...(allFailed?{error:'all_sources_failed'}:{})},{status:allFailed?502:200});
- }catch{const notification=await notify({httpStatus:502,sourceFailures:[{id:'collector',error:'source_or_persistence_failed'}]});return Response.json({error:'checkpoint_persistence_unavailable',...(notification?{notification:{status:notification}}:{})},{status:502});}
+ }catch{const notification=await notify({error:'checkpoint_persistence_unavailable',httpStatus:502,sourceFailures:[{id:'collector',error:'source_or_persistence_failed'}]});return Response.json({error:'checkpoint_persistence_unavailable',...(notification?{notification:{status:notification}}:{})},{status:502});}
 }

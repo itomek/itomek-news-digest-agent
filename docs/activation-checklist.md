@@ -1,5 +1,7 @@
 # Warp Core activation checklist (2026-11-12)
 
+> Historical November 12, 2026 record. Later cutover and publication evidence supersede the inactive status and hourly quota/schedule instructions below. Do not use this receipt to activate, redeploy, provision credentials or recreate obsolete schedules. See [current architecture](warpcore-architecture.md) and [inventory, stop and recovery](warpcore-recovery.md). Live state was not verified on November 21.
+
 The merged base is not yet a running news feed. Source gathering and publishing
 remain hard-disabled; the owner deferred source selection. TTS is separate.
 

@@ -52,7 +52,15 @@ test('finite feed history is a limitation, while malformed dates are a coverage 
 
 test('refreshed HN and Bluesky heads do not report stale head alerts',async()=>{
  for(const adapter of ['hn','bluesky']){
-  const opt=options();opt.store.begin=async()=>({acquired:true,token:'fixture',window_since:'2026-11-08T00:00:00Z',window_until:'2026-11-14T00:00:00Z',cursor:{page:1}});let report;opt.notifyFailure=async input=>{report=input;return {status:'sent'};};
+  const opt=options();opt.store.begin=async()=>({acquired:true,token:'fixture',window_since:'2026-11-08T00:00:00Z',window_until:'2026-11-14T00:00:00Z',head_checked_at:'2026-11-14T00:00:00Z',cursor:{page:1}});let report;opt.notifyFailure=async input=>{report=input;return {status:'sent'};};
   const response=await h.handle(req(),{WARPCORE_CRON_TOKEN:token,NEWS_SOURCE_CONFIG:JSON.stringify([{id:'source',adapter}])},{[adapter]:{collectPage:async()=>({...page([]),complete:false,cursor:{page:2},coverageGap:adapter==='hn',gapReason:'finite_top_story_snapshot'})}},opt),body=await response.json();assert.equal(response.status,200);assert.equal(body.summary.stale_head_sources,0);assert.equal(report.sourceFailures.some(x=>x.error==='source_head_stale'),false);assert.equal(body.sources[0].head_checked_at,upper);
  }
+});
+test('a throwing begin RPC records a collector incident and retains notification delivery',async()=>{
+ const {createIncidentNotifier}=await import('../news-agent/notification-incidents.mjs');let observations,mail;
+ const opt=options();opt.store.begin=async()=>{throw Error('private persistence detail');};
+ const claims=[{id:1,token:'fence',domain:'worker',entity:'collector',class:'source_or_persistence_failed',event:'opened'},null];
+ opt.notifyFailure=createIncidentNotifier({store:{observeBatch:async rows=>observations=rows,claim:async()=>claims.shift(),ack:async()=>{}},send:async input=>{mail=input;return {status:'sent'};}});
+ const response=await h.handle(req(),{WARPCORE_CRON_TOKEN:token,NEWS_SOURCE_CONFIG:'[{"id":"source","adapter":"rss"}]'},{rss:{collectPage:async()=>assert.fail('cannot collect before lease')}},opt);
+ assert.equal(response.status,502);assert.equal((await response.json()).notification.status,'sent');assert.ok(observations.some(o=>o.domain==='worker'&&o.entity==='collector'&&o.classes.includes('source_or_persistence_failed')));assert.equal(mail.incident.entity,'collector');assert.ok(!JSON.stringify(observations).includes('private persistence detail'));
 });

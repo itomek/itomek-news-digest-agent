@@ -53,7 +53,7 @@ jobs:
       - name: Install pinned feed parser
         run: npm ci --prefix supabase/functions --ignore-scripts --no-audit --no-fund
       - name: Unit and mock transport tests (no external API calls)
-        run: node --test supabase/functions/{_shared,news-collect,news-publish,news-operator,news-curate,bluesky-collect,news-agent,news-agent-spike}/*.test.mjs review_tests/*.test.mjs tools/halo-shadow/*.test.mjs tools/openrouter-pilot/*.test.mjs
+        run: node --test supabase/functions/{_shared,news-collect,news-publish,news-operator,news-curate,bluesky-collect,news-agent,news-agent-spike}/*.test.mjs review_tests/*.test.mjs tools/halo-shadow/*.test.mjs tools/openrouter-pilot/*.test.mjs tools/prepare-reliability-upgrade.test.mjs
       - name: Check inactive Deno producer entrypoint
         run: npx --yes --package=deno@2.5.6 deno check supabase/functions/news-agent/index.ts supabase/functions/news-agent-spike/index.ts tools/halo-shadow/index.ts tools/halo-shadow/paid-smoke.ts
       - name: Credential-free timer tests
@@ -103,6 +103,10 @@ jobs:
         env:
           WARPCORE_TEST_DATABASE_URL: postgres://postgres:disposable-ci-only@127.0.0.1:5432/warpcore_test
         run: npm run test:verification-history-concurrency --prefix integration-tests
+      - name: Notification incident claim contention (disposable service only)
+        env:
+          WARPCORE_TEST_DATABASE_URL: postgres://postgres:disposable-ci-only@127.0.0.1:5432/warpcore_test
+        run: npm run test:notification-concurrency --prefix integration-tests
 
   guarded-publication-contracts:
     runs-on: ubuntu-24.04

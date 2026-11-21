@@ -1,0 +1,68 @@
+// Exercise generated forward SQL against an already-installed disposable stack.
+import {PGlite} from '@electric-sql/pglite';
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import {loadReliabilityUpgrade,extractFunction} from '../tools/prepare-reliability-upgrade.mjs';
+const db=new PGlite();
+const read=n=>fs.readFile(new URL('../supabase/functions/news-agent/sql/'+n,import.meta.url),'utf8');
+const q=async sql=>(await db.query(sql)).rows;
+try {
+ await db.exec(`create role anon;create role authenticated;create role service_role;
+ create schema shadow_agent;grant usage on schema shadow_agent to service_role;
+ create table shadow_agent.producer_settings(singleton boolean primary key,enabled boolean);insert into shadow_agent.producer_settings values(true,false);
+ create table shadow_agent.budgets(day date primary key,limit_credits numeric,held_credits numeric default 0,spent_credits numeric default 0,blocked boolean default false);
+ create function shadow_agent.enqueue_continuation() returns bigint language sql as 'select null::bigint';
+ create table shadow_agent.runs(id uuid primary key,state jsonb,revision bigint default 0,lease_token uuid,lease_until timestamptz);
+ create table shadow_agent.producer_slots(run_id uuid);create table shadow_agent.ranking_runs(finalized_at timestamptz,assessed_count bigint,selected_count int);
+ create table shadow_agent.attempts(status text);create table shadow_agent.verification_jobs(id uuid primary key,child_run_id uuid,status text,handoff_status text);
+ create table shadow_agent.verification_settings(singleton boolean,enabled boolean,submit_enabled boolean);
+ create table public.warpcore_curator_inbox(id uuid primary key,story_key text,actor_kind text,state text,created_at timestamptz default now());
+ create table public.warpcore_publications(id uuid primary key,story_key text,state text,prepared_at timestamptz default now(),last_checked_at timestamptz,remote_uri text);
+ create table public.system_logs(id bigserial,level text,category text,message text,metadata jsonb);
+ create table public.warpcore_source_sync(outcome text,coverage_gap boolean,last_success_at timestamptz,last_attempt_at timestamptz,covered_through timestamptz);
+ create view public.warpcore_configured_source_health as select *,now() configured_at,now() head_checked_at,null::timestamptz last_accepted_at,null::timestamptz progressed_at,'{}'::text[] coverage_reasons from public.warpcore_source_sync;`);
+ const operations=await read('operations.sql');
+ // Existing installer contracts with old health implementation and no new ledger.
+ await db.exec(operations.replace(/-- BEGIN RELIABILITY HEALTH PROGRESS\n[\s\S]*?-- END RELIABILITY HEALTH PROGRESS/,'').replace(/create function public\.warpcore_agent_health\(\)[\s\S]*?end \$\$;/,()=>"create function public.warpcore_agent_health() returns jsonb language plpgsql security definer set search_path='' as $$begin return '{\"legacy\":true}';end $$;"));
+ const canonicalAlerts=await read('agent-alerts.sql');
+ const legacyCodes=canonicalAlerts.match(/code text primary key check\(code in \(([^\n]+)\)\),/)[1].split(',').filter(x=>!['curation_stalled','verification_stalled','publication_stalled','source_head_stale'].some(c=>x===`'${c}'`)).join(',');
+ let alerts=canonicalAlerts.replace(/code text primary key check\(code in \(([^\n]+)\)\),/,`code text primary key check(code in (${legacyCodes})),`);
+ alerts=alerts.replace(extractFunction(canonicalAlerts,'shadow_agent.refresh_alerts').replace('create or replace function','create function'),()=>"create function shadow_agent.refresh_alerts() returns void language plpgsql security definer set search_path='' as $$begin return;end $$;");
+ await db.exec(alerts);
+ await db.exec(await read('dashboard-alerts.sql'));
+ await db.exec(await read('notification-incidents.sql'));
+ await db.exec(`insert into shadow_agent.budgets values(current_date,2,.5,.25,false);
+ insert into shadow_agent.attempts values('uncertain');
+ insert into shadow_agent.runs(id,state) values('00000000-0000-0000-0000-000000000001','{"phase":"uncertain","storageKind":"paged-v1"}');
+ insert into public.warpcore_curator_inbox(id,story_key,actor_kind,state) values('00000000-0000-0000-0000-000000000002','retained','agent','pending');
+ insert into public.warpcore_publications(id,story_key,state) values('00000000-0000-0000-0000-000000000003','uncertain','uncertain');
+ select public.warpcore_notification_observe('source','retained','config','["source_timeout"]');
+ insert into shadow_agent.alert_state(code,active,affected_count) values('accounting_uncertain',true,1);`);
+ const tables=['shadow_agent.budgets','shadow_agent.attempts','shadow_agent.runs','public.warpcore_curator_inbox','public.warpcore_publications','warpcore_private.notification_incidents','shadow_agent.alert_state','shadow_agent.alert_settings'];
+ const snapshot=async()=>Promise.all(tables.map(t=>q('select * from '+t)));
+ const before=await snapshot();
+ const signatures=['public.warpcore_agent_health()','shadow_agent.track_run_progress()','shadow_agent.refresh_alerts()','public.warpcore_agent_active_alerts()'];
+ const acl=()=>q(`select oid::text,proowner,proacl::text from pg_proc where oid in (${signatures.map(s=>`'${s}'::regprocedure`).join(',')}) order by oid`);
+ const grants=await acl();
+ const oldRefresh=(await q("select prosrc from pg_proc where oid='shadow_agent.refresh_alerts()'::regprocedure"))[0].prosrc;
+ const sql=await loadReliabilityUpgrade();
+ // Missing stack must fail before changes and transactional execution must roll back.
+ await db.exec('alter table shadow_agent.alert_requests rename to fixture_missing_alert_requests');
+ await assert.rejects(()=>db.exec(sql),/requires installed/);await db.exec('rollback');
+ await db.exec('alter table shadow_agent.fixture_missing_alert_requests rename to alert_requests');
+ await db.exec(sql);
+ assert.deepEqual(await snapshot(),before,'Retain queues, runs, financial evidence, uncertain incidents and flags');
+ assert.equal((await q('select count(*)::int n from shadow_agent.health_progress'))[0].n,0,'No fabricated backfill of existing lifecycle clocks');
+ assert.notEqual((await q("select prosrc from pg_proc where oid='shadow_agent.refresh_alerts()'::regprocedure"))[0].prosrc,oldRefresh,'Refresh function replaced');
+ assert.deepEqual(await acl(),grants,'Function OIDs, ownership and explicit grants retained');
+ const health=(await q('select public.warpcore_agent_health() h'))[0].h;
+ assert.equal(health.legacy,undefined);assert.ok(health.stages);assert.equal(health.costs.heldCredits,.5);
+ for(const code of ['source_head_stale','verification_stalled','publication_stalled','curation_stalled']) await db.exec(`insert into shadow_agent.alert_state values('${code}',true,1,now())`);
+ await db.exec('update shadow_agent.alert_settings set enabled=true');
+ const active=(await q('select public.warpcore_agent_active_alerts() a'))[0].a;
+ for(const code of ['source_head_stale','verification_stalled','publication_stalled','curation_stalled']) assert.ok(active.some(a=>a.code===code),code);
+ await db.exec('drop function public.warpcore_agent_active_alerts()');
+ await db.exec(sql);
+ assert.equal((await q("select to_regprocedure('public.warpcore_agent_active_alerts()') is null absent"))[0].absent,true,'Optional dashboard remains absent');
+ console.log('PASS: generated existing-stack upgrade preserves durable rows/ACLs, replaces health and optional dashboard functions, extends codes and fails missing prerequisites');
+} finally {await db.close();}

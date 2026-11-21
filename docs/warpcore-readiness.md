@@ -1,5 +1,7 @@
 # Warpcore readiness, 2026-11-12
 
+> Historical November 12, 2026 record. Later cutover and publication evidence supersede the inactive status and hourly quota/schedule instructions below. Do not use this receipt to activate, redeploy, provision credentials or recreate obsolete schedules. See [current architecture](warpcore-architecture.md) and [inventory, stop and recovery](warpcore-recovery.md). Live state was not verified on November 21.
+
 ## Latest CI validation
 Standard public-repository GitHub Actions run 43240996554 passed on ubuntu-24.04 with a disposable PostgreSQL 17.6 service. Independent sessions demonstrably contended on the claim row lock; exactly one claim succeeded. Node tests and PGlite SQL integration passed, and containers stopped successfully. This is CI verification only; Supabase remains the intended service runtime. Evidence: https://github.com/itomek/itomek-news-digest-agent/actions/runs/43240996554
 

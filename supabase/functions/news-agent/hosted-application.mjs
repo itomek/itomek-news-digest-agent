@@ -47,6 +47,7 @@ export function createHostedApplication(config,dependencies={}){
    if(authorization?.enabled===false)return Response.json({mode:'disabled',...flags});
    if(authorization?.enabled!==true||typeof authorization.producerToken!=='string')throw Error();
    let settings,discovery,verifier;
+   const notificationSteps=[];
    const getSettings=()=>settings??=(async()=>{
     const value=await rpc('warpcore_agent_runtime_config');
     const approved=approvedRuntimeModel(value?.model);
@@ -60,9 +61,10 @@ export function createHostedApplication(config,dependencies={}){
    };
    const service={
     selectRun:async()=>(await getDiscovery()).selectRun(),
-    runInvocation:async runId=>(await getDiscovery()).runInvocation(runId),
+    runInvocation:async runId=>{const result=await(await getDiscovery()).runInvocation(runId);notificationSteps.push({...result,mode:'shadow',runId});return result;},
     verifyInvocation:async()=>{
      const result=await(await getVerifier()).runInvocation();
+     notificationSteps.push({...result,mode:'verification'});
      if(result?.status==='idle'&&typeof dependencies.runOwnerFeedbackInvocation==='function'){
       const db={
        checkpoint:(...args)=>{if(args.length)throw Error('Invalid feedback arguments');return rpc('warpcore_owner_feedback_checkpoint',{});},
@@ -81,7 +83,7 @@ export function createHostedApplication(config,dependencies={}){
    const finish=async response=>{
     if(typeof dependencies.notifyFailure!=='function'||response.status===400||response.status===401)return response;
     let status='failed';
-    try{const report=await dependencies.notifyFailure({steps,httpStatus:response.status});if(['sent','failed','timeout','unconfigured','suppressed'].includes(report?.status))status=report.status;}catch{}
+    try{const body=await response.clone().json();const report=await dependencies.notifyFailure({steps:notificationSteps.length?notificationSteps:steps,error:body.error,httpStatus:response.status,workerObservations:notificationSteps.some(step=>['advanced','submitted','verified'].includes(step.status))?[{entity:'hosted-agent',resolved:['hosted_agent_unavailable','agent_run_failed']}]:[]});if(['sent','failed','timeout','unconfigured','suppressed'].includes(report?.status))status=report.status;}catch{}
     if(status==='suppressed')return response;
     return Response.json({...await response.json(),notification:{status}},{status:response.status});
    };
@@ -99,6 +101,9 @@ export function createHostedApplication(config,dependencies={}){
     response=await handleAgent(new Request(req.url,{method:'POST',headers:req.headers,body:'{}'}),authorization,service);
    }
    return finish(Response.json({...await response.json(),steps}));
-  }catch{return Response.json({error:'hosted_agent_unavailable',...flags},{status:502});}
+  }catch{
+   try{await dependencies.notifyFailure?.({error:'hosted_agent_unavailable',httpStatus:502});}catch{}
+   return Response.json({error:'hosted_agent_unavailable',...flags},{status:502});
+  }
  };
 }

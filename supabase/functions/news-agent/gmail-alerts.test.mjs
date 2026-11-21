@@ -32,7 +32,7 @@ test('deployed entrypoint pins Nodemailer and wires only the private Gmail secre
  const entry=await fs.readFile(new URL('./index.ts',import.meta.url),'utf8');assert.match(entry,/from 'npm:nodemailer@10\.6\.0'/);
  const source=entry.replace(/^import .*;\n/gm,'').replace(/:ReturnType<typeof createAgentService>/g,'').replace(/:Request/g,'').replace(/:string/g,'').replace(/:unknown/g,'');
  let handler,dependencies,smtp;const env={SUPABASE_URL:'https://example.supabase.co',SUPABASE_SERVICE_ROLE_KEY:'synthetic-service',WARPCORE_ALERT_GMAIL_USERNAME:'fixture.owner@gmail.com',WARPCORE_ALERT_GMAIL_APP_PASSWORD:secret};
- vm.runInNewContext(source,{Deno:{env:{get:key=>env[key]},serve:fn=>handler=fn},createGmailFailureNotifier,
+ vm.runInNewContext(source,{Deno:{env:{get:key=>env[key]},serve:fn=>handler=fn},createGmailFailureNotifier,createHostedIncidentNotifier:(options,factory)=>{assert.equal(options.projectUrl,env.SUPABASE_URL);assert.equal(options.serviceKey,env.SUPABASE_SERVICE_ROLE_KEY);return factory(options);},
   nodemailer:{createTransport:options=>{smtp=options;return {sendMail:async()=>({accepted:['fixture.owner@gmail.com']}),close:()=>{}};}},
   createHostedApplication:(_config,deps)=>{dependencies=deps;return async()=>new Response('{}');},
   createVerificationService:()=>{},runOwnerFeedbackInvocation:()=>{},Response});
@@ -53,4 +53,20 @@ test('only exhausted history contention alerts; successful recovered verificatio
  assert.deepEqual(await notify({httpStatus:200,steps:[{mode:'verification',status:'submitted'}]}),{status:'suppressed'});assert.equal(calls,0);
  assert.deepEqual(await notify({httpStatus:200,steps:[{mode:'verification',status:'deferred',reason:'history_lock_contention'}]}),{status:'sent'});
  assert.match(mail.text,/Publication history remained busy after bounded retries/);assert.match(mail.text,/history_lock_contention/);assert.ok(!mail.text.includes('Source evidence or publication history was unavailable'));
+});
+test('local and shared deadlines abort the signal passed into SMTP delivery',async()=>{
+ for(const shared of [false,true]){
+  const controller=new AbortController();let mail;
+  const notify=createGmailFailureNotifier({account:'fixture.owner@gmail.com',password:secret,timeoutMs:10,createTransport:()=>({sendMail:message=>{mail=message;return new Promise(()=>{});},close:()=>{}})});
+  const promise=notify(failure,shared?{signal:controller.signal}:{});
+  if(shared)setTimeout(()=>controller.abort(),2);
+  assert.equal((await promise).status,'timeout');assert.equal(mail.signal.aborted,true);
+ }
+});
+test('incident event chooses fixed recovery or reminder copy and rejects injected headers',async()=>{
+ let mail;const notify=createGmailFailureNotifier({account:'fixture.owner@gmail.com',password:secret,createTransport:()=>({sendMail:async message=>{mail=message;return {accepted:['fixture.owner@gmail.com']};},close:()=>{}})});
+ for(const [event,subject] of [['recovered','Warp Core processing recovered'],['reminder','Warp Core processing reminder'],['opened','Warp Core processing failure']]){
+  await notify({incident:{event,domain:'source',entity:'rss:one',class:'source_network'},subject:'Injected',to:'attacker@example.com'});
+  assert.equal(mail.subject,subject);assert.equal(mail.to,'fixture.owner@gmail.com');if(event==='recovered')assert.match(mail.text,/has recovered/);
+ }
 });

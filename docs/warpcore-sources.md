@@ -1,5 +1,7 @@
 # Warp Core source directory
 
+The [November 21 inventory and freshness audit](evidence/2026-11-21-source-inventory.md) lists all 55 tracked identities, separates historical deployment evidence from unknown current deployment state, and records the #136 / #165 / #162 / #164 handoffs.
+
 ## Current configured expansion — November 18, 2026
 
 The tracked roster now has **55 sources**: the existing 46 plus the nine active entries

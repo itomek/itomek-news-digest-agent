@@ -29,7 +29,8 @@ passed. All 583 JavaScript unit/mock tests from the validation workflow passed w
 `umask 022`, matching the ordinary CI file-creation environment. An initial run
 under this workspace's `umask 077` failed the existing pilot-ledger test that requests
 a public 0755 directory: the mask made it private 0700, so its expected refusal did
-not occur. No ledger implementation or test was changed.
+not occur. No ledger implementation or test was changed. After incorporating #194, the unit/mock
+suite was rerun and passed 593/593 tests; the publication SQL exercised here is unchanged.
 
 ## Reproduction
 

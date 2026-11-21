@@ -46,3 +46,11 @@ test('source failures get readable emails, with no source body or arbitrary diag
  assert.deepEqual(await notify({httpStatus:200,sourceFailures:[{id:'rocm_blog',error:'source_http_429',body:secret},{id:'feed',error:'malformed_source_dates'},{id:'hn_discovery',error:'source_head_stale'},{id:'bad\r\nheader',error:'source_network'},{id:'unknown',error:secret}]}),{status:'sent'});assert.match(mail.text,/Source rocm_blog: The source returned HTTP 429/);assert.match(mail.text,/coverage is uncertain/);assert.match(mail.text,/recent stories may be delayed/);assert.ok(!mail.text.includes(secret));assert.ok(!mail.text.includes('bad\r\nheader'));
  assert.deepEqual(await notify({httpStatus:200,sourceFailures:[]}),{status:'suppressed'});
 });
+
+
+test('only exhausted history contention alerts; successful recovered verification is quiet',async()=>{
+ let mail,calls=0;const notify=createGmailFailureNotifier({account:'fixture.owner@gmail.com',password:secret,createTransport:()=>{calls++;return {sendMail:async message=>{mail=message;return {accepted:['fixture.owner@gmail.com']};},close:()=>{}};}});
+ assert.deepEqual(await notify({httpStatus:200,steps:[{mode:'verification',status:'submitted'}]}),{status:'suppressed'});assert.equal(calls,0);
+ assert.deepEqual(await notify({httpStatus:200,steps:[{mode:'verification',status:'deferred',reason:'history_lock_contention'}]}),{status:'sent'});
+ assert.match(mail.text,/Publication history remained busy after bounded retries/);assert.match(mail.text,/history_lock_contention/);assert.ok(!mail.text.includes('Source evidence or publication history was unavailable'));
+});

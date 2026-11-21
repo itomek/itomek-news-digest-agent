@@ -4,7 +4,7 @@ import {createAgentService} from './services.mjs';
 const flags={publishing_enabled:false};
 // These reasons are returned only after verification_finish confirms a terminal
 // item deferral. Infrastructure/handoff failures and unknown paid outcomes stop.
-const finishedItemDeferrals=new Set(['evidence_or_history_unavailable','unapproved_primary_source','billed_invalid_completion','unsupported_verification','model_deferred','verification_quote_missing','verification_source_hash_mismatch','verification_date_invalid','verification_claim_coverage_missing','verification_post_unpublishable']);
+const finishedItemDeferrals=new Set(['evidence_or_history_unavailable','history_lock_contention','unapproved_primary_source','billed_invalid_completion','unsupported_verification','model_deferred','verification_quote_missing','verification_source_hash_mismatch','verification_date_invalid','verification_claim_coverage_missing','verification_post_unpublishable']);
 function bootstrapTransport({projectUrl,serviceKey},fetcher){
  const project=new URL(projectUrl);
  if(project.protocol!=='https:'||! /^[a-z0-9]+\.supabase\.co$/.test(project.hostname)||project.href!==project.origin+'/'||typeof serviceKey!=='string'||!serviceKey||/[\r\n]/.test(serviceKey))throw Error('Invalid hosted configuration');

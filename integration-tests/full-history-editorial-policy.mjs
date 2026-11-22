@@ -22,3 +22,15 @@ for(const previous of ['2026-11-19.1']){
   console.log('PASS full-history editorial cutover from '+previous+': active work fenced; selector, validation and settings agree; producer stays paused');
  }finally{await db.close();}
 }
+// Production used a strict PL/pgSQL guard rather than the permissive SQL IN fixture.
+{
+ const db=new PGlite();try{
+  await db.exec(`create schema shadow_agent;create table shadow_agent.runs(state jsonb,lease_until timestamptz);create table shadow_agent.producer_settings(singleton boolean,enabled boolean,policy_version text);insert into shadow_agent.producer_settings values(true,false,'2026-11-19.1');
+  create function public.warpcore_shadow_select_run() returns text language plpgsql as $$declare settings shadow_agent.producer_settings;begin select * into settings from shadow_agent.producer_settings where singleton;if settings.policy_version is distinct from '2026-11-19.1'
+  then raise exception 'Invalid producer configuration';end if;return settings.policy_version;end $$;`);
+  await db.exec(migration);
+  assert.equal((await db.query('select public.warpcore_shadow_select_run() v')).rows[0].v,POLICY_VERSION);
+  await db.exec("update shadow_agent.producer_settings set policy_version='2026-11-19.1'");await assert.rejects(db.query('select public.warpcore_shadow_select_run()'),/Invalid producer configuration/);
+  console.log('PASS strict deployed PL/pgSQL guard advances only to the current policy');
+ }finally{await db.close();}
+}

@@ -2,7 +2,7 @@ import {repostSubject} from './repost.mjs';
 import {deterministicTid} from './publishing.mjs';
 import {previewRecord} from './publishing.mjs';
 import {sourceLinkDraft} from './source-link-draft.mjs';
-const sourceLinkFields=new Set(['mode','storyKey','evidence','approved','verified']);
+const sourceLinkFields=new Set(['mode','storyKey','evidence','approved','verified','articleExcerpt']);
 // Credential-free transport preview. Intentionally no fetch, URL, auth, or send API.
 export async function prepareTransport(draft,accountDid,preparedAt) {
  if(!/^did:plc:[a-z2-7]{24}$/.test(accountDid))throw Error('Pinned verified account DID required');
@@ -20,7 +20,7 @@ export async function prepareTransport(draft,accountDid,preparedAt) {
   // This is a preview, never authorization. Only the existing guarded queue
   // can hand a record to the sender. Rebuild text/facets from captured data.
   if(draft.approved!==true||draft.verified!==false||Object.keys(draft).some(k=>!sourceLinkFields.has(k)))throw Error('Exact approved source-link draft required');
-  const {text,link}=sourceLinkDraft(draft.evidence);
+  const {text,link}=sourceLinkDraft(draft.evidence,draft.articleExcerpt);
   const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text));
   const facets=[{index:{byteStart:link.byteStart,byteEnd:link.byteEnd},features:[{$type:'app.bsky.richtext.facet#link',uri:link.uri}]}];
   return {dryRun:true,publishable:false,request:null,accountDid,recordKey:deterministicTid(draft.storyKey,createdAt),contentHash:[...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,'0')).join(''),

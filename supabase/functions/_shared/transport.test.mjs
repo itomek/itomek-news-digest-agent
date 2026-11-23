@@ -12,9 +12,9 @@ const attestedLink={storyKey:draft.storyKey,mode:'source_link',evidence:captured
 test('source-link preview builds the ordinary Bluesky record without verified claims',async()=>{
  const account='did:plc:abcdefghijklmnopqrstuvwx',when='2026-11-12T12:00:00.000999Z';
  const record=await t.prepareTransport(attestedLink,account,when);
- assert.deepEqual(record,{dryRun:true,publishable:false,request:null,accountDid:account,recordKey:'3n24gaky622pe',contentHash:'c7917d934f13a8ecf39433fa3abd9f99ac1084de75fc8c4c41aba86266744d28',record:{
-  $type:'app.bsky.feed.post',text:'Headline: 新 release\n\nhttps://example.com/launch',
-  facets:[{index:{byteStart:23,byteEnd:49},features:[{$type:'app.bsky.richtext.facet#link',uri:captured.url}]}],createdAt:'2026-11-12T12:00:00.000Z'
+ assert.deepEqual(record,{dryRun:true,publishable:false,request:null,accountDid:account,recordKey:'3n24gaky622pe',contentHash:'0187d4e3729d22c93c3fbde880644f29b8ad93265b53a13dc45ece1e56f2f7e0',record:{
+  $type:'app.bsky.feed.post',text:'新 release\n\nhttps://example.com/launch',
+  facets:[{index:{byteStart:13,byteEnd:39},features:[{$type:'app.bsky.richtext.facet#link',uri:captured.url}]}],createdAt:'2026-11-12T12:00:00.000Z'
  }});
 });
 test('source-link preparation rejects missing approval, verified label or supplied editorial prose',async()=>{

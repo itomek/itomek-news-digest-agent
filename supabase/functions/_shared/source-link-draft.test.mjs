@@ -5,8 +5,8 @@ const source={visibility:'public',sourceType:'rss',url:'https://publisher.exampl
 test('link-only draft renders the captured headline and original link, with no extra claims', ()=>{
  const draft=renderer.sourceLinkDraft(source);
  assert.equal(draft.mode,'source_link');
- assert.equal(draft.text,'Headline: Example Publisher announces a new processor\n\n'+source.url);
- assert.deepEqual(draft.link,{uri:source.url,byteStart:new TextEncoder().encode('Headline: Example Publisher announces a new processor\n\n').length,byteEnd:new TextEncoder().encode(draft.text).length});
+ assert.equal(draft.text,'Example Publisher announces a new processor\n\n'+source.url);
+ assert.deepEqual(draft.link,{uri:source.url,byteStart:new TextEncoder().encode('Example Publisher announces a new processor\n\n').length,byteEnd:new TextEncoder().encode(draft.text).length});
  assert.equal(draft.factsVerified,false);
 });
 test('link-only draft rejects sources without a known collector headline format', ()=>{
@@ -28,5 +28,20 @@ test('the configured RSS parser supplies a headline without fetching the linked 
  const xml='<rss><channel><item><title>Example Publisher ships a new tool</title><link>'+source.url+'</link><pubDate>Mon, 23 Nov 2026 14:00:00 GMT</pubDate><description><![CDATA[<p>Unneeded full-page evidence for this format.</p>]]></description></item></channel></rss>';
  const [capture]=parseFeed(xml,{url:'https://publisher.example/feed',label:'Example Publisher'},now);
  const draft=renderer.sourceLinkDraft({...capture,sourceType:'rss'});
- assert.equal(draft.text,'Headline: Example Publisher ships a new tool\n\n'+source.url);
+ assert.equal(draft.text,'Example Publisher ships a new tool\n\n'+source.url);
+});
+
+test('optional publisher excerpt is inserted without moving or changing the destination', ()=>{
+ const detail='The new processor ships in Europe next month.';
+ const draft=renderer.sourceLinkDraft(source,detail);
+ assert.equal(draft.text,'Example Publisher announces a new processor\n\n'+detail+'\n\n'+source.url);
+ assert.equal(new TextDecoder().decode(new TextEncoder().encode(draft.text).slice(draft.link.byteStart,draft.link.byteEnd)),source.url);
+});
+
+test('malformed or over-budget optional excerpt still renders the title and original link', ()=>{
+ const baseline=renderer.sourceLinkDraft(source);
+ for(const detail of ['Visit https://other.example/ now.', 'Hidden\u202E content', 'Two\nlines.', '<p>markup</p>', 'x'.repeat(181), 'x '.repeat(26)])
+  assert.deepEqual(renderer.sourceLinkDraft(source,detail),baseline);
+ const long={...source,text:'x'.repeat(215)};
+ assert.deepEqual(renderer.sourceLinkDraft(long,'The new processor ships in stores across the US next month.'),renderer.sourceLinkDraft(long));
 });

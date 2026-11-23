@@ -1,3 +1,4 @@
+import {createPublicEvidenceTransport} from './public-evidence-transport.mjs';
 import {runPagedShadowInvocation} from './paged-runtime.mjs';
 import {createCandidateSource} from './candidate-source.mjs';
 const operations={paged_link_history:['p_run','p_lease','p_revision'],paged_link_reserve:['p_run','p_lease','p_revision','p_hash','p_max','p_history'],paged_link_commit:['p_run','p_lease','p_revision','p_decisions','p_history','p_relays'],release:['p_run','p_lease'],claim:['p_run','p_seconds'],load:['p_run'],paged_append:['p_run','p_lease','p_revision','p_page'],paged_preview:['p_run','p_lease','p_revision','p_size'],paged_begin:['p_run','p_lease','p_revision','p_size'],paged_commit:['p_run','p_lease','p_revision','p_decisions'],paged_uncertain:['p_run','p_lease','p_revision'],paged_bind_config:['p_run','p_lease','p_config'],paged_reserve:['p_run','p_lease','p_revision','p_hash','p_max'],dispatch:['p_attempt','p_lease'],paged_settle:['p_attempt','p_lease','p_status','p_cost','p_audit']};
@@ -30,9 +31,10 @@ export function createAgentService(config={},fetcher=fetch){
   if(!names||args.length!==names.length||match[2]!==names.map((_,i)=>`$${i+1}`).join(','))throw Error('Unsupported shadow query');
   return {rows:[{value:await rpc(match[1],Object.fromEntries(names.map((name,i)=>[name,args[i]])))}]};
  };
+ const articleFetcher=invocationOptions.sourceLinkSelection===true?createPublicEvidenceTransport():undefined;
  const fetchPage=createCandidateSource({query:async(_sql,[p_started,p_cursor])=>({rows:await rpc('candidate_page',{p_started,p_cursor})})});
  return {
   selectRun:async()=>{if(runtime.enabled!==true)return null;const run=await rpc('select_run',{});if(run!==null&&(typeof run!=='string'||!uuid.test(run)))throw Error('Invalid selected run');return run;},
-  runInvocation:runId=>runPagedShadowInvocation({runId,config:runtime,query,fetcher,fetchPage},invocationOptions),
+  runInvocation:runId=>runPagedShadowInvocation({runId,config:runtime,query,fetcher,fetchPage,articleFetcher},invocationOptions),
  };
 }

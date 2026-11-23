@@ -18,10 +18,11 @@ async function seed(...stories){
  return runId;
 }
 const read=async()=>q('select story_key,state,record_payload,approved_at,record_key,content_hash from public.warpcore_publications order by story_key');
-async function review(stories,{changeHistory,skip=[],enabled=true}={}){
+async function review(stories,{changeHistory,skip=[],enabled=true,articleFetcher}={}){
  const runId=await seed(...stories);let requests=0,historyHash;
- const invoke=()=>runPagedShadowInvocation({runId,config:cfg,fetchPage:async({cursor})=>cursor?[]:stories,query:(sql,args)=>db.query(sql.replace(/shadow_agent\.(paged_link_[a-z]+)/,'public.warpcore_shadow_$1'),args).catch(error=>{console.error(sql,error.message);throw error;}),fetcher:async(_url,{body})=>{
+ const invoke=()=>runPagedShadowInvocation({runId,config:{...cfg,allowedSourceHosts:['example.com']},articleFetcher,fetchPage:async({cursor})=>cursor?[]:stories,query:(sql,args)=>db.query(sql.replace(/shadow_agent\.(paged_link_[a-z]+)/,'public.warpcore_shadow_$1'),args).catch(error=>{console.error(sql,error.message);throw error;}),fetcher:async(_url,{body})=>{
   requests++;
+  assert.ok(!body.includes('The publisher opened access'));
   const transmitted=JSON.parse(body);
   const {priorCoverage,candidates}=JSON.parse(transmitted.messages[1].content);
   assert.equal(Object.hasOwn(transmitted.provider,'max_price'),!enabled,'Reservation hash uses the actual wire form');
@@ -46,10 +47,11 @@ try{
  insert into public.warpcore_source_sync values('rss:official',repeat('b',64));
  insert into shadow_agent.budgets(day,limit_credits) values((now() at time zone 'utc')::date,5);`);
  await load('../supabase/migrations/20261123172000_warpcore_one_pass_headlines.sql');
+ await load('../supabase/migrations/20261123193500_warpcore_optional_article_excerpt.sql');
  const first=make(1,'新 Release from the publisher\nThis description must not appear.'),unwanted=make(2,'Unrelated copy');
  const {runId,historyHash}=await review([first,unwanted],{skip:[unwanted.id]});
  const [post]=await read();assert.equal(post.story_key,first.id);assert.equal(post.state,'prepared');assert.ok(post.approved_at);
- assert.equal(post.record_payload.text,'Headline: 新 Release from the publisher\n\n'+first.sourceUrl);
+ assert.equal(post.record_payload.text,'新 Release from the publisher\n\n'+first.sourceUrl);
  assert.equal(post.record_payload.facets[0].features[0].uri,first.sourceUrl);
  assert.equal((await read()).length,1);
  assert.deepEqual(await q('select history_hash,current_at_commit from shadow_agent.source_link_reviews where run_id=$1',[runId]),[{history_hash:historyHash,current_at_commit:true}]);
@@ -77,9 +79,18 @@ try{
  assert.equal((await reconcile(job,adapter,remote)).state,'published');
  assert.equal((await read())[0].state,'published');assert.equal(writes,1,'Uncertain write never sends a second time');
  const nextA=make(6,'Independent release A'),nextB=make(7,'Independent release B'),duplicate=make(8,'A rewrite of release A',nextA.sourceUrl);
- await review([nextA,nextB,duplicate]);
+ const fetched=[];
+ await review([nextA,nextB,duplicate],{articleFetcher:async url=>{
+  fetched.push(url);
+  if(url===nextB.sourceUrl)return new Response('bot denied',{status:403});
+  return new Response('<article><p>The publisher opened access to its new testing console in Europe.</p></article>',{headers:{'content-type':'text/html'}});
+ }});
  const queued=(await read()).filter(row=>row.state==='prepared');
  assert.deepEqual(queued.map(row=>row.story_key),[nextA.id,nextB.id]);
+ assert.ok(fetched.includes(nextA.sourceUrl)&&fetched.includes(nextB.sourceUrl));
+ assert.equal(queued[0].record_payload.facets[0].features[0].uri,nextA.sourceUrl);
+ assert.equal(queued[0].record_payload.text,'Independent release A\n\nThe publisher opened access to its new testing console in Europe.\n\n'+nextA.sourceUrl);
+ assert.equal(queued[1].record_payload.text,'Independent release B\n\n'+nextB.sourceUrl);
  assert.equal(new Set(queued.map(row=>row.record_key)).size,2,'Same hash prefix and batch cannot collide');
 
  await db.exec('set role anon');await assert.rejects(()=>q('select public.warpcore_shadow_paged_link_history($1,null,0)',[runId]),/permission/);

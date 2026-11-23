@@ -1,3 +1,4 @@
+import {tryArticleExcerpt} from './article-excerpt.mjs';
 import {requestProfileForModel,expectedProviderForModel} from './model-profiles.mjs';
 import {approvedRuntimeModel} from './approved-runtime-models.mjs';
 import {prepareTransport} from '../_shared/transport.mjs';
@@ -45,7 +46,7 @@ function projectCandidates(page,cursor){
 }
 // Disabled injected seam only: no connection, credentials lookup, cron or publisher.
 // SQL owns normalized candidate/decision rows and atomic lease/CAS transitions.
-export async function runPagedShadowInvocation({runId,config={},query,fetcher,fetchPage,now=()=>performance.now()}={},options={}){
+export async function runPagedShadowInvocation({runId,config={},query,fetcher,fetchPage,articleFetcher,now=()=>performance.now()}={},options={}){
  if(config.enabled!==true)return {status:'disabled',...flags};
  const cfg=structuredClone(config),{pageSteps=1,reviewBatchSize=25,releaseLeaseOnSuccess=false,sourceLinkSelection=false}=options;
  // Profiles are code-owned; source/caller metadata cannot replace routing or prices.
@@ -145,11 +146,14 @@ export async function runPagedShadowInvocation({runId,config={},query,fetcher,fe
      // Store in frozen candidate order even if the provider reorders decisions.
      const decisions=batch.map(c=>result.decisions.find(d=>d.id===c.id));
      const relays=[];
-     if(history)for(const c of batch){
-      if(decisions.find(d=>d.id===c.id)?.action!=='verify'||!['rss','official_html'].includes(c.sourceType))continue;
+     const selected=history?batch.filter(c=>decisions.find(d=>d.id===c.id)?.action==='verify'&&['rss','official_html'].includes(c.sourceType)):[];
+     // Fetches are parallel, bounded, and never run on a tight lease. The
+     // already-settled review and the title/link fallback need no new model.
+     const articles=deadline-now()>=15000?await Promise.all(selected.map(c=>tryArticleExcerpt(c,{allowedHosts:cfg.allowedSourceHosts,fetcher:articleFetcher}))):[];
+     for(const [index,c] of selected.entries()){
       const evidence={visibility:'public',sourceType:c.sourceType,url:c.sourceUrl,text:c.discoveryText};
       try{
-       const {record,recordKey,contentHash}=await prepareTransport({storyKey:c.id,mode:'source_link',evidence,approved:true,verified:false},'did:plc:pfq2p7n2oiiy2k4pv6xnsgdk',new Date(Date.parse(history.preparedAt)+relays.length).toISOString());
+       const {record,recordKey,contentHash}=await prepareTransport({storyKey:c.id,mode:'source_link',evidence,approved:true,verified:false,articleExcerpt:articles[index]},'did:plc:pfq2p7n2oiiy2k4pv6xnsgdk',new Date(Date.parse(history.preparedAt)+relays.length).toISOString());
        relays.push({storyKey:c.id,record,recordKey,contentHash});
       }catch{/* An unrenderable candidate cannot be posted through this mode. */}
      }

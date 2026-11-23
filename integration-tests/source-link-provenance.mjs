@@ -28,7 +28,7 @@ try {
  assert.equal(proof.method,'captured-source-headline-v1');assert.equal(proof.factsVerified,false);
  assert.equal(proof.storyKey,f.story);assert.equal(proof.evidenceHash,'a'.repeat(64));
  const transport=await prepareTransport({mode:'source_link',storyKey:proof.storyKey,evidence:proof.evidence,verified:proof.factsVerified,approved:true},'did:plc:abcdefghijklmnopqrstuvwx','2026-11-23T10:00:00Z');
- assert.equal(transport.record.text,'Headline: Publisher releases a faster build\n\n'+url);
+ assert.equal(transport.record.text,'Publisher releases a faster build\n\n'+url);
  assert.equal(transport.record.facets[0].features[0].uri,url);
  assert.equal(transport.request,null);
  assert.equal(transport.publishable,false);

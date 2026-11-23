@@ -81,3 +81,14 @@ test('repeated Set-Cookie headers are ignored without accepting ambiguous framin
  const ambiguous=fixture({wire:'HTTP/1.1 200 OK\r\n'+cookies+'Content-Length: 1\r\nContent-Length: 1\r\n\r\nx'});
  await assert.rejects(createPublicEvidenceTransport({runtime:ambiguous.runtime})('https://example.com/',options()));
 });
+test('safe acquisition codes distinguish HTTP, size and strict parser failures without raw diagnostics',async()=>{
+ const {createPublicEvidenceTransport}=await mod();const {fetchCapturedEvidence}=await import('./source-verification.mjs');
+ for(const [wire,expected] of [
+  ['HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n','http_failure'],
+  ['HTTP/1.1 302 Found\r\nLocation: https://private.example/secret\r\n\r\n','http_failure'],
+  ['HTTP/1.1 200 OK\r\nContent-Length: 563732\r\n\r\n','response_size_limit'],
+  ['HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nVary: Accept\r\nVary: Accept-Encoding\r\n\r\n','parser_failure'],
+ ]){
+  const f=fixture({wire});await assert.rejects(fetchCapturedEvidence({url:'https://example.com/',evidence:{id:'fixture',url:'https://example.com/',sourceType:'web',visibility:'public'},config:{enabled:true,allowedHosts:['example.com']},fetcher:createPublicEvidenceTransport({runtime:f.runtime})}),error=>error.code===expected&&!error.message.includes('secret'));
+ }
+});

@@ -139,8 +139,19 @@ function fullV6Format(input){
   return true;
  });return full;
 }
+function fullV8Format(input){
+ const full=fullV6Format(input);
+ for(const branch of full.json_schema.schema.properties.result.anyOf){
+  const e=branch.properties.editorial?.properties;if(!e?.summary)continue;
+  // Reserve the existing canonical prefix/link/separator budget once. Separate
+  // field maxima must partition it rather than each promise the whole allowance.
+  const budget=e.summary.maxLength;
+  e.summary.maxLength=Math.floor(budget/2);e.whyItMatters.maxLength=budget-e.summary.maxLength;
+ }
+ return full;
+}
 export function buildVerificationResponseFormat(input,{version=V8}={}){
- if(version===V8)return providerCompatibleVerificationFormat(fullV6Format(input),'primary_evidence_verification_v8');
+ if(version===V8)return providerCompatibleVerificationFormat(fullV8Format(input),'primary_evidence_verification_v8');
  if(version===V7)return providerCompatibleVerificationFormat(fullV6Format(input),'primary_evidence_verification_v7');
  if(version===V6)return providerCompatibleVerificationFormat(fullV6Format(input),'primary_evidence_verification_v6');
  if(version===V5)return providerCompatibleVerificationFormat(fullV5Format(input),'primary_evidence_verification_v5');
@@ -185,6 +196,8 @@ export function normalizeVerificationResult(result,input,{version=V8}={}){
  if([V6,V7,V8].includes(version)&&result?.action==='approve'&&input.sources.some(source=>source.captureKind==='github-release-v1'&&result.editorial?.evidenceIds?.includes(source.evidenceId))&&(!result.supports||!Object.values(result.supports).every(value=>typeof value==='string')))fail();
  if(!Object.hasOwn(result??{},'supports'))return result;
  const v3=Object.values(result.supports??{}).some(value=>typeof value==='string');
+ // Request writing targets do not reject asymmetric prose that still passes
+ // the existing semantic validation and canonical rendered-post guard.
  const schema=(v3&&[V6,V7,V8].includes(version)?fullV6Format(input):v3&&version===V5?fullV5Format(input):buildVerificationResponseFormat(input,{version:v3?V3:V2})).json_schema.schema;
  if(!matchesVerificationSchema({result},schema))fail();
  const {supports,...legacy}=structuredClone(result);
@@ -238,7 +251,7 @@ export function buildVerificationRequest(input,{model,maxOutputTokens,version=V8
  if(version===V4){const full=buildVerificationResponseFormat(input,{version:V3}).json_schema.schema.properties.result.anyOf;const limits=full.filter(branch=>branch.properties.action.enum[0]==='approve').map(branch=>{const e=branch.properties.editorial.properties;return {evidenceIdsExactly:[...e.evidenceIds.items.enum],mode:e.mode?'repost':'post',...(e.summary?{summaryMaxLength:e.summary.maxLength,whyItMattersMaxLength:e.whyItMatters.maxLength}:{}),changeMaxLength:e.change.maxLength};});request.messages[0].content+='\nV4 TRUSTED EDITORIAL LIMITS: '+JSON.stringify(limits)+'. These are maximum character lengths for unprefixed wire text; use exactly the indicated single evidence ID. Trusted code adds the publisher prefix within the total 300-grapheme/3000-byte post limit. If meaningful qualified text cannot fit, defer.';}
  if([V5,V6,V7,V8].includes(version)){
   request.messages[0].content=request.messages[0].content.replace('V3 QUOTE REFERENCES:','V5 QUOTE REFERENCES:');
-  const limits=fullV5Format(input).json_schema.schema.properties.result.anyOf.filter(b=>b.properties.action.enum[0]==='approve').map(b=>{const e=b.properties.editorial.properties;return {evidenceIdsExactly:e.evidenceIds.items.enum,mode:e.mode?'repost':'post',changeMaxLength:300,...(e.summary?{summaryMaxLength:e.summary.maxLength,whyItMattersMaxLength:e.whyItMatters.maxLength,summaryPlusWhyItMattersCombinedBudget:e.summary.maxLength}:{})};});
+  const limits=(version===V8?fullV8Format(input):fullV5Format(input)).json_schema.schema.properties.result.anyOf.filter(b=>b.properties.action.enum[0]==='approve').map(b=>{const e=b.properties.editorial.properties;return {evidenceIdsExactly:e.evidenceIds.items.enum,mode:e.mode?'repost':'post',changeMaxLength:300,...(e.summary?{summaryMaxLength:e.summary.maxLength,whyItMattersMaxLength:e.whyItMatters.maxLength,summaryPlusWhyItMattersCombinedBudget:version===V8?e.summary.maxLength+e.whyItMatters.maxLength:e.summary.maxLength}:{})};});
   request.messages[0].content+='\nV5 CONCISE OUTPUT LIMITS: '+JSON.stringify(limits)+'. scopeReason, changeReason, dedupReason and defer reason: each one concise sentence, at most 240 characters. Editorial change: at most 300 characters. Ordinary summary and whyItMatters share the indicated COMBINED budget, not separate allowances; allocate it asymmetrically as useful. Each individual text must also stay within its stated maximum. Trusted publisher prefix and all real source links are included in the final 300-grapheme/3000-byte rendered-post guard. Use exactly one indicated evidence ID. Do not enumerate history, reproduce sources, or repeat analysis in reasons. Return only the requested concise result and quote IDs; if qualified factual text cannot fit, defer.';
  }
  if([V6,V7,V8].includes(version))request.messages[0].content=request.messages[0].content.replaceAll('V5 ','V6 ')+'\nV6 GITHUB RELEASE SUPPORT: For github-release-v1 captures, use quoteRoles.content IDs only for summary, whyItMatters and change. Use quoteRoles.publicationDate IDs only for publicationDate. All raw JSON chunks are retained for context, but metadata, assets, authors, URLs and counts cannot serve as release-note support. These roles constrain provenance only, not factual entailment or release novelty; defer when the release notes do not support the claim.';

@@ -169,3 +169,34 @@ jobs:
           WARPCORE_TEST_POSTGREST_URL: http://127.0.0.1:3004
           WARPCORE_TEST_JWT_SECRET: disposable-ci-jwt-secret-never-production-2026
         run: npm run test:current-recovery-postgrest --prefix integration-tests
+
+  unpaid-source-recovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_DB: warpcore_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: disposable-ci-only
+        ports:
+          - '127.0.0.1:5432:5432'
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned isolated test dependencies
+        run: npm ci --prefix integration-tests --ignore-scripts --no-audit --no-fund
+      - name: Unpaid retry overlapping claims and reservation fences
+        env:
+          WARPCORE_TEST_DATABASE_URL: postgres://postgres:disposable-ci-only@127.0.0.1:5432/warpcore_test
+        run: npm run test:unpaid-verification-concurrency --prefix integration-tests

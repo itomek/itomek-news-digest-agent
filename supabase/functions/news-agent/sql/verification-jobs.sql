@@ -123,6 +123,7 @@ begin
   return jsonb_build_object('jobId',j.id,'rankingRunId',j.ranking_run_id,'storyKey',j.story_key,'lease',token,'handoffReceiptId',j.receipt_id);
  end if;
  if not shadow_agent.verification_queue_has_capacity() then return null;end if;
+ if to_regprocedure('shadow_agent.advance_unpaid_verification_retry()') is not null then perform shadow_agent.advance_unpaid_verification_retry();end if;
  select * into j from shadow_agent.verification_jobs where status='pending' and not quarantined order by id limit 1;
  if not found then
   select next.ranking_run_id as run_id,next.story_key as candidate_id into c from shadow_agent.next_verification_candidate() next;

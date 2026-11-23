@@ -7,7 +7,10 @@
 // decoded bytes; identity encoding, single headers and simple chunked framing.
 // Duplicate headers (except ignored Server metadata), chunk extensions/trailers
 // and compression fail closed.
-const fail=()=>{throw Error('Public evidence transport rejected');};
+class PublicEvidenceTransportError extends Error{constructor(code){super('Public evidence transport rejected');this.code=code;}}
+const safeCodes=new Set(['http_failure','response_size_limit','parser_failure','transport_failure']);
+const fail=(code='transport_failure')=>{throw new PublicEvidenceTransportError(code);};
+export const publicEvidenceFailureCode=error=>error instanceof PublicEvidenceTransportError&&safeCodes.has(error.code)?error.code:null;
 const ipv4=s=>{
  if(typeof s!=='string'||!/^\d+\.\d+\.\d+\.\d+$/.test(s))return null;
  const a=s.split('.');if(a.some(x=>! /^(0|[1-9]\d{0,2})$/.test(x)||Number(x)>255))return null;
@@ -34,17 +37,18 @@ const MAX_BODY=200000,MAX_HEADERS=16384,MAX_WIRE=232768;
 const close=c=>{try{c?.close();}catch{}};
 function parseHeaders(text){
  const lines=text.split('\r\n'),status=/^HTTP\/1\.[01] (\d{3}) [\x20-\x7e]*$/.exec(lines.shift());
- if(!status||Number(status[1])<200||Number(status[1])>=300)fail();
+ if(!status)fail('parser_failure');if(Number(status[1])<200||Number(status[1])>=300)fail('http_failure');
  const headers=new Headers(),seen=new Set();
- for(const line of lines){const m=/^([!#$%&'*+.^_`|~0-9A-Za-z-]+):[ \t]*([\x20-\x7e\t]*)$/.exec(line);if(!m)fail();const name=m[1].toLowerCase(),ignored=name==='server'||name==='set-cookie';if(seen.has(name)&&!ignored)fail();seen.add(name);if(!ignored)headers.set(name,m[2].trim());}
+ for(const line of lines){const m=/^([!#$%&'*+.^_`|~0-9A-Za-z-]+):[ \t]*([\x20-\x7e\t]*)$/.exec(line);if(!m)fail('parser_failure');const name=m[1].toLowerCase(),ignored=name==='server'||name==='set-cookie';if(seen.has(name)&&!ignored)fail('parser_failure');seen.add(name);if(!ignored)headers.set(name,m[2].trim());}
+ const declared=headers.get('content-length');if(declared!==null&&/^\d+$/.test(declared)&&Number(declared)>MAX_BODY)fail('response_size_limit');
  const length=headers.get('content-length'),transfer=headers.get('transfer-encoding'),encoding=headers.get('content-encoding');
- if(encoding&&encoding!=='identity'||transfer&&transfer.toLowerCase()!=='chunked'||transfer&&length!==null||length!==null&&(!/^\d{1,6}$/.test(length)||Number(length)>MAX_BODY))fail();
+ if(encoding&&encoding!=='identity'||transfer&&transfer.toLowerCase()!=='chunked'||transfer&&length!==null||length!==null&&(!/^\d{1,6}$/.test(length)||Number(length)>MAX_BODY))fail('parser_failure');
  return {status:Number(status[1]),headers,length:length===null?null:Number(length),chunked:transfer!==null};
 }
 function decodeChunks(bytes){
  const out=[];let offset=0,total=0;
- const line=()=>{const start=offset;while(offset+1<bytes.length&&(bytes[offset]!==13||bytes[offset+1]!==10))offset++;if(offset+1>=bytes.length||offset-start>128)fail();const result=decoder.decode(bytes.subarray(start,offset));offset+=2;return result;};
- for(;;){const sizeText=line();if(!/^[0-9a-fA-F]{1,6}$/.test(sizeText))fail();const size=parseInt(sizeText,16);if(size===0){if(line()!==''||offset!==bytes.length)fail();break;}total+=size;if(total>MAX_BODY||offset+size+2>bytes.length)fail();out.push(bytes.slice(offset,offset+size));offset+=size;if(bytes[offset++]!==13||bytes[offset++]!==10)fail();}
+ const line=()=>{const start=offset;while(offset+1<bytes.length&&(bytes[offset]!==13||bytes[offset+1]!==10))offset++;if(offset+1>=bytes.length||offset-start>128)fail('parser_failure');let result;try{result=decoder.decode(bytes.subarray(start,offset));}catch{fail('parser_failure');}offset+=2;return result;};
+ for(;;){const sizeText=line();if(!/^[0-9a-fA-F]{1,6}$/.test(sizeText))fail('parser_failure');const size=parseInt(sizeText,16);if(size===0){if(line()!==''||offset!==bytes.length)fail('parser_failure');break;}total+=size;if(total>MAX_BODY)fail('response_size_limit');if(offset+size+2>bytes.length)fail('parser_failure');out.push(bytes.slice(offset,offset+size));offset+=size;if(bytes[offset++]!==13||bytes[offset++]!==10)fail('parser_failure');}
  const result=new Uint8Array(total);let at=0;for(const part of out){result.set(part,at);at+=part.length;}return result;
 }
 export function createPublicEvidenceTransport({runtime=globalThis.Deno}={}){
@@ -65,15 +69,15 @@ export function createPublicEvidenceTransport({runtime=globalThis.Deno}={}){
    const request=encoder.encode(`GET ${parsed.pathname}${parsed.search} HTTP/1.1\r\nHost: ${parsed.hostname}\r\n${identity}Accept: text/plain, text/html, application/json\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n`);
    for(let offset=0;offset<request.length;){const n=await tls.write(request.subarray(offset));if(aborted||!Number.isInteger(n)||n<1||n>request.length-offset)fail();offset+=n;}
    const wire=new Uint8Array(MAX_WIRE),buffer=new Uint8Array(8192);let size=0,end=-1,head;
-   for(;;){const n=await tls.read(buffer);if(aborted)fail();if(n===null)break;if(!Number.isInteger(n)||n<1||n>buffer.length||size+n>MAX_WIRE)fail();wire.set(buffer.subarray(0,n),size);const prior=size;size+=n;
-    if(end<0){for(let i=Math.max(0,prior-3);i+3<size;i++)if(wire[i]===13&&wire[i+1]===10&&wire[i+2]===13&&wire[i+3]===10){end=i+4;break;}if(end<0&&size>MAX_HEADERS||end>MAX_HEADERS)fail();if(end>=0)head=parseHeaders(decoder.decode(wire.subarray(0,end-4)));}
-    if(head&&!head.chunked&&size-end>MAX_BODY)fail();
+   for(;;){const n=await tls.read(buffer);if(aborted)fail();if(n===null)break;if(!Number.isInteger(n)||n<1||n>buffer.length)fail();if(size+n>MAX_WIRE)fail('response_size_limit');wire.set(buffer.subarray(0,n),size);const prior=size;size+=n;
+    if(end<0){for(let i=Math.max(0,prior-3);i+3<size;i++)if(wire[i]===13&&wire[i+1]===10&&wire[i+2]===13&&wire[i+3]===10){end=i+4;break;}if(end<0&&size>MAX_HEADERS||end>MAX_HEADERS)fail('response_size_limit');if(end>=0){let text;try{text=decoder.decode(wire.subarray(0,end-4));}catch{fail('parser_failure');}head=parseHeaders(text);}}
+    if(head&&!head.chunked&&size-end>MAX_BODY)fail('response_size_limit');
    }
-   if(!head)fail();let body=wire.slice(end,size);if(head.chunked)body=decodeChunks(body);else if(body.length>MAX_BODY||head.length!==null&&head.length!==body.length)fail();
+   if(!head)fail();let body=wire.slice(end,size);if(head.chunked)body=decodeChunks(body);else{if(body.length>MAX_BODY)fail('response_size_limit');if(head.length!==null&&head.length!==body.length)fail('parser_failure');}
    // Reconstructed Response owns only bounded bytes. Never expose Set-Cookie or
    // other origin headers; source-verification still checks type, size and hash.
    const safeHeaders=new Headers();for(const name of ['content-type']){const value=head.headers.get(name);if(value!==null)safeHeaders.set(name,value);}safeHeaders.set('content-length',String(body.length));
    return new Response(body,{status:head.status,headers:safeHeaders});
-  }catch{fail();}finally{signal.removeEventListener('abort',abort);close(tls);close(tcp);}
+  }catch(error){fail(publicEvidenceFailureCode(error)??'transport_failure');}finally{signal.removeEventListener('abort',abort);close(tls);close(tcp);}
  };
 }

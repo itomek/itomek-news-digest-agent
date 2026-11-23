@@ -2,7 +2,7 @@
 import {PGlite} from '@electric-sql/pglite';import fs from 'node:fs/promises';import assert from 'node:assert/strict';
 const db=new PGlite(),q=async(s,a=[])=>(await db.query(s,a)).rows;
 const read=async()=>(await q('select public.warpcore_agent_active_alerts() value'))[0].value;
-const newCodes=['source_head_stale','verification_stalled','publication_stalled','curation_stalled'];
+const newCodes=['verification_acquisition_failed','verification_draft_rejected','source_head_stale','verification_stalled','publication_stalled','curation_stalled'];
 const codes=[...newCodes,'discovery_stalled','source_attempt_outage','source_failed','budget_unavailable','accounting_uncertain','verification_uncertain','publication_reconciliation','handoff_deferred','handoff_stalled','scheduler_http_failure','scheduler_response_unavailable','scheduler_enqueue_failed','lifetime_headroom_exhausted','queue_above_limit'];
 try{
  await db.exec(`create role anon;create role authenticated;create role service_role;create schema shadow_agent;

@@ -18,3 +18,19 @@ test('Gemma refuses control drift before POST and retains billed invalid respons
  for(const kind of ['provider','shape','cost']){const p=payload(result);if(kind==='provider')p.provider='DeepInfra';if(kind==='shape')p.choices[0].message.content='{}';if(kind==='cost')p.usage.cost=.036046;await assert.rejects(adapter(await make(),cfg(),async()=>Response.json(p)),e=>e.usage.costCredits===p.usage.cost);}
  }
 });
+test('one-pass headline review uses the pinned route without a stale unit-price filter',async()=>{
+ const r=buildReviewRequest([{id:'c1',discoveryText:'A new inference capability.',sourceUrl:'https://ir.amd.com/release'}],{model,allowedModels:[model],maxOutputTokens:4096,requestProfile:requestProfileForModel(model)},{sourceLinkHistory:{snapshotHash:'a'.repeat(64),complete:true,entries:[]}});
+ const out=await reviewWithOpenRouter(r,{...cfg(),onePassHeadlines:true},async(_url,{body})=>{
+  const actual=JSON.parse(body).provider;
+  assert.equal(Object.hasOwn(actual,'max_price'),false);
+  assert.deepEqual(actual,{only:['primeintellect/bf16'],order:['primeintellect/bf16'],allow_fallbacks:false,require_parameters:true,zdr:true});
+  return Response.json(payload({decisions:{c1:{rating:'verify_i2_r3',reason:'New capability.'}}}));
+ });
+ assert.equal(out.usage.costCredits,.001);
+ assert.equal(r.provider.max_price.completion,.30,'legacy profile and immutable run identity are unchanged');
+});
+test('unit-price filter cannot be removed from legacy or unapproved requests',async()=>{
+ const r=discovery();let calls=0;
+ await assert.rejects(()=>reviewWithOpenRouter(r,{...cfg(),onePassHeadlines:true},async()=>{calls++;throw Error('not reached');}),e=>e.code==='unsupported_request'&&e.outcome==='not_started');
+ assert.equal(calls,0);
+});

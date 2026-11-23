@@ -171,3 +171,22 @@ test('undefined precision or recall is null rather than a perfect quality score'
  assert.equal(neither.modelQualityProven,false);
  assert.equal(neither.publishingEnabled,false);
 });
+test('one-pass source selection puts public history into the existing relevance request',()=>{
+ const opts={model:'test/model',allowedModels:['test/model'],maxOutputTokens:2000};
+ const entries=[{storyKey:'a'.repeat(64),headline:'Same launch, different publisher',url:'https://example.com/launch',privateMarker:'DO NOT SEND'}];
+ const history={snapshotHash:'b'.repeat(64),complete:true,entries};
+ const request=buildReviewRequest(cases,opts,{sourceLinkHistory:history});
+ const input=JSON.parse(request.messages[1].content);
+ assert.deepEqual(input.priorCoverage,{snapshotHash:history.snapshotHash,entries:[{storyKey:entries[0].storyKey,headline:entries[0].headline,url:entries[0].url}]});
+ assert.match(request.messages[0].content,/skip.*same event/i);
+ assert.match(request.messages[0].content,/no article fetch or fact check/i);
+ assert.equal(JSON.stringify(request).includes('DO NOT SEND'),false);
+ assert.equal(Object.hasOwn(JSON.parse(buildReviewRequest(cases,opts).messages[1].content),'priorCoverage'),false);
+});
+test('one-pass selection refuses incomplete history and non-public links',()=>{
+ const opts={model:'test/model',allowedModels:['test/model'],maxOutputTokens:2000};
+ const h={snapshotHash:'b'.repeat(64),complete:true,entries:[]};
+ for(const bad of [null,{...h,complete:false},{...h,snapshotHash:'wrong'},{...h,entries:[{storyKey:'c'.repeat(64),headline:'Example',url:'https://user:password@example.com/restricted'}]}]){
+  assert.throws(()=>buildReviewRequest(cases,opts,{sourceLinkHistory:bad}),/history/i);
+ }
+});

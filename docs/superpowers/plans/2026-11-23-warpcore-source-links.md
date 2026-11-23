@@ -1,0 +1,9 @@
+# Warp Core: one editorial pass
+
+Collect → select relevant, new stories → publish the captured headline and original link. Keep the existing sender. No article download, additional model review, generated prose or fact-check label is needed for a relay. Preserve exact native repost behavior; the fact-proof path is only for content that actually adds claims.
+
+1. Add frozen public history metadata to the existing selection request. Ask it to skip repeat coverage across sources and within the same batch. Distinguish actual follow-ups from rewrites of the same announcement. Keep source text inert and retain the current relevance policy. Store the exact candidate/decision/history binding; a legacy decision without history is not eligible for the new route.
+2. Use the proven captured-headline and Bluesky record formatter. Admit a selected current capture to the existing publication queue under the existing admission lock. Recheck evidence, exact duplicates and reviewed history under the same lock. Do not mint a fact-verified receipt or add a second sender. Keep bounded queue activity, pinned account, and no automatic resend after an uncertain result. The DB owns the final record binding.
+3. Test in a disposable environment: fresh headline posts exactly once even if the article is inaccessible; irrelevant and duplicate stories do not post; a changed title/URL, expired or concurrent decision cannot sneak through; old decisions cannot auto-replay; existing verified summaries and native reposts still behave the same. Run required CI for exact head, then release and observe natural scheduled work without any public synthetic post.
+
+Already tested in the draft: private proof of the selected source capture and standard inert Bluesky transport preview. These are not end-to-end queue tests and nothing here activates the new path.

@@ -262,3 +262,19 @@ test('fresh GPT-oss binds Cerebras17.6 low reasoning coded discovery with 8192 o
 test('paged60s model deadline binds durably with180s lease and rejects insufficient margin prepay',async()=>{
  const f=fixture({count:1}),base=f.query;let seconds;f.query=async(sql,args)=>{if(sql.includes('shadow_agent.claim'))seconds=args[1];return base(sql,args);};const cfg={...config,timeoutMs:60000,leaseSeconds:180};await runPagedShadowInvocation({runId,config:cfg,...f},{pageSteps:2});await runPagedShadowInvocation({runId,config:cfg,...f});assert.equal(seconds,180);assert.equal(f.bindings[0].timeoutMs,60000);assert.equal(f.decisions.length,1);const bad=fixture();await assert.rejects(runPagedShadowInvocation({runId,config:{...cfg,leaseSeconds:60},...bad}),/Invalid paged runtime/);assert.equal(bad.events.length,0);
 });
+test('one-pass discovery calls the model once and binds its exact request to frozen history',async()=>{
+ const f=fixture({count:1}),history={complete:true,slots:5,preparedAt:'2026-11-14T20:00:00.000Z',snapshotHash:'a'.repeat(64),entries:[{storyKey:'b'.repeat(64),headline:'Prior announcement',url:'https://example.com/prior'}]};
+ const query=async(sql,args)=>{
+  const op=sql.match(/shadow_agent\.(\w+)/)[1];
+  if(op==='paged_link_history'){assert.equal(args[2],f.state.revision);f.events.push(op);return {rows:[{value:history}]};}
+  if(op==='paged_link_reserve'){assert.equal(args[5],history.snapshotHash);f.events.push(op);return f.query(sql.replace('paged_link_reserve','paged_reserve'),args.slice(0,5));}
+  if(op==='paged_link_commit'){assert.equal(args[4],history.snapshotHash);assert.deepEqual(args[5],[],'unknown source types must not be relayed');f.events.push(op);return f.query(sql.replace('paged_link_commit','paged_commit'),args.slice(0,4));}
+  return f.query(sql,args);
+ };
+ const fetcher=async(url,req)=>{assert.deepEqual(JSON.parse(JSON.parse(req.body).messages[1].content).priorCoverage,{snapshotHash:history.snapshotHash,entries:history.entries});return f.fetcher(url,req);};
+ await runPagedShadowInvocation({runId,config,...f,query,fetcher},{pageSteps:2,sourceLinkSelection:true});
+ const result=await runPagedShadowInvocation({runId,config,...f,query,fetcher},{sourceLinkSelection:true});
+ assert.equal(result.state.reviewedCount,1);
+ assert.equal(f.events.filter(x=>x==='http').length,1);
+ assert.deepEqual(f.events.filter(x=>x.startsWith('paged_link_')),['paged_link_history','paged_link_reserve','paged_link_commit']);
+});

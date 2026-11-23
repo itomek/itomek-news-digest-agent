@@ -1,4 +1,5 @@
 import {requestProfileForModel,expectedProviderForModel} from './model-profiles.mjs';
+import {prepareTransport} from '../_shared/transport.mjs';
 import {POLICY_VERSION} from './policy.mjs';
 import {buildReviewRequest} from './evaluation.mjs';
 import {reviewWithOpenRouter,serializeReviewBody,OpenRouterAttemptError,sanitizedHttpDiagnostics} from './openrouter.mjs';
@@ -45,7 +46,7 @@ function projectCandidates(page,cursor){
 // SQL owns normalized candidate/decision rows and atomic lease/CAS transitions.
 export async function runPagedShadowInvocation({runId,config={},query,fetcher,fetchPage,now=()=>performance.now()}={},options={}){
  if(config.enabled!==true)return {status:'disabled',...flags};
- const cfg=structuredClone(config),{pageSteps=1,reviewBatchSize=25,releaseLeaseOnSuccess=false}=options;
+ const cfg=structuredClone(config),{pageSteps=1,reviewBatchSize=25,releaseLeaseOnSuccess=false,sourceLinkSelection=false}=options;
  // Profiles are code-owned; source/caller metadata cannot replace routing or prices.
  delete cfg.requestProfile;
  delete cfg.expectedProvider;
@@ -56,7 +57,7 @@ export async function runPagedShadowInvocation({runId,config={},query,fetcher,fe
  if(requestProfile?.provider.zdr===true&&expectedProvider===undefined)throw Error('Reviewed provider identity required');
  if(expectedProvider!==undefined)cfg.expectedProvider=expectedProvider;
  const leaseSeconds=cfg.leaseSeconds??60,timeoutMs=cfg.timeoutMs??10000,maxResponseBytes=cfg.maxResponseBytes??200000;
- if(!uuid.test(runId??'')||typeof query!=='function'||typeof fetcher!=='function'||typeof now!=='function'||!Array.isArray(cfg.allowedModels)||!cfg.allowedModels.includes(cfg.model)||!integer(cfg.maxOutputTokens,1,16384)||!Number.isFinite(cfg.maxCostCredits)||cfg.maxCostCredits<=0||cfg.maxCostCredits>=1000000||typeof cfg.apiKey!=='string'||!cfg.apiKey.trim()||/[\r\n]/.test(cfg.apiKey)||!integer(leaseSeconds,1,300)||!integer(timeoutMs,1,60000)||!integer(maxResponseBytes,1,200000)||leaseSeconds*1000<timeoutMs+5000||!integer(pageSteps,1,10)||!integer(reviewBatchSize,1,100)||typeof releaseLeaseOnSuccess!=='boolean')throw Error('Invalid paged runtime configuration');
+ if(!uuid.test(runId??'')||typeof query!=='function'||typeof fetcher!=='function'||typeof now!=='function'||!Array.isArray(cfg.allowedModels)||!cfg.allowedModels.includes(cfg.model)||!integer(cfg.maxOutputTokens,1,16384)||!Number.isFinite(cfg.maxCostCredits)||cfg.maxCostCredits<=0||cfg.maxCostCredits>=1000000||typeof cfg.apiKey!=='string'||!cfg.apiKey.trim()||/[\r\n]/.test(cfg.apiKey)||!integer(leaseSeconds,1,300)||!integer(timeoutMs,1,60000)||!integer(maxResponseBytes,1,200000)||leaseSeconds*1000<timeoutMs+5000||!integer(pageSteps,1,10)||!integer(reviewBatchSize,1,100)||typeof releaseLeaseOnSuccess!=='boolean'||typeof sourceLinkSelection!=='boolean')throw Error('Invalid paged runtime configuration');
  let lastTime=now();if(!Number.isFinite(lastTime))throw Error('Invalid monotonic clock');
  const deadline=lastTime+leaseSeconds*1000;
  const requireMargin=()=>{const current=now();if(!Number.isFinite(current)||current<lastTime||deadline-current<timeoutMs+5000)throw Error('Insufficient remaining lease');lastTime=current;};
@@ -97,11 +98,15 @@ export async function runPagedShadowInvocation({runId,config={},query,fetcher,fe
    const remaining=state.candidateCount-state.reviewedCount;
    const preview=projectCandidates(await call('paged_preview',[runId,lease,state.revision,reviewBatchSize]),null);
    if(preview.length>Math.min(reviewBatchSize,remaining)||(remaining===0?preview.length!==0:preview.length===0))throw Error('Incomplete review preview');
+   const history=sourceLinkSelection&&preview.length?await call('paged_link_history',[runId,lease,state.revision]):undefined;
+   if(sourceLinkSelection&&preview.length&&(!history||history.complete!==true||!key.test(history.snapshotHash??'')||!integer(history.slots,0,5)||typeof history.preparedAt!=='string'||!Number.isFinite(Date.parse(history.preparedAt))))throw Error('Complete reviewed history unavailable');
+   const buildRequest=batch=>buildReviewRequest(batch,cfg,{sourceLinkHistory:history});
    // Fit exact serialized HTTP bytes before freezing any batch or reserving credit.
    // Shrinking invocation work never skips a candidate or limits total review.
-   let size=preview.length;
+   if(history?.slots===0)return finish({status:'deferred',reason:'source_link_backpressure',state,...flags});
+   let size=Math.min(preview.length,history?.slots??preview.length);
    while(size>0){
-    try{serializeReviewBody(buildReviewRequest(preview.slice(0,size),cfg));break;}
+    try{serializeReviewBody(buildRequest(preview.slice(0,size)));break;}
     catch(error){if(!(error instanceof OpenRouterAttemptError)||error.code!=='request_too_large')throw error;size--;}
    }
    if(remaining>0&&size===0)return finish({status:'deferred',reason:'candidate_request_too_large',state,...flags});
@@ -111,11 +116,11 @@ export async function runPagedShadowInvocation({runId,config={},query,fetcher,fe
    adopt(begun?.state,batch.length?{phase:'reviewing',activeBatch:batch.map(c=>c.id)}:{phase:'complete'});
    if(batch.length){
     try{
-     const request=buildReviewRequest(batch,cfg);
+     const request=buildRequest(batch);
      const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(serializeReviewBody(request)));
      const hash=Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('');
      requireMargin();
-     const reservation=await call('paged_reserve',[runId,lease,state.revision,hash,cfg.maxCostCredits]);
+     const reservation=await call(history?'paged_link_reserve':'paged_reserve',[runId,lease,state.revision,hash,cfg.maxCostCredits,...(history?[history.snapshotHash]:[])]);
      if(reservation?.status==='deferred'){
       if(!['insufficient_budget','missing_daily_budget','spending_blocked'].includes(reservation.reason))throw Error('Invalid deferral reason');
       adopt(reservation.state,{phase:'review',activeBatch:null});
@@ -137,7 +142,16 @@ export async function runPagedShadowInvocation({runId,config={},query,fetcher,fe
      if(await call('paged_settle',[attempt,lease,'settled',result.usage.costCredits,{model:result.model,generationId:result.generationId,...(result.provider===undefined?{}:{provider:result.provider}),usage:result.usage}])!==true)throw Error('Settlement unconfirmed');
      // Store in frozen candidate order even if the provider reorders decisions.
      const decisions=batch.map(c=>result.decisions.find(d=>d.id===c.id));
-     adopt(await call('paged_commit',[runId,lease,state.revision,decisions]),{phase:'review',activeBatch:null,reviewedCount:state.reviewedCount+batch.length});
+     const relays=[];
+     if(history)for(const c of batch){
+      if(decisions.find(d=>d.id===c.id)?.action!=='verify'||!['rss','official_html'].includes(c.sourceType))continue;
+      const evidence={visibility:'public',sourceType:c.sourceType,url:c.sourceUrl,text:c.discoveryText};
+      try{
+       const {record,recordKey,contentHash}=await prepareTransport({storyKey:c.id,mode:'source_link',evidence,approved:true,verified:false},'did:plc:pfq2p7n2oiiy2k4pv6xnsgdk',new Date(Date.parse(history.preparedAt)+relays.length).toISOString());
+       relays.push({storyKey:c.id,record,recordKey,contentHash});
+      }catch{/* An unrenderable candidate cannot be posted through this mode. */}
+     }
+     adopt(await call(history?'paged_link_commit':'paged_commit',[runId,lease,state.revision,decisions,...(history?[history.snapshotHash,relays]:[])]),{phase:'review',activeBatch:null,reviewedCount:state.reviewedCount+batch.length});
     }catch(error){
      try{adopt(await call('paged_uncertain',[runId,lease,state.revision]),{phase:'uncertain'});}catch{}
      throw error;

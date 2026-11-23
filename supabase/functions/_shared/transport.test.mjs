@@ -7,3 +7,18 @@ test('normalized persisted createdAt is the sole timestamp used in post TID',asy
  const r=await t.prepareTransport(draft,'did:plc:abcdefghijklmnopqrstuvwx','2026-11-12T12:00:00.000999Z');
  assert.equal(r.record.createdAt,'2026-11-12T12:00:00.000Z');assert.equal(r.recordKey,'3n24gaky622pe');
 });
+const captured={sourceType:'rss',visibility:'public',url:'https://example.com/launch',text:'新 release\nThis description must not appear.'};
+const attestedLink={storyKey:draft.storyKey,mode:'source_link',evidence:captured,approved:true,verified:false};
+test('source-link preview builds the ordinary Bluesky record without verified claims',async()=>{
+ const account='did:plc:abcdefghijklmnopqrstuvwx',when='2026-11-12T12:00:00.000999Z';
+ const record=await t.prepareTransport(attestedLink,account,when);
+ assert.deepEqual(record,{dryRun:true,publishable:false,request:null,accountDid:account,recordKey:'3n24gaky622pe',contentHash:'c7917d934f13a8ecf39433fa3abd9f99ac1084de75fc8c4c41aba86266744d28',record:{
+  $type:'app.bsky.feed.post',text:'Headline: 新 release\n\nhttps://example.com/launch',
+  facets:[{index:{byteStart:23,byteEnd:49},features:[{$type:'app.bsky.richtext.facet#link',uri:captured.url}]}],createdAt:'2026-11-12T12:00:00.000Z'
+ }});
+});
+test('source-link preparation rejects missing approval, verified label or supplied editorial prose',async()=>{
+ for(const override of [{approved:false},{verified:true},{verified:undefined},{summary:'Unsupported claim'},{whyItMatters:'Unsupported claim'},{links:[captured.url]},{text:'Replacement headline'},{evidence:{...captured,visibility:'private'}}]){
+  await assert.rejects(()=>t.prepareTransport({...attestedLink,...override},'did:plc:abcdefghijklmnopqrstuvwx','2026-11-12T12:00:00Z'),/source.link|publisher/i);
+ }
+});

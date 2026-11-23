@@ -19,7 +19,7 @@ create table shadow_agent.alert_settings(
 );
 insert into shadow_agent.alert_settings(singleton) values(true);
 create table shadow_agent.alert_state(
- code text primary key check(code in ('curation_stalled','verification_stalled','publication_stalled','source_head_stale','discovery_stalled','source_attempt_outage','source_failed','budget_unavailable','accounting_uncertain','verification_uncertain','publication_reconciliation','handoff_deferred','handoff_stalled','scheduler_http_failure','scheduler_response_unavailable','scheduler_enqueue_failed','lifetime_headroom_exhausted','queue_above_limit')),
+ code text primary key check(code in ('curation_stalled','verification_stalled','verification_acquisition_failed','verification_draft_rejected','publication_stalled','source_head_stale','discovery_stalled','source_attempt_outage','source_failed','budget_unavailable','accounting_uncertain','verification_uncertain','publication_reconciliation','handoff_deferred','handoff_stalled','scheduler_http_failure','scheduler_response_unavailable','scheduler_enqueue_failed','lifetime_headroom_exhausted','queue_above_limit')),
  active boolean not null,affected_count bigint not null check(affected_count>=0),changed_at timestamptz not null default clock_timestamp()
 );
 -- IDs and timestamps only: no request headers, URLs, bodies or provider errors.
@@ -111,6 +111,8 @@ begin
   select count(*) into n from public.warpcore_configured_source_health where coalesce(head_checked_at,configured_at)<clock_timestamp()-interval '2 hours';
  end if;
  perform shadow_agent.set_alert('source_head_stale',n,settings.resolution_info);
+ perform shadow_agent.set_alert('verification_acquisition_failed',coalesce((health->'verification'->>'recentAcquisitionFailureCount')::bigint,0),settings.resolution_info);
+ perform shadow_agent.set_alert('verification_draft_rejected',coalesce((health->'verification'->>'recentDraftRejectionCount')::bigint,0),settings.resolution_info);
  perform shadow_agent.set_alert('verification_stalled',coalesce((health->'stages'->'verification'->>'stalledCount')::bigint,0),settings.resolution_info);
  perform shadow_agent.set_alert('curation_stalled',coalesce((health->'stages'->'curation'->>'stalledCount')::bigint,0),settings.resolution_info);
  perform shadow_agent.set_alert('publication_stalled',coalesce((health->'stages'->'publication'->>'stalledCount')::bigint,0),settings.resolution_info);

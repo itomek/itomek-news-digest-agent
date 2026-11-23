@@ -1,3 +1,4 @@
+import {publicEvidenceFailureCode} from './public-evidence-transport.mjs';
 // Acquisition ONLY. A fetched page is untrusted evidence, never proof of factual
 // claims or source authorship. No scripts, embedded links or page instructions run.
 // The injected transport must enforce public-network egress/DNS policy; an exact
@@ -47,6 +48,6 @@ export async function fetchCapturedEvidence({url,evidence,config={},fetcher}={})
   }finally{controller.signal.removeEventListener('abort',cancel);cancel();if(reader)reader.releaseLock();}
  })();
  try{return await Promise.race([operation,deadline]);}
- catch(error){if(error instanceof EvidenceFetchError)throw error;throw new EvidenceFetchError('transport_failure');}
+ catch(error){if(error instanceof EvidenceFetchError)throw error;throw new EvidenceFetchError(publicEvidenceFailureCode(error)??'transport_failure');}
  finally{clearTimeout(timer);controller.abort();}
 }

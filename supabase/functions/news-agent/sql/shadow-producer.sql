@@ -96,6 +96,7 @@ begin
   if r.lease_until>clock_timestamp() then return null; end if;
   return to_jsonb(r.id);
  end if;
+ if to_regprocedure('shadow_agent.unpaid_verification_retry_available()') is not null then if shadow_agent.unpaid_verification_retry_available() then return null;end if;end if;
  -- Complete selected work before taking another waiting-list batch. Optional
  -- verifier tables are installed later; dynamic SQL preserves that install order.
  if to_regclass('shadow_agent.verification_settings') is not null

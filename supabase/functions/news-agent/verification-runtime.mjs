@@ -131,7 +131,7 @@ export async function runVerificationInvocation({config={},rpc,modelFetcher,evid
   requestSha256=await hash(JSON.stringify({...request,stream:false}));
  }catch(error){
   if(sourceStage==='history_unavailable'&&error?.code==='history_lock_contention')return finishDeferred('history_lock_contention');
-  const sourceCodes=new Set(['timeout','http_failure','destination_mismatch','unsupported_content_type','response_size_limit','empty_body','invalid_encoding','transport_failure']);
+  const sourceCodes=new Set(['timeout','http_failure','destination_mismatch','unsupported_content_type','response_size_limit','empty_body','invalid_encoding','transport_failure','parser_failure']);
   const detail=sourceStage==='source_unavailable'&&sourceCodes.has(error?.code)?'source_'+error.code:sourceStage;
   return finishDeferred('evidence_or_history_unavailable',detail);
  }

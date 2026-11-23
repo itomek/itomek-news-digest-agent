@@ -134,7 +134,7 @@ create trigger warpcore_health_progress after insert or update on public.warpcor
 -- END RELIABILITY HEALTH PROGRESS
 create function public.warpcore_agent_health() returns jsonb
 language plpgsql security definer set search_path='' as $$
-declare verifier_enabled boolean:=false;submit_enabled boolean:=false;downstream_busy boolean;eligible_rows jsonb:='[]'::jsonb;active_discovery uuid[];stages jsonb;operational jsonb;stage_stalled bigint;stage_pending bigint; policy shadow_agent.spending_policy;latest jsonb;phases jsonb;coverage jsonb;costs jsonb;daily jsonb;queue jsonb;sources jsonb;pubs jsonb;attention jsonb:='[]'::jsonb;verifier_uncertain bigint;attempt_uncertain bigint;handoff_pending bigint;handoff_deferred bigint;active_model jsonb;minimum_required numeric;
+declare verifier_enabled boolean:=false;submit_enabled boolean:=false;downstream_busy boolean;eligible_rows jsonb:='[]'::jsonb;active_discovery uuid[];stages jsonb;operational jsonb;verification_outcomes jsonb;recent_acquisition_failures bigint;recent_draft_rejections bigint;blocked_jobs bigint;stage_stalled bigint;stage_pending bigint; policy shadow_agent.spending_policy;latest jsonb;phases jsonb;coverage jsonb;costs jsonb;daily jsonb;queue jsonb;sources jsonb;pubs jsonb;attention jsonb:='[]'::jsonb;verifier_uncertain bigint;attempt_uncertain bigint;handoff_pending bigint;handoff_deferred bigint;active_model jsonb;minimum_required numeric;
 begin
  select * into policy from shadow_agent.spending_policy where singleton;
  active_model:=shadow_agent.active_runtime_model();minimum_required:=(active_model->>'maxCostCredits')::numeric;
@@ -212,15 +212,39 @@ begin
  ) select jsonb_object_agg(stage,jsonb_build_object('backlogCount',backlog,'oldestWorkAt',oldest,'latestProgressAt',latest_progress,'unclaimedCount',unclaimed_count,'unclaimedCountIsLowerBound',true,'stalledCount',case when blocked is null then aged else 0 end,
  'state',case when backlog=0 then 'healthy_quiet' when blocked is not null then blocked when aged>0 then 'stalled' when latest_progress is null then 'waiting' else 'progressing' end)),sum(case when blocked is null then aged else 0 end),sum(backlog)
  into stages,stage_stalled,stage_pending from counts;
+ -- Terminal acquisition failures are observations of selected work, not editorial skips.
+ -- Only known recent progress clocks enter the 24h window; unknown clocks stay explicit.
+ with observed as(
+ select j.status,to_jsonb(j)->>'outcome_reason' reason,
+  greatest((to_jsonb(j)->>'finished_at')::timestamptz,p.progressed_at,rp.progressed_at) observed_at,
+  coalesce((to_jsonb(r)->>'blocked')::boolean,false) blocked,
+  coalesce((to_jsonb(r)->>'held_credits')::numeric,0)>0 held
+ from shadow_agent.verification_jobs j left join shadow_agent.runs r on r.id::text=to_jsonb(j)->>'child_run_id'
+ left join shadow_agent.health_progress p on p.entity='verification_jobs' and p.entity_id=to_jsonb(j)->>'id'
+ left join shadow_agent.health_progress rp on rp.entity='runs' and rp.entity_id=to_jsonb(j)->>'child_run_id'
+ ), classified as(select *,reason in ('source_timeout','source_http_failure','source_response_size_limit','source_transport_failure','source_parser_failure','source_destination_mismatch','source_unsupported_content_type','source_empty_body','source_invalid_encoding','source_unavailable') acquisition from observed)
+ select jsonb_build_object(
+ 'recentAcquisitionFailureCount',count(*) filter(where status='deferred' and acquisition and observed_at>clock_timestamp()-interval '24 hours'),
+ 'acquisitionFailureUnknownTimeCount',count(*) filter(where status='deferred' and acquisition and observed_at is null),
+ 'recentEditorialSkipCount',count(*) filter(where status='deferred' and reason in ('model_deferred','unsupported_verification','unapproved_primary_source') and observed_at>clock_timestamp()-interval '24 hours'),
+ 'recentDraftRejectionCount',count(*) filter(where status='deferred' and reason='verification_post_unpublishable' and observed_at>clock_timestamp()-interval '24 hours'),
+ 'heldJobCount',count(*) filter(where held),'blockedJobCount',count(*) filter(where blocked or status='uncertain'),
+ 'heldJobsWithoutProgressCount',count(*) filter(where held and observed_at is null)) into verification_outcomes from classified;
+ recent_acquisition_failures:=(verification_outcomes->>'recentAcquisitionFailureCount')::bigint;
+ recent_draft_rejections:=(verification_outcomes->>'recentDraftRejectionCount')::bigint;
+ blocked_jobs:=(verification_outcomes->>'blockedJobCount')::bigint;
  operational:=jsonb_build_object('state',case when stage_stalled>0 then 'stalled'
+ when recent_acquisition_failures>0 then 'degraded'
  when coalesce((sources->>'failedCount')::bigint,0)+coalesce((sources->>'staleHeadCount')::bigint,0)+coalesce((sources->>'missedAttemptCount')::bigint,0)+coalesce((sources->>'malformedDatesCount')::bigint,0)>0 then 'degraded'
  when coalesce((sources->>'progressingPartialCount')::bigint,0)>0 then 'progressing'
  when stage_pending>0 and not exists(select 1 from jsonb_each(stages) s where (s.value->>'backlogCount')::bigint>0 and s.value->>'state'<>'paused') then 'paused'
  when stage_pending>0 and not exists(select 1 from jsonb_each(stages) s where (s.value->>'backlogCount')::bigint>0 and s.value->>'state' not in ('paused','waiting')) then 'waiting'
  when stage_pending>0 then 'progressing' when coalesce((sources->>'coverageGapCount')::bigint,0)>0 then 'coverage_limited' else 'healthy_quiet' end,
- 'sourceProgressingCount',coalesce((sources->>'progressingPartialCount')::bigint,0),'sourceStaleHeadCount',coalesce((sources->>'staleHeadCount')::bigint,0),'coverageLimitedCount',coalesce((sources->>'coverageGapCount')::bigint,0),'sourceRosterConfigured',coalesce((sources->>'rosterConfigured')::boolean,false),'stageStalledCount',stage_stalled);
+ 'sourceProgressingCount',coalesce((sources->>'progressingPartialCount')::bigint,0),'sourceStaleHeadCount',coalesce((sources->>'staleHeadCount')::bigint,0),'coverageLimitedCount',coalesce((sources->>'coverageGapCount')::bigint,0),'sourceRosterConfigured',coalesce((sources->>'rosterConfigured')::boolean,false),'stageStalledCount',stage_stalled,'verificationAcquisitionFailureCount',recent_acquisition_failures,'blockedVerificationCount',blocked_jobs,'reconciliationRequired',blocked_jobs>0 or (verification_outcomes->>'heldJobCount')::bigint>0);
  select count(*) filter(where status='uncertain'),count(*) filter(where status='verified' and handoff_status='pending'),count(*) filter(where handoff_status='deferred') into verifier_uncertain,handoff_pending,handoff_deferred from shadow_agent.verification_jobs;
  select count(*) into attempt_uncertain from shadow_agent.attempts where status='uncertain';
+ if recent_acquisition_failures>0 then attention:=attention||'"verification_acquisition_failed"'::jsonb;end if;
+ if recent_draft_rejections>0 then attention:=attention||'"verification_draft_rejected"'::jsonb;end if;
  if verifier_uncertain>0 then attention:=attention||'"verification_uncertain"'::jsonb;end if;
  if attempt_uncertain>0 then attention:=attention||'"accounting_uncertain"'::jsonb;end if;
  if handoff_deferred>0 then attention:=attention||'"handoff_deferred"'::jsonb;end if;
@@ -234,7 +258,7 @@ begin
  return jsonb_build_object('generatedAt',clock_timestamp(),'activeModel',active_model,'producerEnabled',coalesce((select enabled from shadow_agent.producer_settings where singleton),false),
  'spendingPolicy',jsonb_build_object('enabled',policy.enabled,'dailyLimitCredits',policy.daily_limit_credits,'lifetimeLimitCredits',policy.lifetime_limit_credits,'exclusiveAgent',policy.exclusive_agent),
  'stages',stages,'operationalHealth',operational,'latestDiscovery',latest,'runPhases',phases,'coverage',coverage,'costs',costs,'currentDayBudget',daily,'queue',queue,'publications',pubs,'sourceHealth',sources,
- 'verification',jsonb_build_object('uncertainJobs',verifier_uncertain,'uncertainAttempts',attempt_uncertain,'pendingHandoffs',handoff_pending,'deferredHandoffs',handoff_deferred),'attentionKeys',attention);
+ 'verification',jsonb_build_object('uncertainJobs',verifier_uncertain,'uncertainAttempts',attempt_uncertain,'pendingHandoffs',handoff_pending,'deferredHandoffs',handoff_deferred)||verification_outcomes,'attentionKeys',attention);
 end $$;
 revoke all on function public.warpcore_agent_health() from public,anon,authenticated,service_role;
 grant execute on function public.warpcore_agent_health() to service_role;

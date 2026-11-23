@@ -9,6 +9,8 @@ language sql security definer set search_path='' as $$
  from (
   select a.code,a.changed_at,a.affected_count,case a.code
    when 'source_head_stale' then 'A news source has no recent check of its latest items.'
+   when 'verification_acquisition_failed' then 'Selected news could not acquire its source evidence before verification.'
+   when 'verification_draft_rejected' then 'A recently reviewed draft did not pass publication checks.'
    when 'verification_stalled' then 'News verification has stopped making progress.'
    when 'publication_stalled' then 'News publishing has stopped making progress.'
    when 'curation_stalled' then 'Queued news review has stopped making progress.'
@@ -29,7 +31,7 @@ language sql security definer set search_path='' as $$
   end as message
   from shadow_agent.alert_state a
   where a.active and coalesce((select enabled from shadow_agent.alert_settings where singleton),false)
-  and a.code in ('source_head_stale','verification_stalled','publication_stalled','curation_stalled','discovery_stalled','source_attempt_outage','source_failed','budget_unavailable','accounting_uncertain','verification_uncertain','publication_reconciliation','handoff_deferred','handoff_stalled','scheduler_http_failure','scheduler_response_unavailable','scheduler_enqueue_failed','lifetime_headroom_exhausted','queue_above_limit')
+  and a.code in ('source_head_stale','verification_stalled','verification_acquisition_failed','verification_draft_rejected','publication_stalled','curation_stalled','discovery_stalled','source_attempt_outage','source_failed','budget_unavailable','accounting_uncertain','verification_uncertain','publication_reconciliation','handoff_deferred','handoff_stalled','scheduler_http_failure','scheduler_response_unavailable','scheduler_enqueue_failed','lifetime_headroom_exhausted','queue_above_limit')
   order by a.changed_at desc,a.code limit 15
  ) bounded
 $$;

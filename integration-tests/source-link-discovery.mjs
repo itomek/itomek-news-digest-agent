@@ -1,7 +1,7 @@
 // Real disposable SQL, one fabricated model call per invocation; no sender.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import {randomUUID} from 'node:crypto';
+import {randomUUID,createHash} from 'node:crypto';
 import {PGlite} from '@electric-sql/pglite';
 import {sendPrepared,reconcile} from '../supabase/functions/_shared/sender.mjs';
 import {newPagedShadowRun,runPagedShadowInvocation} from '../supabase/functions/news-agent/paged-runtime.mjs';
@@ -22,9 +22,13 @@ async function review(stories,{changeHistory,skip=[],enabled=true}={}){
  const runId=await seed(...stories);let requests=0,historyHash;
  const invoke=()=>runPagedShadowInvocation({runId,config:cfg,fetchPage:async({cursor})=>cursor?[]:stories,query:(sql,args)=>db.query(sql.replace(/shadow_agent\.(paged_link_[a-z]+)/,'public.warpcore_shadow_$1'),args).catch(error=>{console.error(sql,error.message);throw error;}),fetcher:async(_url,{body})=>{
   requests++;
-  const {priorCoverage,candidates}=JSON.parse(JSON.parse(body).messages[1].content);
+  const transmitted=JSON.parse(body);
+  const {priorCoverage,candidates}=JSON.parse(transmitted.messages[1].content);
+  assert.equal(Object.hasOwn(transmitted.provider,'max_price'),!enabled,'Reservation hash uses the actual wire form');
   if(enabled){assert.ok(Array.isArray(priorCoverage.entries));historyHash=priorCoverage.snapshotHash;}
   else assert.equal(priorCoverage,undefined);
+  const h=createHash('sha256').update(body).digest('hex');
+  assert.equal((await q("select status from shadow_agent.attempts where request_hash=$1",[h]))[0]?.status,'dispatched');
   await changeHistory?.();
   return Response.json({id:'fixture-generation-'+runId,model,provider:'Cerebras',usage:{prompt_tokens:2,completion_tokens:2,total_tokens:4,cost:.01},choices:[{finish_reason:'stop',message:{content:JSON.stringify({decisions:Object.fromEntries(candidates.map(c=>[c.id,{rating:skip.includes(c.id)?'skip':'verify_i2_r2',reason:'Synthetic relevance decision'}]))})}}]});
  }},{pageSteps:2,reviewBatchSize:16,releaseLeaseOnSuccess:true,sourceLinkSelection:enabled});

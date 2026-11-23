@@ -1,9 +1,10 @@
+import {approvedRuntimeModel} from './approved-runtime-models.mjs';
 import {requestProfileForModel} from './model-profiles.mjs';
 import {DISCOVERY_RATING_CODES,isKeyedCodedRankingFormat,isKeyedRankedDiscoveryFormat,isRankedDiscoveryFormat,matchesDiscoveryFormat,validateProviderPolicy,validateReasoningControl} from './review-contract.mjs';
 // OpenRouter Chat Completions contract:
 // https://openrouter.ai/docs/api_reference/overview
 // This adapter owns one HTTP attempt, NOT spend authorization or a durable ledger.
-// Caller must atomically reserve a verified worst-case cost under per-run/day caps,
+// Caller must reserve the existing application accounting allowance,
 // bind it to this exact request, and persist the attempt before invoking. Never
 // reuse a reservation after an uncertain result. No default fetch or key lookup.
 const ENDPOINT='https://openrouter.ai/api/v1/chat/completions';
@@ -152,9 +153,18 @@ function parseResult(data,request,ids,reservation){
 export function validateReviewProvider(provider){
  try{return validateProviderPolicy(provider);}catch{fail('unsupported_request');}
 }
-export function serializeReviewBody(request){
+export function serializeReviewBody(request,{onePassHeadlines=false}={}){
  if(Object.hasOwn(request,'reasoning')){try{validateReasoningControl(request.reasoning);}catch{fail('unsupported_request');}}
  const provider=Object.hasOwn(request,'provider')?validateReviewProvider(request.provider):{allow_fallbacks:false,require_parameters:true};
+ if(onePassHeadlines){
+  const approved=approvedRuntimeModel(request.model);
+  const profile=approved&&requestProfileForModel(request.model,approved.discoveryProfileVersion);
+  let history;try{history=JSON.parse(request.messages?.[1]?.content).priorCoverage;}catch{fail('unsupported_request');}
+  if(!profile||JSON.stringify(provider)!==JSON.stringify(profile.provider)||typeof history?.snapshotHash!=='string'||!/^[a-f0-9]{64}$/.test(history.snapshotHash)||!Array.isArray(history.entries))fail('unsupported_request');
+  // Keep the fixed provider and data-retention policy. Do not let an old
+  // reference price reject an otherwise eligible headline request.
+  delete provider.max_price;
+ }
  const body=JSON.stringify({...request,stream:false,provider});
  if(encoder.encode(body).byteLength>200000)fail('request_too_large');
  return body;
@@ -163,7 +173,7 @@ export async function reviewWithOpenRouter(request,config={},fetcher){
  const ids=validate(request,config,fetcher);
  const timeoutMs=config.timeoutMs??10000,maxResponseBytes=config.maxResponseBytes??200000;
  if(!boundedInteger(timeoutMs,60000)||!boundedInteger(maxResponseBytes,200000))fail('invalid_limits');
- const body=serializeReviewBody(request);
+ const body=serializeReviewBody(request,{onePassHeadlines:config.onePassHeadlines===true});
  const pinnedRequest={model:request.model,response_format:structuredClone(request.response_format),...(Object.hasOwn(config,'expectedProvider')?{expectedProvider:config.expectedProvider}:{})};
  const pinnedReservation={maxCostCredits:config.reservation.maxCostCredits};
  const controller=new AbortController();let timer,httpDiagnostics={};

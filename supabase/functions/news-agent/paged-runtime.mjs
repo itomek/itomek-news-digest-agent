@@ -1,4 +1,5 @@
 import {requestProfileForModel,expectedProviderForModel} from './model-profiles.mjs';
+import {approvedRuntimeModel} from './approved-runtime-models.mjs';
 import {prepareTransport} from '../_shared/transport.mjs';
 import {POLICY_VERSION} from './policy.mjs';
 import {buildReviewRequest} from './evaluation.mjs';
@@ -101,12 +102,13 @@ export async function runPagedShadowInvocation({runId,config={},query,fetcher,fe
    const history=sourceLinkSelection&&preview.length?await call('paged_link_history',[runId,lease,state.revision]):undefined;
    if(sourceLinkSelection&&preview.length&&(!history||history.complete!==true||!key.test(history.snapshotHash??'')||!integer(history.slots,0,5)||typeof history.preparedAt!=='string'||!Number.isFinite(Date.parse(history.preparedAt))))throw Error('Complete reviewed history unavailable');
    const buildRequest=batch=>buildReviewRequest(batch,cfg,{sourceLinkHistory:history});
+   const wireOptions={onePassHeadlines:history!==undefined&&approvedRuntimeModel(cfg.model)!==undefined};
    // Fit exact serialized HTTP bytes before freezing any batch or reserving credit.
    // Shrinking invocation work never skips a candidate or limits total review.
    if(history?.slots===0)return finish({status:'deferred',reason:'source_link_backpressure',state,...flags});
    let size=Math.min(preview.length,history?.slots??preview.length);
    while(size>0){
-    try{serializeReviewBody(buildRequest(preview.slice(0,size)));break;}
+    try{serializeReviewBody(buildRequest(preview.slice(0,size)),wireOptions);break;}
     catch(error){if(!(error instanceof OpenRouterAttemptError)||error.code!=='request_too_large')throw error;size--;}
    }
    if(remaining>0&&size===0)return finish({status:'deferred',reason:'candidate_request_too_large',state,...flags});
@@ -117,7 +119,7 @@ export async function runPagedShadowInvocation({runId,config={},query,fetcher,fe
    if(batch.length){
     try{
      const request=buildRequest(batch);
-     const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(serializeReviewBody(request)));
+     const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(serializeReviewBody(request,wireOptions)));
      const hash=Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('');
      requireMargin();
      const reservation=await call(history?'paged_link_reserve':'paged_reserve',[runId,lease,state.revision,hash,cfg.maxCostCredits,...(history?[history.snapshotHash]:[])]);
@@ -132,7 +134,7 @@ export async function runPagedShadowInvocation({runId,config={},query,fetcher,fe
      if(await call('dispatch',[attempt,lease])!==true)throw Error('Dispatch not confirmed');
      requireMargin();
      let result;
-     try{result=await reviewWithOpenRouter(request,{...cfg,reservation:{id:attempt,maxCostCredits:cfg.maxCostCredits}},fetcher);}
+     try{result=await reviewWithOpenRouter(request,{...cfg,...wireOptions,reservation:{id:attempt,maxCostCredits:cfg.maxCostCredits}},fetcher);}
      catch(error){
       const usage=error instanceof OpenRouterAttemptError?safeUsage(error.usage):undefined,cost=usage?.costCredits,diagnostic=attemptDiagnostic(error,cfg.apiKey);
       const errorCode=error instanceof OpenRouterAttemptError&&errorCodes.has(error.code)?error.code:'transport_failure';

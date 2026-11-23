@@ -12,7 +12,8 @@ returns jsonb language sql stable security invoker set search_path='' as $fn$
   join public.warpcore_stories story on story.story_key=c.candidate_id
   where c.run_id=p_run and c.candidate_id=p_story and p_story ~ '^[0-9a-f]{64}$'
    and p_snapshot_hash ~ '^[0-9a-f]{64}$'
-   and k.finalized_at is not null and reviewed.state->>'phase'='complete'
+   and ((k.finalized_at is not null and reviewed.state->>'phase'='complete')
+     or (reviewed.state->>'phase'='review' and c.ordinal<(reviewed.state->>'reviewedCount')::bigint))
    and story.status='unverified_review_required'
    and c.candidate->>'id'=p_story and d.decision->>'id'=p_story and d.decision->>'action'='verify'
  ), snapshot as materialized (

@@ -129,3 +129,10 @@ test('step limit continues without a timer through fixed private RPC',async()=>{
  },createDiscoveryService:()=>({selectRun:async()=>null}),createVerifierService:()=>({runInvocation:async()=>{steps++;return {status:'verified'};}})});
  assert.equal((await app(request())).status,200);assert.equal(steps,12);assert.equal(wakes,1);
 });
+test('one-pass relay is enabled only by hosted setup, not request data',async()=>{
+ for(const sourceLinkSelection of [false,true]){
+  let constructed=false;
+  const app=createHostedApplication({...config,sourceLinkSelection},{bootstrapRpc:async name=>name==='warpcore_agent_authorization'?{enabled:true,producerToken:token}:{model:'openai/gpt-oss-120b',apiKey:'private-test-key',maxOutputTokens:8192,maxCostCredits:.076596,allowedSourceHosts:['example.com']},createDiscoveryService:options=>{constructed=true;assert.equal(options.invocationOptions.sourceLinkSelection,sourceLinkSelection);return {selectRun:async()=>null};},createVerifierService:()=>({runInvocation:async()=>({status:'idle'})})});
+  assert.equal((await app(request())).status,200);assert.equal(constructed,true);
+ }
+});

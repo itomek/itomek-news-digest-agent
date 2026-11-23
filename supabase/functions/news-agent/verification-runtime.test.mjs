@@ -210,13 +210,13 @@ test('Cerebras and Gemma ordinary-source allowances leave GitHub API hard100KB b
  assert.equal((await run(f)).reason,'evidence_or_history_unavailable');assert.equal(f.events.some(e=>['model_post','warpcore_verification_reserve','warpcore_verification_dispatch'].includes(e.name)),false);
  }
 });
-test('current prose partition holds asymmetric output while historical V5 validation remains available',async()=>{
+test('current verifier accepts asymmetric prose when the final attributed post fits',async()=>{
  const {normalizeVerificationResult}=await import('./verification-contract.mjs');
  const f=fixture(),summary='The release introduces offline execution for local inference engines, making the new capability available without relying on a hosted inference endpoint.';
  const prior=f.result.editorial.summary;f.result.editorial.summary=summary;f.result.claims.find(c=>c.claim===prior).claim=summary;
  const base=f.evidenceFetcher;f.evidenceFetcher=async(...args)=>new Response((await(await base(...args)).text())+' '+summary,{headers:{'content-type':'text/plain'}});
- assert.equal((await run(f)).status,'deferred');const wire=wireResult(f.result,f.projectedInput);const {reconstructVerificationInput}=await import('./verification-contract.mjs');const input=reconstructVerificationInput(f.projectedInput);
- assert.throws(()=>normalizeVerificationResult(wire,input,{version:'2026-11-17.verify.4'}));assert.equal(normalizeVerificationResult(wire,input,{version:'2026-11-17.verify.5'}).editorial.summary,'AMD reports: '+summary);assert.throws(()=>normalizeVerificationResult(wire,input),e=>e.code==='verification_post_unpublishable');assert.equal(f.events.filter(e=>e.name==='warpcore_agent_issue_receipt').length,0);assert.equal(f.events.find(e=>e.name==='warpcore_verification_settle').args.p_status,'settled');
+ assert.equal((await run(f)).status,'submitted');const wire=wireResult(f.result,f.projectedInput);const {reconstructVerificationInput}=await import('./verification-contract.mjs');const input=reconstructVerificationInput(f.projectedInput);
+ assert.throws(()=>normalizeVerificationResult(wire,input,{version:'2026-11-17.verify.4'}));assert.equal(normalizeVerificationResult(wire,input,{version:'2026-11-17.verify.5'}).editorial.summary,'AMD reports: '+summary);assert.equal(normalizeVerificationResult(wire,input).editorial.summary,'AMD reports: '+summary);assert.ok(f.material.editorial.summary.length>f.material.editorial.whyItMatters.length*2);assert.equal(f.events.filter(e=>e.name==='warpcore_agent_issue_receipt').length,1);assert.equal(f.events.find(e=>e.name==='warpcore_verification_settle').args.p_status,'settled');
 });
 test('V5 combined overflow and oversized concise reason settle and archive before deferral, never receipt',async()=>{
  for(const kind of ['combined','reason']){const f=fixture();if(kind==='reason')f.result.scopeReason='x'.repeat(241);else for(const key of ['summary','whyItMatters']){const old=f.result.editorial[key];f.result.editorial[key]='x'.repeat(180);f.result.claims.find(c=>c.claim===old).claim=f.result.editorial[key];}

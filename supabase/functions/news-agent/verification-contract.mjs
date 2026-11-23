@@ -196,11 +196,10 @@ export function normalizeVerificationResult(result,input,{version=V8}={}){
  if([V6,V7,V8].includes(version)&&result?.action==='approve'&&input.sources.some(source=>source.captureKind==='github-release-v1'&&result.editorial?.evidenceIds?.includes(source.evidenceId))&&(!result.supports||!Object.values(result.supports).every(value=>typeof value==='string')))fail();
  if(!Object.hasOwn(result??{},'supports'))return result;
  const v3=Object.values(result.supports??{}).some(value=>typeof value==='string');
- const schema=(v3&&version===V8?fullV8Format(input):v3&&[V6,V7].includes(version)?fullV6Format(input):v3&&version===V5?fullV5Format(input):buildVerificationResponseFormat(input,{version:v3?V3:V2})).json_schema.schema;
- if(!matchesVerificationSchema({result},schema)){
-  if(v3&&version===V8&&matchesVerificationSchema({result},fullV6Format(input).json_schema.schema))fail('verification_post_unpublishable');
-  fail();
- }
+ // Request writing targets do not reject asymmetric prose that still passes
+ // the existing semantic validation and canonical rendered-post guard.
+ const schema=(v3&&[V6,V7,V8].includes(version)?fullV6Format(input):v3&&version===V5?fullV5Format(input):buildVerificationResponseFormat(input,{version:v3?V3:V2})).json_schema.schema;
+ if(!matchesVerificationSchema({result},schema))fail();
  const {supports,...legacy}=structuredClone(result);
  let projection;
  if(v3){projection=projectVerificationInput(input,{version});if(legacy.editorial.mode!=='repost'){const index=input.sources.findIndex(s=>s.evidenceId===legacy.editorial.evidenceIds[0]);const evidence=input.evidence.find(e=>e.id===legacy.editorial.evidenceIds[0]);if(legacy.editorial.summary.trim()===evidence.text?.trim())fail('verification_post_unpublishable');legacy.editorial.summary=projection.sources[index].attributionPrefix+legacy.editorial.summary;}}

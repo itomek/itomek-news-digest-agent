@@ -71,7 +71,11 @@ export function createHostedApplication(config,dependencies={}){
        recordPage:(...args)=>{if(args.length!==2)throw Error('Invalid feedback arguments');return rpc('warpcore_owner_feedback_record_page',{p_revision:args[0],p_page:args[1]});},
       };
       try{const feedback=await dependencies.runOwnerFeedbackInvocation({db});if(!['advanced','disabled','conflict'].includes(feedback?.status))throw Error();}
-      catch{throw Error('Owner feedback unavailable');}
+      catch{
+      // Feedback is ancillary after core work is idle. Keep its failure visible
+      // without turning a successful news turn into a worker failure incident.
+      try{dependencies.reportFeedbackFailure?.('owner_feedback_unavailable');}catch{}
+     }
      }
      return result;
     },

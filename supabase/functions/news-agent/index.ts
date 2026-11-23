@@ -14,7 +14,7 @@ Deno.serve((req:Request)=>{
  // Existing env-based installations keep their explicit gate. New deployment
  // uses protected database activation (default off) and private Vault bootstrap.
  if(!Deno.env.get('WARPCORE_AGENT_CRON_TOKEN')){
-  hosted??=createHostedApplication({drain:true,projectUrl:Deno.env.get('SUPABASE_URL'),serviceKey:Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')},{createVerifierService:createVerificationService,runOwnerFeedbackInvocation,notifyFailure:async (failure:unknown)=>createHostedIncidentNotifier({projectUrl:Deno.env.get('SUPABASE_URL'),serviceKey:Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),createTransport:nodemailer.createTransport,account:Deno.env.get('WARPCORE_ALERT_GMAIL_USERNAME'),password:Deno.env.get('WARPCORE_ALERT_GMAIL_APP_PASSWORD')},createGmailFailureNotifier)(failure)});
+  hosted??=createHostedApplication({drain:true,projectUrl:Deno.env.get('SUPABASE_URL'),serviceKey:Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')},{createVerifierService:createVerificationService,runOwnerFeedbackInvocation,reportFeedbackFailure:(code:string)=>console.warn(code),notifyFailure:async (failure:unknown)=>createHostedIncidentNotifier({projectUrl:Deno.env.get('SUPABASE_URL'),serviceKey:Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),createTransport:nodemailer.createTransport,account:Deno.env.get('WARPCORE_ALERT_GMAIL_USERNAME'),password:Deno.env.get('WARPCORE_ALERT_GMAIL_APP_PASSWORD')},createGmailFailureNotifier)(failure)});
   return hosted(req);
  }
  let service:ReturnType<typeof createAgentService>;

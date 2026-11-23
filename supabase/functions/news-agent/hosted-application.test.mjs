@@ -30,17 +30,40 @@ test('feedback cannot poll on auth/body failures or a progressing discovery run'
  let polls=0;const app=createHostedApplication(config,{bootstrapRpc:async name=>name==='warpcore_agent_authorization'?{enabled:true,producerToken:token}:{model:'openai/gpt-oss-120b',apiKey:'private-test-key',maxOutputTokens:8192,maxCostCredits:.076596,allowedSourceHosts:['example.com']},createDiscoveryService:()=>({selectRun:async()=>'00000000-0000-4000-8000-000000000001',runInvocation:async()=>({status:'advanced',state:{phase:'scan',candidateCount:0,reviewedCount:0}})}),createVerifierService:()=>({runInvocation:async()=>assert.fail()}),runOwnerFeedbackInvocation:()=>{polls++;assert.fail();}});
  assert.equal((await app(request('{}','wrong'))).status,401);assert.equal((await app(request('{"model":"attacker"}'))).status,400);assert.equal((await(await app(request())).json()).mode,'shadow');assert.equal(polls,0);
 });
-function transportFixture(callback,{feedbackResponse}={}){const requests=[];const app=createHostedApplication(config,{fetcher:async(url,options)=>{requests.push({url:String(url),options});const name=new URL(url).pathname.split('/').at(-1);if(name==='warpcore_agent_authorization')return Response.json({enabled:true,producerToken:token});if(name==='warpcore_agent_runtime_config')return Response.json({model:'openai/gpt-oss-120b',apiKey:'private-test-key',maxOutputTokens:8192,maxCostCredits:.076596,allowedSourceHosts:['example.com']});return feedbackResponse?feedbackResponse(name):Response.json({revision:2,coverage:'pending',newCount:1});},createDiscoveryService:()=>({selectRun:async()=>null}),createVerifierService:()=>({runInvocation:async()=>({status:'idle'})}),runOwnerFeedbackInvocation:callback});return {app,requests};}
+function transportFixture(callback,{feedbackResponse,reportFeedbackFailure}={}){const requests=[];const app=createHostedApplication(config,{fetcher:async(url,options)=>{requests.push({url:String(url),options});const name=new URL(url).pathname.split('/').at(-1);if(name==='warpcore_agent_authorization')return Response.json({enabled:true,producerToken:token});if(name==='warpcore_agent_runtime_config')return Response.json({model:'openai/gpt-oss-120b',apiKey:'private-test-key',maxOutputTokens:8192,maxCostCredits:.076596,allowedSourceHosts:['example.com']});return feedbackResponse?feedbackResponse(name):Response.json({revision:2,coverage:'pending',newCount:1});},createDiscoveryService:()=>({selectRun:async()=>null}),createVerifierService:()=>({runInvocation:async()=>({status:'idle'})}),runOwnerFeedbackInvocation:callback,reportFeedbackFailure});return {app,requests};}
 test('feedback receives only fixed checkpoint/page RPCs with exact arguments and fixed private transport',async()=>{
  const f=transportFixture(async({db})=>{assert.deepEqual(Object.keys(db).sort(),['checkpoint','recordPage']);await db.checkpoint();await db.recordPage(1,{entries:[]});return {status:'advanced',recordedCount:1,secret:'never expose'};});assert.deepEqual(await(await f.app(request())).json(),{mode:'verification',status:'idle',publishing_enabled:false});const rpc=f.requests.slice(2);assert.equal(rpc.length,2);assert.equal(rpc[0].url,'https://fixture.supabase.co/rest/v1/rpc/warpcore_owner_feedback_checkpoint');assert.equal(rpc[0].options.body,'{}');assert.equal(rpc[1].url,'https://fixture.supabase.co/rest/v1/rpc/warpcore_owner_feedback_record_page');assert.deepEqual(JSON.parse(rpc[1].options.body),{p_revision:1,p_page:{entries:[]}});for(const x of rpc){assert.equal(x.options.headers.Authorization,'Bearer '+config.serviceKey);assert.equal(x.options.redirect,'error');}
 });
-test('feedback argument, wire-size and response failures remain generic and never leak secrets',async()=>{
- for(const invoke of [db=>db.checkpoint({model:'forbidden'}),db=>db.recordPage(1,{},'extra'),db=>db.recordPage(-1,{}),db=>db.recordPage(1,[]),db=>db.recordPage(1,{text:'x'.repeat(200001)}),db=>db.recordPage(1,{text:'🦀'.repeat(50001)}),async()=>{throw Error('private-test-key '+config.serviceKey);}]){const f=transportFixture(async({db})=>{await invoke(db);return {status:'advanced'};});const response=await f.app(request());assert.equal(response.status,502);assert.equal(JSON.stringify(await response.json()).includes('private'),false);assert.equal(f.requests.length,2);}
- const f=transportFixture(async({db})=>{await db.recordPage(1,{});return {status:'conflict'};});assert.equal((await f.app(request())).status,200);
+test('failed optional feedback reports a safe diagnostic without failing an idle news turn',async()=>{
+ const diagnostic=[];
+ for(const invoke of [db=>db.checkpoint({model:'forbidden'}),db=>db.recordPage(1,{},'extra'),db=>db.recordPage(-1,{}),db=>db.recordPage(1,[]),db=>db.recordPage(1,{text:'x'.repeat(200001)}),db=>db.recordPage(1,{text:'🦀'.repeat(50001)}),async()=>{throw Error('private-test-key '+config.serviceKey);}]){
+  const f=transportFixture(async({db})=>{await invoke(db);return {status:'advanced'};},{reportFeedbackFailure:value=>diagnostic.push(value)});
+  const response=await f.app(request());assert.equal(response.status,200);
+  assert.deepEqual(await response.json(),{mode:'verification',status:'idle',publishing_enabled:false});
+  assert.equal(f.requests.length,2);
+ }
+ assert.equal(diagnostic.length,7);
+ for(const value of diagnostic)assert.equal(value,'owner_feedback_unavailable');
+ const f=transportFixture(async({db})=>{await db.recordPage(1,{});return {status:'conflict'};},{reportFeedbackFailure:()=>assert.fail('conflict is not an error')});
+ assert.equal((await f.app(request())).status,200);
 });
 
-test('feedback response declaration and streamed bytes are bounded to 32KB',async()=>{
- for(const feedbackResponse of [()=>new Response('private-test-key',{headers:{'content-length':'32001'}}),()=>Response.json({privateText:'x'.repeat(32001)}),()=>new Response('secret-body',{status:503})]){const f=transportFixture(async({db})=>{await db.checkpoint();return {status:'advanced'};},{feedbackResponse});const response=await f.app(request());assert.equal(response.status,502);assert.deepEqual(await response.json(),{error:'agent_run_failed',publishing_enabled:false});assert.equal(f.requests.length,3);}
+test('unavailable feedback RPC cannot fail an idle news turn or leak response details',async()=>{
+ for(const feedbackResponse of [()=>new Response('private-test-key',{headers:{'content-length':'32001'}}),()=>Response.json({privateText:'x'.repeat(32001)}),()=>new Response('secret-body',{status:503})]){
+  let reported=false;
+  const f=transportFixture(async({db})=>{await db.checkpoint();return {status:'advanced'};},{feedbackResponse,reportFeedbackFailure:()=>{reported=true;throw Error('diagnostic unavailable');}});
+  const response=await f.app(request());assert.equal(response.status,200);
+  assert.deepEqual(await response.json(),{mode:'verification',status:'idle',publishing_enabled:false});
+  assert.equal(f.requests.length,3);
+  assert.equal(reported,true);
+ }
+});
+
+test('a verification failure remains a worker 502 and never runs optional feedback',async()=>{
+ let polls=0;
+ const app=createHostedApplication(config,{bootstrapRpc:async name=>name==='warpcore_agent_authorization'?{enabled:true,producerToken:token}:{model:'google/gemma-4-26b-a4b-it',apiKey:'private-test-key',maxOutputTokens:4096,maxCostCredits:.036045,allowedSourceHosts:['example.com']},createDiscoveryService:()=>({selectRun:async()=>null}),createVerifierService:()=>({runInvocation:async()=>{throw Error('private failure');}}),runOwnerFeedbackInvocation:()=>{polls++;}});
+ const response=await app(request());assert.equal(response.status,502);
+ assert.deepEqual(await response.json(),{error:'agent_run_failed',publishing_enabled:false});assert.equal(polls,0);
 });
 test('private approved Gemma settings derive exact provider, reservation and batch; forged caps refuse',async()=>{
  for(const [model,cap] of [['google/gemma-4-26b-a4b-it',.036045]])for(const bad of [false,true]){let constructed=0;const app=createHostedApplication(config,{bootstrapRpc:async name=>name==='warpcore_agent_authorization'?{enabled:true,producerToken:token}:{model,apiKey:'private-test-key',maxOutputTokens:4096,maxCostCredits:bad?.058983:cap,allowedSourceHosts:['example.com']},createDiscoveryService:options=>{constructed++;assert.equal(options.runtimeConfig.expectedProvider,'PrimeIntellect');assert.equal(options.runtimeConfig.maxCostCredits,cap);assert.equal(options.invocationOptions.reviewBatchSize,16);assert.equal(options.invocationOptions.pageSteps,10);return {selectRun:async()=>null};},createVerifierService:options=>{assert.equal(options.runtimeConfig.model,model);return {runInvocation:async()=>({status:'idle'})};}});const response=await app(request());assert.equal(response.status,bad?502:200);assert.equal(constructed,bad?0:1);}

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import {PGlite} from '@electric-sql/pglite';
 import {fixture,setup} from './unpaid-verification-fixture.mjs';
-import {sourceLinkDraft} from '../supabase/functions/_shared/source-link-draft.mjs';
+import {prepareTransport} from '../supabase/functions/_shared/transport.mjs';
 const db=new PGlite();
 try {
  await setup(db);
@@ -27,7 +27,11 @@ try {
  const proof=await evalLink();
  assert.equal(proof.method,'captured-source-headline-v1');assert.equal(proof.factsVerified,false);
  assert.equal(proof.storyKey,f.story);assert.equal(proof.evidenceHash,'a'.repeat(64));
- assert.equal(sourceLinkDraft(proof.evidence).text,'Headline: Publisher releases a faster build\n\n'+url);
+ const transport=await prepareTransport({mode:'source_link',storyKey:proof.storyKey,evidence:proof.evidence,verified:proof.factsVerified,approved:true},'did:plc:abcdefghijklmnopqrstuvwx','2026-11-23T10:00:00Z');
+ assert.equal(transport.record.text,'Headline: Publisher releases a faster build\n\n'+url);
+ assert.equal(transport.record.facets[0].features[0].uri,url);
+ assert.equal(transport.request,null);
+ assert.equal(transport.publishable,false);
  assert.equal(await evalLink(f.story,'c'.repeat(64)),null,'stale evidence hash');
  await q("update shadow_agent.decisions set decision=jsonb_set(decision,'{action}','\"skip\"')");
  assert.equal(await evalLink(),null,'skipped items are never relayable');

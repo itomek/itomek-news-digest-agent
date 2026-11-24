@@ -67,12 +67,13 @@ order by topic_slug, n desc;
    c. Check `source_url` flags — should any source be removed from `digest_topics.sources`?
 3. Draft a prompt-diff proposal:
    - A short description of the problem observed.
-   - The proposed change to `src/news_digest/prompts.py` or the topic's `prompt_hint`
-     in the `digest_topics` Supabase table.
+   - The proposed change to the `news-agent` editorial policy
+     (`supabase/functions/news-agent/policy.mjs` / `ranking-rubric.mjs`) or the
+     topic's `prompt_hint` in the `digest_topics` Supabase table.
    - Open a PR targeting `main` with the change. Link it to issue #22.
-4. After merging, note the new `prompt_version` (derived from the SHA of the updated
-   `SYSTEM_PROMPT` in `prompts.py`) and record the review timestamp so the next
-   query window starts from here.
+4. After merging, note the new policy version constant (`POLICY_VERSION` in
+   `policy.mjs`) and record the review timestamp so the next query window
+   starts from here.
 
 ## Notes
 

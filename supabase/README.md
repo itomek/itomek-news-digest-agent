@@ -26,23 +26,3 @@ supabase db push
 ```
 
 This applies every file in `migrations/` in lexical order. Re-running is safe — `0002` is `on conflict do nothing`.
-
-## Smoke verifying RLS and the logging path
-
-Once `.env` has the project credentials, the already-implemented logging envelope is the simplest end-to-end check:
-
-```bash
-python -c "from news_digest.logging import log; log('info', 'system', 'supabase smoke')"
-```
-
-Then in the SQL editor:
-
-```sql
-select created_at, category, message
-from system_logs
-where category = 'system'
-order by created_at desc
-limit 5;
-```
-
-A row in the last few seconds confirms the service-role key, network path, and table all work.

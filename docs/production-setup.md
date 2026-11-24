@@ -1,6 +1,6 @@
 # Production setup receipt, 2026-11-12
 
-> Historical November 12, 2026 record. Later cutover and publication evidence supersede the inactive status and hourly quota/schedule instructions below. Do not use this receipt to activate, redeploy, provision credentials or recreate obsolete schedules. See [current architecture](warpcore-architecture.md) and [inventory, stop and recovery](warpcore-recovery.md). Live state was not verified on November 21.
+> Historical November 12, 2026 record. Later cutover and publication evidence supersede the inactive status and hourly quota/schedule instructions below. Do not use this receipt to activate, redeploy, provision credentials or recreate obsolete schedules. See [current architecture](architecture.md) and [inventory, stop and recovery](warpcore-recovery.md). Live state was not verified on November 21.
 
 This supersedes earlier readiness notes saying no production schema/functions exist.
 

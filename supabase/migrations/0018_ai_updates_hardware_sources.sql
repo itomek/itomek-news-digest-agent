@@ -1,7 +1,7 @@
 -- 0018_ai_updates_hardware_sources.sql — broaden ai_updates hardware + AI-company coverage.
 --
 -- The ai_updates topic's `sources` jsonb is the live source of truth and is
--- edited directly in Supabase (CLAUDE.md). The original seed (0006) shipped a
+-- edited directly in Supabase (AGENTS.md). The original seed (0006) shipped a
 -- dead AMD URL (www.amd.com, Akamai bot-blocked) that was removed live, and the
 -- topic lacked dedicated silicon/accelerator feeds. This migration records the
 -- finalized list so a fresh DB rebuild ends in the correct state (it runs after

@@ -1,6 +1,6 @@
 # Warp Core autonomous producer
 
-The producer is part of the active pipeline according to the November 17–19 deployment evidence in the [architecture reference](warpcore-architecture.md). This is not a current live-state assertion. Earlier disabled-foundation and pilot evidence does not describe current deployment. [Inventory and recovery](warpcore-recovery.md) defines operational boundaries.
+The producer is part of the active pipeline according to the November 17–19 deployment evidence in the [architecture reference](architecture.md). This is not a current live-state assertion. Earlier disabled-foundation and pilot evidence does not describe current deployment. [Inventory and recovery](warpcore-recovery.md) defines operational boundaries.
 
 ## Runtime decision
 

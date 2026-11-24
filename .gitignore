@@ -27,8 +27,6 @@ ENV/
 *~
 
 # Testing
-.pytest_cache/
-.mypy_cache/
 htmlcov/
 .coverage
 coverage.xml
@@ -37,6 +35,9 @@ coverage.xml
 data/*.db
 data/*.db-journal
 data/*.db-wal
+data/*.sqlite
+data/*.sqlite-journal
+data/*.sqlite-wal
 
 # OS
 .DS_Store
@@ -47,4 +48,3 @@ Thumbs.db
 .wrangler
 .dev.vars*
 !.dev.vars.example
-!.env.example
